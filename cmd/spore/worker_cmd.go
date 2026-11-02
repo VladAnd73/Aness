@@ -59,7 +59,7 @@ func runWorkerTokenMonitor(_ []string) int {
 		Inbox:   os.Getenv("SPORE_TASK_INBOX"),
 		WrapCap: envInt("SPORE_WORKER_TOKEN_WRAP"),
 	}
-	if cfg.WrapCap == 0 && cfg.Inbox != "" {
+	if cfg.WrapCap == 0 && cfg.Inbox != "" && !cfg.Defaults().IsCoordinator() {
 		_, cfg.WrapCap = coordinatorCaps()
 	}
 

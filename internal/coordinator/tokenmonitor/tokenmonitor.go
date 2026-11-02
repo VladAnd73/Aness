@@ -43,6 +43,8 @@ type Config struct {
 	StateDir   string
 	LedgerFile string
 	Inbox      string
+
+	loweredSoftCap int
 }
 
 type CheckResult struct {
@@ -69,6 +71,7 @@ func (c Config) Defaults() Config {
 	// One cap set on its own can land the soft cap at or above the
 	// hard one, which would skip the handoff warning entirely.
 	if c.SoftCap >= c.HardCap {
+		c.loweredSoftCap = c.SoftCap
 		c.SoftCap = c.HardCap * DefaultSoftCap / DefaultHardCap
 	}
 	if c.StateDir == "" {
@@ -164,6 +167,11 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 				"  %s\n"+
 				"Hard cap is %d; crossing it forces a wrap-up reminder on every Stop.",
 			ctx, cfg.SoftCap, coordinatorRespawnCommand, cfg.HardCap)
+		if cfg.loweredSoftCap > 0 {
+			result.Message += fmt.Sprintf(
+				"\nNote: soft_cap %d is not below hard_cap %d, so the soft warning uses 7/8 of the hard cap.",
+				cfg.loweredSoftCap, cfg.HardCap)
+		}
 		appendLedger(cfg, sid, ctx, true, false)
 		return result
 	}

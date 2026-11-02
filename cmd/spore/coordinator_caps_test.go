@@ -183,3 +183,33 @@ func TestWorkerWrapEnvStillWins(t *testing.T) {
 		t.Fatalf("worker at 100k with SPORE_WORKER_TOKEN_WRAP=99000: exit %d (stderr=%q)", code, stderr)
 	}
 }
+
+func TestWorkerWrapMessageCarriesNoSporeTomlWarnings(t *testing.T) {
+	clearCapEnv(t)
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
+	root := writeSporeToml(t, "[coordinator]\nhard_cap = 120000\nsome_future_key = 1\n")
+	code, stderr := workerRun(root).at(t, 125000)
+	if code != 2 || strings.Contains(stderr, "ignoring") {
+		t.Fatalf("worker at 125k with an unknown key: exit %d, want 2 with no config warning (stderr=%q)", code, stderr)
+	}
+}
+
+func TestWorkerHookInACoordinatorSessionStaysSilent(t *testing.T) {
+	clearCapEnv(t)
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
+	root := writeSporeToml(t, "[coordinator]\nsome_future_key = 1\n")
+	run := tokenMonitorRun{sporeProjectRoot: root, hook: runWorkerTokenMonitor}
+	code, stderr := run.at(t, 900000)
+	if code != 0 || stderr != "" {
+		t.Fatalf("worker hook in a coordinator session: exit %d stderr %q, want silent exit 0", code, stderr)
+	}
+}
+
+func TestCoordinatorSoftWarningSaysWhenSoftCapWasLowered(t *testing.T) {
+	clearCapEnv(t)
+	t.Setenv("SPORE_COORDINATOR_SOFT_CAP", "450000")
+	code, stderr := tokenMonitorRun{claudeProjectDir: t.TempDir()}.at(t, 360000)
+	if code != 2 || !strings.Contains(stderr, "soft_cap 450000") {
+		t.Fatalf("soft cap 450000 over hard 400000 at 360k: exit %d, want the soft warning naming soft_cap 450000 (stderr=%q)", code, stderr)
+	}
+}

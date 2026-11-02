@@ -3,6 +3,7 @@ package fleet
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -72,6 +73,18 @@ func LoadInboxWatchdogEscalateAfter(projectRoot string) (int, error) {
 // A missing file returns a zero CoordinatorConfig with no error so callers
 // can treat absent config as "use defaults".
 func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
+	return loadCoordinatorConfig(projectRoot, os.Stderr)
+}
+
+// LoadCoordinatorConfigQuiet is LoadCoordinatorConfig without the
+// warnings. Stop hooks use it: their stderr becomes the agent's
+// feedback on exit 2, and the fleet reconciler already reports the
+// same warnings to the journal.
+func LoadCoordinatorConfigQuiet(projectRoot string) (CoordinatorConfig, error) {
+	return loadCoordinatorConfig(projectRoot, io.Discard)
+}
+
+func loadCoordinatorConfig(projectRoot string, warn io.Writer) (CoordinatorConfig, error) {
 	tomlPath := filepath.Join(projectRoot, "spore.toml")
 	b, err := os.ReadFile(tomlPath)
 	if err != nil {
@@ -82,7 +95,7 @@ func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
 	}
 	cfg, warnings, err := parseCoordinatorTOML(string(b))
 	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "coordinator: %s: %s\n", tomlPath, w)
+		fmt.Fprintf(warn, "coordinator: %s: %s\n", tomlPath, w)
 	}
 	if err != nil {
 		return CoordinatorConfig{}, fmt.Errorf("coordinator: parse %s: %w", tomlPath, err)

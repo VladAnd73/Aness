@@ -68,6 +68,9 @@ func TestRunWorkerTokenMonitorWrap(t *testing.T) {
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(dir, "workers", "wrapme", "inbox"))
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", filepath.Join(dir, "coord"))
 	t.Setenv("SPORE_PROJECT_ROOT", dir)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Setenv("SPORE_COORDINATOR_HARD_CAP", "")
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
 
 	payload := `{"session_id":"sid","transcript_path":"` + transcriptFile + `"}`
 	code, stderr := captureWorkerTokenMonitor(t, payload)
@@ -93,6 +96,9 @@ func TestRunWorkerTokenMonitorOk(t *testing.T) {
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(dir, "workers", "ok", "inbox"))
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", filepath.Join(dir, "coord"))
 	t.Setenv("SPORE_PROJECT_ROOT", dir)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Setenv("SPORE_COORDINATOR_HARD_CAP", "")
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
 
 	payload := `{"session_id":"sid","transcript_path":"` + transcriptFile + `"}`
 	code, stderr := captureWorkerTokenMonitor(t, payload)

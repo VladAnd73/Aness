@@ -508,7 +508,7 @@ func coordinatorCaps() (soft, hard int) {
 		root, _ = os.Getwd()
 	}
 	if root != "" {
-		if cfg, err := fleet.LoadCoordinatorConfig(root); err == nil {
+		if cfg, err := fleet.LoadCoordinatorConfigQuiet(root); err == nil {
 			soft, hard = cfg.SoftCap, cfg.HardCap
 		}
 	}
