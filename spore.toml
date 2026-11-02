@@ -8,6 +8,7 @@ brief = "bootstrap/coordinator/dogfood-role.md"
 
 # Coordinator context caps (tokens); see docs/configuration.md. The
 # token monitor asks for a handoff at soft_cap and a respawn at
-# hard_cap. Defaults: 350000 and 400000.
+# hard_cap; workers wrap up at hard_cap too. Defaults: 350000 and
+# 400000.
 # soft_cap = 350000
 # hard_cap = 400000

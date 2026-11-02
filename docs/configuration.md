@@ -87,11 +87,13 @@ the same answer the launcher used. Coordinator agent selection lives
 under the separate `[coordinator]` section and is never subject to
 the worker ratio.
 
-## Coordinator context caps
+## Context caps
 
 The coordinator token monitor (a Stop hook) asks the coordinator for a
 handoff at the soft cap and for a respawn at the hard cap. Both count
-context tokens. Defaults are 350000 and 400000.
+context tokens. Defaults are 350000 and 400000. Workers have one cap:
+the worker token monitor tells a worker to wrap up at the same hard
+cap. `SPORE_WORKER_TOKEN_WRAP` overrides it for workers only.
 
 ```toml
 # spore.toml

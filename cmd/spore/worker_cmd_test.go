@@ -60,14 +60,14 @@ func TestRunWorkerTokenMonitorSkipNoInbox(t *testing.T) {
 func TestRunWorkerTokenMonitorWrap(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":250000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":400000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(dir, "workers", "wrapme", "inbox"))
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", filepath.Join(dir, "coord"))
-	t.Setenv("SPORE_ACCOUNT_TIER", "max")
+	t.Setenv("SPORE_PROJECT_ROOT", dir)
 
 	payload := `{"session_id":"sid","transcript_path":"` + transcriptFile + `"}`
 	code, stderr := captureWorkerTokenMonitor(t, payload)
@@ -92,7 +92,7 @@ func TestRunWorkerTokenMonitorOk(t *testing.T) {
 
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(dir, "workers", "ok", "inbox"))
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", filepath.Join(dir, "coord"))
-	t.Setenv("SPORE_ACCOUNT_TIER", "max")
+	t.Setenv("SPORE_PROJECT_ROOT", dir)
 
 	payload := `{"session_id":"sid","transcript_path":"` + transcriptFile + `"}`
 	code, stderr := captureWorkerTokenMonitor(t, payload)

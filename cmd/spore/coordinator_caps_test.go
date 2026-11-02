@@ -14,6 +14,7 @@ type tokenMonitorRun struct {
 	claudeProjectDir string
 	sporeProjectRoot string
 	worker           bool
+	hook             func([]string) int
 }
 
 func (r tokenMonitorRun) at(t *testing.T, ctx int) (int, string) {
@@ -52,7 +53,11 @@ func (r tokenMonitorRun) at(t *testing.T, ctx int) (int, string) {
 	}
 	os.Stderr = errW
 
-	code := runCoordinatorTokenMonitor(nil)
+	hook := r.hook
+	if hook == nil {
+		hook = runCoordinatorTokenMonitor
+	}
+	code := hook(nil)
 
 	errW.Close()
 	var buf bytes.Buffer
@@ -135,5 +140,46 @@ func TestNonCoordinatorSessionDoesNotReadSporeToml(t *testing.T) {
 	code, stderr := tokenMonitorRun{claudeProjectDir: root, worker: true}.at(t, 900000)
 	if code != 0 || stderr != "" {
 		t.Fatalf("worker session: exit %d stderr %q, want silent exit 0", code, stderr)
+	}
+}
+
+func workerRun(root string) tokenMonitorRun {
+	return tokenMonitorRun{sporeProjectRoot: root, worker: true, hook: runWorkerTokenMonitor}
+}
+
+func TestWorkerWrapsAtTheCoordinatorHardCapByDefault(t *testing.T) {
+	clearCapEnv(t)
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
+	run := workerRun(t.TempDir())
+	if code, stderr := run.at(t, 300000); code != 0 {
+		t.Fatalf("worker at 300k: exit %d, want 0 (stderr=%q)", code, stderr)
+	}
+	code, stderr := run.at(t, 400000)
+	if code != 2 || !strings.Contains(stderr, "wrap cap 400000") {
+		t.Fatalf("worker at 400k: exit %d, want 2 at wrap cap 400000 (stderr=%q)", code, stderr)
+	}
+}
+
+func TestWorkerWrapFollowsTheHardCapSetting(t *testing.T) {
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "")
+	clearCapEnv(t)
+	root := writeSporeToml(t, "[coordinator]\nhard_cap = 120000\n")
+	code, stderr := workerRun(root).at(t, 125000)
+	if code != 2 || !strings.Contains(stderr, "wrap cap 120000") {
+		t.Fatalf("worker at 125k, spore.toml hard_cap 120000: exit %d (stderr=%q)", code, stderr)
+	}
+	t.Setenv("SPORE_COORDINATOR_HARD_CAP", "110000")
+	code, stderr = workerRun(root).at(t, 115000)
+	if code != 2 || !strings.Contains(stderr, "wrap cap 110000") {
+		t.Fatalf("worker at 115k, env hard cap 110000: exit %d (stderr=%q)", code, stderr)
+	}
+}
+
+func TestWorkerWrapEnvStillWins(t *testing.T) {
+	clearCapEnv(t)
+	t.Setenv("SPORE_WORKER_TOKEN_WRAP", "99000")
+	code, stderr := workerRun(t.TempDir()).at(t, 100000)
+	if code != 2 || !strings.Contains(stderr, "wrap cap 99000") {
+		t.Fatalf("worker at 100k with SPORE_WORKER_TOKEN_WRAP=99000: exit %d (stderr=%q)", code, stderr)
 	}
 }
