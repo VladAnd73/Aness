@@ -95,6 +95,13 @@ context tokens. Defaults are 350000 and 400000. Workers have one cap:
 the worker token monitor tells a worker to wrap up at the same hard
 cap. `SPORE_WORKER_TOKEN_WRAP` overrides it for workers only.
 
+The defaults assume a 1M-token context window. On a 200K setup (an
+older model, or `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`), Claude Code
+auto-compacts at about 200K, before either cap fires. Set `hard_cap`
+(or `SPORE_WORKER_TOKEN_WRAP` for workers) below about 190000 there.
+Longer contexts also cost some recall, so a lower worker cap trades
+more respawns for sharper workers.
+
 ```toml
 # spore.toml
 [coordinator]
@@ -107,7 +114,7 @@ the file. Put them in the project's `agent.env` (see
 `docs/agent-env.md`) to reach the coordinator session. If the result
 puts soft at or above hard (for example only `hard_cap` is set below
 the default soft cap), the soft cap drops to 7/8 of the hard cap so
-the handoff warning still comes first.
+the handoff warning still comes first, and the warning says so.
 
 The monitor finds `spore.toml` through `SPORE_PROJECT_ROOT`, then
 `CLAUDE_PROJECT_DIR`, then the working directory. Projects that still

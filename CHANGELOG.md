@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Token caps: the coordinator token monitor now asks for a handoff at
+  350000 context tokens and a respawn at 400000 (was 210000 / 250000).
+  Workers wrap up at the same hard cap (was 180000, or 240000 with
+  `SPORE_ACCOUNT_TIER=max`). Set the caps with `[coordinator] soft_cap`
+  / `hard_cap` in `spore.toml` or `SPORE_COORDINATOR_SOFT_CAP` /
+  `SPORE_COORDINATOR_HARD_CAP`; `SPORE_WORKER_TOKEN_WRAP` still
+  overrides the worker cap alone. `SPORE_ACCOUNT_TIER`,
+  `SPORE_WORKER_TOKEN_WRAP_MAX` and `SPORE_WORKER_TOKEN_WRAP_SUB` are
+  removed and now ignored: if you set them, move the value to
+  `SPORE_WORKER_TOKEN_WRAP`. The new defaults assume a 1M context
+  window; on a 200K setup set `hard_cap` below about 190000. Projects
+  still on the bash `bin/dev/spore-token-monitor` are unaffected. See
+  `docs/configuration.md`.
 - `flake.nix`: Claude Code's version is now an explicit pin. A second
   nixpkgs input, `nixpkgs-claude-code`, is held at one named revision
   and read for exactly one package, exposed as

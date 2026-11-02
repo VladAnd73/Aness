@@ -75,7 +75,7 @@ Mechanical swap: copy `spore/.claude/settings.json`'s hook block
 into each project, remove the per-project entry from the host-global
 file.
 
-### Env tunables (dropped from scope)
+### Env tunables
 
 Audit on 2026-05-25 grepped every project tree, shell rc,
 `/etc/spore/coordinator.env`, and systemd user-unit env for
@@ -89,7 +89,9 @@ Update: the kernel monitor now reads its own caps
 350000 / 400000; see `docs/configuration.md`). The names differ from
 the bash shim's `SPORE_TOKEN_SOFT` / `SPORE_TOKEN_HARD`, and the
 defaults differ from its 150000 / 190000, so a project that swaps to
-the kernel hook gets larger caps unless it pins them.
+the kernel hook gets larger caps unless it pins them. That includes
+workers: the kernel worker hook wraps at the same hard cap (400000 by
+default), overridable with `SPORE_WORKER_TOKEN_WRAP`.
 
 ### events.jsonl + scan-worker-completions.pl
 
