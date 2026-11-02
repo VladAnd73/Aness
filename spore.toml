@@ -6,8 +6,8 @@
 # project-specific deltas for spore-as-a-project.
 brief = "bootstrap/coordinator/dogfood-role.md"
 
-# Coordinator context caps (tokens). The token monitor asks for a
-# handoff at soft_cap and a respawn at hard_cap. Defaults: 350000 and
-# 400000. SPORE_COORDINATOR_SOFT_CAP / SPORE_COORDINATOR_HARD_CAP win.
+# Coordinator context caps (tokens); see docs/configuration.md. The
+# token monitor asks for a handoff at soft_cap and a respawn at
+# hard_cap. Defaults: 350000 and 400000.
 # soft_cap = 350000
 # hard_cap = 400000

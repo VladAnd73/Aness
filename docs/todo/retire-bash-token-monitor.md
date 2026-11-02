@@ -83,9 +83,13 @@ Audit on 2026-05-25 grepped every project tree, shell rc,
 Only the bash hooks themselves reference the names, with hardcoded
 defaults `150000 / 190000`.
 
-The kernel's defaults are equivalent in practice. If someone later
-wants to tune caps per project, adding the env reads is a small
-follow-up; not in scope here.
+Update: the kernel monitor now reads its own caps
+(`SPORE_COORDINATOR_SOFT_CAP` / `SPORE_COORDINATOR_HARD_CAP`, or
+`[coordinator] soft_cap` / `hard_cap` in `spore.toml`; defaults
+350000 / 400000; see `docs/configuration.md`). The names differ from
+the bash shim's `SPORE_TOKEN_SOFT` / `SPORE_TOKEN_HARD`, and the
+defaults differ from its 150000 / 190000, so a project that swaps to
+the kernel hook gets larger caps unless it pins them.
 
 ### events.jsonl + scan-worker-completions.pl
 
@@ -148,7 +152,9 @@ versus the earlier draft:
 - `[coordinator].respawn_template` config plumbing was unnecessary;
   the constant suffices and the message is self-targeting.
 - `SPORE_TOKEN_SOFT/HARD` env reads stay out of scope: the
-  2026-05-25 audit found zero exporters anywhere on this host.
+  2026-05-25 audit found zero exporters anywhere on this host. The
+  kernel later grew its own cap settings under different names (see
+  "Env tunables" above).
 
 ### B. Per-project swap (one PR per project, NEXT)
 
@@ -231,8 +237,9 @@ Pick whichever is cheapest to land first; the other slots in behind.
   poke).
 - `internal/hooks/watchinbox.go`, `cmd/spore/hooks_cmd.go:35`
   (`spore hooks watch-inbox`).
-- `cmd/spore/coordinator_cmd.go:385` (`runCoordinatorTokenMonitor`,
-  no env reads today; intentionally out of scope here).
+- `cmd/spore/coordinator_cmd.go` (`runCoordinatorTokenMonitor`;
+  reads `SPORE_COORDINATOR_SOFT_CAP` / `_HARD_CAP` and
+  `SPORE_PROJECT_ROOT` for its caps).
 - `cmd/spore/worker_cmd.go:46` (`runWorkerTokenMonitor`).
 - `.claude/settings.json` (canonical kernel-hook layout).
 - crm-gateway `bin/dev/scan-worker-completions.pl` and
