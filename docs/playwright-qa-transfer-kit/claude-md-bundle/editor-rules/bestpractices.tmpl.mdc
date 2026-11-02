@@ -1,0 +1,189 @@
+---
+alwaysApply: true
+description: Best practices for React, TypeScript, and frontend development
+tags: ["react", "typescript", "frontend"]
+---
+
+# Cursor Rules for Frontend Repository
+
+## General Principles
+- Write clear, maintainable code following React and TypeScript best practices
+- Prefer composition over inheritance
+- Keep components focused and single-purpose
+- Use meaningful variable and function names
+- Follow the existing code patterns and conventions
+
+## TypeScript
+
+### Type Definitions
+- Use TypeScript strict mode; avoid `any` types
+- Use `type` over `interface`
+- Use explicit return types for functions when not obvious
+- Define props types inline or as separate types
+- Use generic types for reusable components/hooks
+- Leverage utility types (`Pick`, `Omit`, `Partial`, etc.) when appropriate
+
+### Type Safety
+- Always type function parameters and return values
+- Use type guards for runtime type checking
+- Prefer `unknown` over `any` when type is truly unknown
+- Use `as const` for literal types when needed
+- Avoid type assertions (`as`) unless necessary; prefer type guards
+
+## React Components
+
+### Component Structure
+- Use functional components with hooks
+- Keep components small and focused (ideally < 200 lines)
+- Extract complex logic into custom hooks
+- Use `memo` for expensive components that re-render frequently
+- Prefer named exports for components: `export const ComponentName = () => { ... }`
+
+### Conditional Rendering
+- Prefer ternary operators over `&&` for conditional rendering in JSX
+- Use `{condition ? <Component /> : null}` instead of `{condition && <Component />}`
+- This avoids potential issues with falsy values (0, '') being rendered
+
+### Props and State
+- Define props types at the top of the file
+- Use `React.PropsWithChildren` when components accept children
+- Prefer controlled components over uncontrolled
+- Use `useState` for local component state
+- Lift state up when multiple components need it
+- Use context for deeply nested prop drilling
+
+### Component Organization
+- Order: imports, types, component, exports
+- Group related imports together (React, third-party, local)
+- Use path aliases (`~` for `src/`) for local imports
+- Keep component files co-located with related files (hooks, types, utils)
+
+## Hooks
+
+### Custom Hooks
+- Prefix custom hooks with `use` (e.g., `useCustomThings`)
+- Extract reusable logic into custom hooks
+- Return objects for multiple values, tuples for 2-3 related values
+- Keep hooks focused on a single concern
+- Document hook parameters and return values
+
+### Hook Dependencies
+- Always include all dependencies in dependency arrays
+- Use `useCallback` for functions passed as props or in dependency arrays
+- Use `useMemo` for expensive computations
+- Avoid unnecessary dependencies; prefer stable references
+
+### Common Patterns
+- Use the project's data-fetching hooks for reads and mutations rather than ad-hoc `fetch` in components
+
+## Data Fetching
+
+### React Query (TanStack Query)
+- Use `useQuery` for GET requests and data fetching
+- Use `useMutation` for POST/PUT/DELETE operations
+- Define query keys as arrays: `['resource', id, ...filters]`
+- Use `enabled` option to conditionally fetch data
+- Handle loading and error states appropriately
+- Use query invalidation after mutations
+
+### GraphQL (Apollo Client)
+- Use Apollo hooks (`useQuery`, `useMutation`) for GraphQL operations
+- Define queries/mutations in separate files or use `gql` template literals
+- Handle loading and error states from Apollo hooks
+- Use fragments for reusable query parts
+
+## Forms
+
+### {{FORMS_LIBRARY}}
+- Use `{{FORMS_LIBRARY}}` for complex forms
+- Define form validation functions separately
+- Use field-level validation when possible
+- Handle form submission with proper error handling
+
+## Styling
+
+### Tailwind CSS
+- Use Tailwind utility classes for styling
+- Use `tailwind-merge` for conditional class merging
+- Prefer utility classes over custom CSS
+- Use CSS variables for theme values when needed
+- Keep component-specific styles minimal
+
+## Testing
+- See `testing.mdc` for unit test (Vitest) and E2E (Playwright/Cypress) conventions.
+
+## Internationalization (i18n)
+
+### {{I18N_LIBRARY}}
+- Use `{{I18N_LIBRARY}}` for every user-facing string, in JSX and in plain code
+- Extract all user-facing strings for translation
+- Use descriptive message IDs
+- Keep translations in sync with code changes
+
+## Code Organization
+
+### File Structure
+- Co-locate related files (component, hooks, types, utils)
+- Use index files for clean imports
+- Group by feature/domain, not by file type
+- Keep shared utilities in `src/utils/`
+- Keep shared hooks in `src/hooks/`
+
+### Imports
+- Order imports: React, third-party, local
+- Use absolute imports with path aliases (`~`)
+- Group related imports together
+- Remove unused imports
+
+## Performance
+
+### Optimization
+- Use `React.memo` for expensive components
+- Use `useMemo` for expensive computations
+- Use `useCallback` for stable function references
+- Lazy load routes and heavy components
+- Optimize images and assets
+- Avoid unnecessary re-renders
+
+### Bundle Size
+- Use dynamic imports for code splitting
+- Lazy load routes with `React.lazy`
+- Avoid importing entire libraries when only a function is needed
+- Monitor bundle size regularly
+
+## Error Handling
+
+### Error Boundaries
+- Use error boundaries for component error handling
+- Provide fallback UI for errors
+- Log errors to the project's error tracker
+
+### API Errors
+- Handle API errors gracefully
+- Show user-friendly error messages
+- Retry failed requests when appropriate
+- Use React Query error handling patterns
+
+## Accessibility
+
+### A11y Best Practices
+- Use semantic HTML elements
+- Provide proper ARIA labels when needed
+- Ensure keyboard navigation works
+- Maintain proper focus management
+- Test with screen readers when possible
+- Use proper heading hierarchy
+
+## Code Quality
+
+### Linting and Formatting
+- Follow ESLint rules (no warnings allowed)
+- Use Prettier for code formatting
+- Fix linting errors before committing
+- Use TypeScript strict mode
+
+### Git Practices
+- Write clear, descriptive commit messages
+- Include {{TRACKER}} ticket ids in commits
+- Keep commits focused and atomic
+- Review code before merging

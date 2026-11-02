@@ -1,0 +1,158 @@
+---
+alwaysApply: true
+description: Testing patterns for unit tests, E2E tests, and component tests
+tags: ["testing", "vitest", "cypress", "playwright"]
+---
+
+# Testing Best Practices
+
+# What to Assert (Required)
+
+- **Every acceptance criterion gets an assertion - including the ACs of tickets this change links to.** Assert observed behaviour, never that a control exists, is visible, or is enabled.
+- **Every AC that names a population gets its complement tested.** "Applies to premium records" also claims "standard records are unaffected".
+- **Assert the rule, not the row.** If the test supplied the expected value (`fill()`, a factory, a seed) and the field is system-derived - an integration, a URL template, a precedence rule, a fallback branch - that is a round-trip. Assert the rule: the generated link matches the tenant's configured URL template, not the string the test typed.
+- Round-trip is correct where the user's own input **is** the feature: a custom URL, a rename, free text.
+- A branch the fixtures cannot reach is a branch no assertion covers - extend the fixture.
+- **A test with no demonstrated pre-fix failure is superficial.** Run it against code carrying the bug it guards and show it RED before you land it. "It would fail, because..." is reasoning, not a measurement, and a test that was never red proves nothing however rich its assertions read.
+- **An assertion sitting behind an earlier one that aborts on pre-fix code is unproven** - it never ran. Split the test until each rule fails on its own; consolidate only rules that already carry their own demonstrated pre-fix failure.
+- **Where the two rules collide, the pre-fix-failure rule wins:** a complement whose behaviour is identical with and without the fix can never fail on pre-fix code, so demanding it would manufacture exactly the superficial test these rules exist to prevent - cover that branch in a unit test instead.
+- **A shallow assert you notice gets deepened in the change that touches it.** Presence-only (`toBeVisible`), a value the test itself supplied, an assertion that passes when the row is absent - all are superficial. "Pre-existing" is not a defence, and a follow-up note is not a fix.
+
+# When to Write Unit Tests (Required)
+
+**Unit tests are required for new or modified utils and hooks.** When you add or modify the following, you MUST add or update the corresponding Vitest specs in the same change:
+
+- **Utils** -> Co-located `*.test.ts` (e.g. `src/utils/formatDate.ts` -> `src/utils/formatDate.test.ts`)
+- **Hooks** -> Co-located `*.test.tsx` with `renderHook`, regardless of whether the hook file is `.ts` or `.tsx` (e.g. `src/hooks/useDebouncedChange.ts` -> `src/hooks/useDebouncedChange.test.tsx`)
+- **Component utils / helpers** -> Co-located `*.test.ts` when logic is non-trivial
+
+## Unit Tests (Vitest)
+
+### Test Structure
+- Use `describe` blocks to group related tests
+- Use descriptive test names, e.g. `it('returns formatted price')` or `it('should return formatted price when given X')`, and follow the existing style in the file for consistency
+- Follow Arrange-Act-Assert pattern
+- Keep tests focused and independent
+- One assertion per test when possible
+
+### Testing Utilities
+- Use `@testing-library/react` for component tests
+- Use `@testing-library/user-event` for user interactions
+- Use `@testing-library/jest-dom` for DOM matchers
+- Mock external dependencies appropriately
+
+### Testing Hooks
+- Prefer the **Template component pattern**: create a wrapper component that uses the hook, render it, and assert via DOM/screen queries
+- Alternatively use `renderHook` from `@testing-library/react` when testing simple return values without user interactions
+- Test hook return values, side effects, and behavior through the rendered output
+
+### Testing Components
+- Test user interactions, not implementation details
+- Test what users see and do
+- Use `screen` queries (getByRole, getByText, etc.)
+- Avoid testing internal state or methods
+- Example:
+```typescript
+render(<Component />);
+await userEvent.click(screen.getByRole('button'));
+expect(screen.getByText('Expected text')).toBeInTheDocument();
+```
+
+### Mocking
+- Mock API calls with MSW (Mock Service Worker) when possible
+- Mock external libraries and services
+- Use `vi.fn()` for function mocks
+- Use `vi.mock()` for module mocks
+- Keep mocks simple and focused
+
+## E2E Tests (Cypress)
+
+**Deprecated.** Use Playwright for new E2E tests. Only fix failing Cypress tests; do not add new ones.
+
+### Page Object Model
+- Use Page Object Model pattern
+- Create page objects in `cypress/pageObjects/`
+- Keep page objects focused and reusable
+- Example:
+```typescript
+export class LoginPage extends BasePage {
+  visit() {
+    cy.visit('/login');
+  }
+
+  fillEmail(email: string) {
+    cy.get('[data-testid="email"]').type(email);
+  }
+}
+```
+
+### Test Organization
+- Group tests by feature/domain
+- Use descriptive test names
+- Keep tests independent
+- Use `beforeEach` for common setup
+- Clean up after tests
+
+### Best Practices
+- Use data-testid attributes for reliable selectors
+- Wait for elements to be visible before interacting
+- Use custom commands for repeated actions
+- Keep tests focused on user flows
+- Avoid hard-coded waits; use proper assertions
+
+## E2E Tests (Playwright)
+
+### No locators in tests
+- **Never put locators in test files.** Tests must not use `page.locator(...)`, `getByTestId`, `getByRole`, or any other selector.
+- All locators live in page objects as private getters (`private get x(): Locator`).
+- Tests only call page object methods. This keeps tests clean and avoids hardcoded values.
+
+### Page Objects
+- Use Playwright's Page Object Model
+- Create page objects in `{{E2E_ROOT}}pageObjects/`
+- Use Playwright's locator API
+- Use private getters for locators, e.g. `private get submitButton(): Locator { return this.page.getByTestId('submit'); }`
+- Example:
+```typescript
+export class LoginPage {
+  constructor(private page: Page) {}
+
+  async fillEmail(email: string) {
+    await this.page.getByTestId('email').fill(email);
+  }
+}
+```
+
+### Test Patterns
+- Use `test.describe` for grouping
+- Use `test.beforeEach` for setup
+- Use fixtures for test data
+- Keep tests isolated and independent
+
+## Test Data
+
+### Factories and Fixtures
+- Use factories for test data generation
+- Keep test data realistic but minimal
+- Use fixtures for complex data structures
+- Avoid hard-coding test data in tests
+
+### Data Cleanup
+- Clean up test data after tests
+- Use database transactions when possible
+- Reset state between tests
+- Avoid test interdependencies
+
+## Coverage
+
+### Coverage Goals
+- Aim for meaningful coverage, not 100%
+- Focus on critical paths and business logic
+- Test edge cases and error conditions
+- Don't test implementation details
+
+### Coverage Reports
+- Review coverage reports regularly
+- Identify untested critical paths
+- Use coverage to guide testing efforts
+- Don't sacrifice test quality for coverage numbers

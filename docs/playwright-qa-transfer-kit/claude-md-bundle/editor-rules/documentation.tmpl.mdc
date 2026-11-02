@@ -1,0 +1,29 @@
+---
+alwaysApply: true
+description: Keep documentation updated when introducing new patterns or approaches
+---
+
+# Documentation of New Patterns
+
+When introducing or changing how something is done (a new pattern, approach, architecture, or convention), update the relevant `.md` files so the change is documented.
+
+## When to Update
+
+- You introduce a **new pattern** (e.g. async flow, new testing style)
+- You change **how** an existing feature works (e.g. polling vs immediate response)
+- You adopt a **new convention** or standard in the codebase
+- You add or change **architecture** (e.g. new hooks pattern, different API design)
+
+## What to Update
+
+- **CLAUDE.md** - Reflect changes in conventions, patterns, or rules for AI/developers
+- **.cursor/rules/*.mdc** - Add or edit rules when you introduce a new convention
+- **README.md** - When setup, usage, or architecture changes
+- **docs/** - Feature docs, architecture docs, or technical specs
+- **`{{E2E_ROOT}}**/CLAUDE.md`** - Every folder under `{{E2E_ROOT}}` has its own `CLAUDE.md`. When you add, move, rename, or delete a file in a `{{E2E_ROOT}}` folder, update that folder's `CLAUDE.md` in the same change; a new folder gets a new `CLAUDE.md` with the standard `> **Maintenance:**` footer
+
+## Examples
+
+- New async flow -> Update `CLAUDE.md` or relevant rule with the flow
+- New testing pattern -> Add to `testing.mdc`
+- New React Query or GraphQL pattern -> Update the corresponding rule file accordingly
