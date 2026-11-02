@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	spore "github.com/versality/spore"
@@ -394,8 +395,11 @@ func runCoordinatorTokenMonitor(_ []string) int {
 		return 0
 	}
 
+	softCap, hardCap := coordinatorCaps()
 	cfg := tokenmonitor.Config{
-		Inbox: os.Getenv("SPORE_TASK_INBOX"),
+		SoftCap: softCap,
+		HardCap: hardCap,
+		Inbox:   os.Getenv("SPORE_TASK_INBOX"),
 	}
 
 	result := tokenmonitor.Check(cfg, payload)
@@ -422,7 +426,8 @@ func runCoordinatorMonitor(args []string) int {
 		return 0
 	}
 
-	cfg := tokenmonitor.Config{Inbox: "self"}
+	softCap, hardCap := coordinatorCaps()
+	cfg := tokenmonitor.Config{SoftCap: softCap, HardCap: hardCap, Inbox: "self"}
 	cfg = cfg.Defaults()
 
 	broken, sessions := tokenmonitor.LedgerVerdict(cfg.LedgerFile, cfg.SoftCap, *threshold)
@@ -488,4 +493,27 @@ func runCoordinatorLoopGuard(args []string) int {
 	fmt.Printf("loop-guard: ok (recent=%d, max=%d)\n",
 		status.RecentCount, status.MaxRespawns)
 	return 0
+}
+
+// coordinatorCaps resolves the token caps: env first, then
+// [coordinator] in the project's spore.toml, then zero so
+// tokenmonitor.Config.Defaults fills them in. Hooks run with
+// CLAUDE_PROJECT_DIR set; the cwd fallback covers manual runs.
+func coordinatorCaps() (soft, hard int) {
+	root := os.Getenv("CLAUDE_PROJECT_DIR")
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if root != "" {
+		if cfg, err := fleet.LoadCoordinatorConfig(root); err == nil {
+			soft, hard = cfg.SoftCap, cfg.HardCap
+		}
+	}
+	if n, err := strconv.Atoi(os.Getenv("SPORE_COORDINATOR_SOFT_CAP")); err == nil && n > 0 {
+		soft = n
+	}
+	if n, err := strconv.Atoi(os.Getenv("SPORE_COORDINATOR_HARD_CAP")); err == nil && n > 0 {
+		hard = n
+	}
+	return soft, hard
 }

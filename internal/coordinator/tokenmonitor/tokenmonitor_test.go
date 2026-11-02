@@ -162,3 +162,13 @@ func TestAppendLedger(t *testing.T) {
 		t.Error("expected ledger content")
 	}
 }
+
+func TestDefaultsGiveCoordinatorsRoomBeforeTheCaps(t *testing.T) {
+	cfg := Config{StateDir: t.TempDir()}.Defaults()
+	if cfg.SoftCap != 350000 {
+		t.Errorf("SoftCap = %d, want 350000", cfg.SoftCap)
+	}
+	if cfg.HardCap != 400000 {
+		t.Errorf("HardCap = %d, want 400000", cfg.HardCap)
+	}
+}
