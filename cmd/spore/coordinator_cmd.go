@@ -395,11 +395,9 @@ func runCoordinatorTokenMonitor(_ []string) int {
 		return 0
 	}
 
-	softCap, hardCap := coordinatorCaps()
-	cfg := tokenmonitor.Config{
-		SoftCap: softCap,
-		HardCap: hardCap,
-		Inbox:   os.Getenv("SPORE_TASK_INBOX"),
+	cfg := tokenmonitor.Config{Inbox: os.Getenv("SPORE_TASK_INBOX")}
+	if cfg.Defaults().IsCoordinator() {
+		cfg.SoftCap, cfg.HardCap = coordinatorCaps()
 	}
 
 	result := tokenmonitor.Check(cfg, payload)
@@ -497,10 +495,15 @@ func runCoordinatorLoopGuard(args []string) int {
 
 // coordinatorCaps resolves the token caps: env first, then
 // [coordinator] in the project's spore.toml, then zero so
-// tokenmonitor.Config.Defaults fills them in. Hooks run with
-// CLAUDE_PROJECT_DIR set; the cwd fallback covers manual runs.
+// tokenmonitor.Config.Defaults fills them in. The project root comes
+// from SPORE_PROJECT_ROOT (set by the kernel on every session it
+// spawns), then CLAUDE_PROJECT_DIR (set by Claude Code for hooks),
+// then cwd for manual runs.
 func coordinatorCaps() (soft, hard int) {
-	root := os.Getenv("CLAUDE_PROJECT_DIR")
+	root := os.Getenv("SPORE_PROJECT_ROOT")
+	if root == "" {
+		root = os.Getenv("CLAUDE_PROJECT_DIR")
+	}
 	if root == "" {
 		root, _ = os.Getwd()
 	}

@@ -66,6 +66,11 @@ func (c Config) Defaults() Config {
 	if c.HardCap <= 0 {
 		c.HardCap = DefaultHardCap
 	}
+	// One cap set on its own can land the soft cap at or above the
+	// hard one, which would skip the handoff warning entirely.
+	if c.SoftCap >= c.HardCap {
+		c.SoftCap = c.HardCap * DefaultSoftCap / DefaultHardCap
+	}
 	if c.StateDir == "" {
 		c.StateDir = defaultStateDir()
 	}

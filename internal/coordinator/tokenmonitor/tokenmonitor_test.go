@@ -172,3 +172,12 @@ func TestDefaultsGiveCoordinatorsRoomBeforeTheCaps(t *testing.T) {
 		t.Errorf("HardCap = %d, want 400000", cfg.HardCap)
 	}
 }
+
+func TestDefaultsKeepSoftBelowHardWhenOnlyOneCapIsSet(t *testing.T) {
+	for _, c := range []Config{{HardCap: 250000}, {SoftCap: 450000}} {
+		got := Config{SoftCap: c.SoftCap, HardCap: c.HardCap, StateDir: t.TempDir()}.Defaults()
+		if got.SoftCap >= got.HardCap {
+			t.Errorf("from %d/%d: Defaults gave soft %d >= hard %d", c.SoftCap, c.HardCap, got.SoftCap, got.HardCap)
+		}
+	}
+}
