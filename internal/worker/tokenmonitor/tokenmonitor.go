@@ -5,9 +5,10 @@
 // fires a wrap-up reminder so the worker can flush progress to its
 // tasks/<slug>.md and let the fleet reconciler resume it.
 //
-// The threshold is tier-keyed: max-tier sessions wrap at 240k,
-// sub-max sessions at 180k. Tier defaults to non-max so a session
-// with an unknown tier wraps at the safer (lower) cap.
+// The threshold is the coordinator hard cap (see
+// internal/coordinator/tokenmonitor), so workers and coordinators stop
+// at the same context size. The CLI resolves it; zero here falls back
+// to the coordinator default.
 //
 // The worker monitor skips any session whose inbox is under the
 // coordinator state dir (those are owned by the coordinator monitor)
@@ -20,19 +21,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	coordinatortm "github.com/versality/spore/internal/coordinator/tokenmonitor"
 	"github.com/versality/spore/internal/transcript"
 )
 
-const (
-	DefaultWrapMax = 240000
-	DefaultWrapSub = 180000
-)
-
 type Config struct {
-	WrapMax             int
-	WrapSub             int
-	WrapOverride        int
-	Tier                string
+	WrapCap             int
 	Inbox               string
 	CoordinatorStateDir string
 }
@@ -40,7 +34,6 @@ type Config struct {
 type CheckResult struct {
 	Ctx        int    `json:"ctx"`
 	WrapCap    int    `json:"wrap_cap"`
-	Tier       string `json:"tier"`
 	Slug       string `json:"slug,omitempty"`
 	Level      string `json:"level"`
 	Message    string `json:"message,omitempty"`
@@ -53,11 +46,8 @@ type HookPayload struct {
 }
 
 func (c Config) Defaults() Config {
-	if c.WrapMax <= 0 {
-		c.WrapMax = DefaultWrapMax
-	}
-	if c.WrapSub <= 0 {
-		c.WrapSub = DefaultWrapSub
+	if c.WrapCap <= 0 {
+		c.WrapCap = coordinatortm.DefaultHardCap
 	}
 	if c.CoordinatorStateDir == "" {
 		c.CoordinatorStateDir = defaultCoordinatorStateDir()
@@ -84,19 +74,6 @@ func (c Config) IsCoordinator() bool {
 		return false
 	}
 	return c.Inbox == stateRoot || strings.HasPrefix(c.Inbox, stateRoot+"/")
-}
-
-// WrapCap returns the effective wrap threshold given the configured
-// override / tier. WrapOverride > 0 wins for any tier (test/debug);
-// otherwise tier=="max" picks WrapMax; everything else picks WrapSub.
-func (c Config) WrapCap() int {
-	if c.WrapOverride > 0 {
-		return c.WrapOverride
-	}
-	if c.Tier == "max" {
-		return c.WrapMax
-	}
-	return c.WrapSub
 }
 
 // Slug returns the worker slug parsed from the inbox layout
@@ -136,12 +113,11 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 		return CheckResult{Level: "skip", Slug: slug}
 	}
 
-	wrap := cfg.WrapCap()
+	wrap := cfg.WrapCap
 	ctx := transcript.SumContextTokens(tpath)
 	result := CheckResult{
 		Ctx:     ctx,
 		WrapCap: wrap,
-		Tier:    cfg.Tier,
 		Slug:    slug,
 	}
 	if ctx <= 0 {
@@ -155,28 +131,15 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 
 	result.Level = "wrap"
 	result.ShouldFire = true
-	var reason string
-	if cfg.Tier == "max" {
-		reason = fmt.Sprintf("Max tier; %d-token wrap cap reached, flush before quality degrades.", wrap)
-	} else {
-		reason = fmt.Sprintf("Non-max tier; %d-token wrap cap reached, flush before the window fills.", wrap)
-	}
 	result.Message = fmt.Sprintf(
-		"WORKER TOKEN MONITOR (wrap): context %d tokens >= wrap cap %d on tier=%s.\n"+
-			"%s Wrap up NOW:\n"+
+		"WORKER TOKEN MONITOR (wrap): context %d tokens >= wrap cap %d.\n"+
+			"Wrap up NOW:\n"+
 			"  1. Flush in-flight progress to tasks/%s.md so the next worker boots from it.\n"+
 			"  2. If you have a blocker for the coordinator, send it before exiting.\n"+
 			"  3. Run: tmux kill-session -t \"$(tmux display-message -p '#S')\"\n"+
 			"The fleet reconciler resumes a fresh worker with the same worktree on the next pass.",
-		ctx, wrap, normTier(cfg.Tier), reason, slug)
+		ctx, wrap, slug)
 	return result
-}
-
-func normTier(t string) string {
-	if t == "" {
-		return "unknown"
-	}
-	return t
 }
 
 func fileExists(path string) bool {

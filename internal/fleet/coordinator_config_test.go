@@ -243,3 +243,17 @@ func TestCoordinatorProviderModel(t *testing.T) {
 		}
 	})
 }
+
+func TestParseCoordinatorTOML_Caps(t *testing.T) {
+	cfg, warnings, err := parseCoordinatorTOML("[coordinator]\nsoft_cap = 350000\nhard_cap = 400000\n")
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("err=%v warnings=%v", err, warnings)
+	}
+	if cfg.SoftCap != 350000 || cfg.HardCap != 400000 {
+		t.Errorf("caps = %d/%d, want 350000/400000", cfg.SoftCap, cfg.HardCap)
+	}
+	_, warnings, _ = parseCoordinatorTOML("[coordinator]\nsoft_cap = lots\n")
+	if len(warnings) != 1 {
+		t.Errorf("unusable soft_cap: warnings = %v, want one", warnings)
+	}
+}

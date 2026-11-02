@@ -17,10 +17,10 @@ Usage:
 
 Subcommands:
   token-monitor   Stop-hook: check the worker's context budget and fire
-                  a wrap-up reminder once it crosses the tier-keyed cap.
-                  Tier read from $SPORE_ACCOUNT_TIER (defaults to non-max);
-                  override per-tier caps with $SPORE_WORKER_TOKEN_WRAP,
-                  $SPORE_WORKER_TOKEN_WRAP_MAX, $SPORE_WORKER_TOKEN_WRAP_SUB.
+                  a wrap-up reminder once it crosses the coordinator hard
+                  cap ($SPORE_COORDINATOR_HARD_CAP or [coordinator] hard_cap
+                  in spore.toml, default 400000). $SPORE_WORKER_TOKEN_WRAP
+                  overrides it for workers only.
                   Skips coordinator inboxes (handled by spore coordinator
                   token-monitor) and sessions with no $SPORE_TASK_INBOX.
 `
@@ -56,11 +56,11 @@ func runWorkerTokenMonitor(_ []string) int {
 	}
 
 	cfg := tokenmonitor.Config{
-		Inbox:        os.Getenv("SPORE_TASK_INBOX"),
-		Tier:         os.Getenv("SPORE_ACCOUNT_TIER"),
-		WrapOverride: envInt("SPORE_WORKER_TOKEN_WRAP"),
-		WrapMax:      envInt("SPORE_WORKER_TOKEN_WRAP_MAX"),
-		WrapSub:      envInt("SPORE_WORKER_TOKEN_WRAP_SUB"),
+		Inbox:   os.Getenv("SPORE_TASK_INBOX"),
+		WrapCap: envInt("SPORE_WORKER_TOKEN_WRAP"),
+	}
+	if cfg.WrapCap == 0 && cfg.Inbox != "" && !cfg.Defaults().IsCoordinator() {
+		_, cfg.WrapCap = coordinatorCaps()
 	}
 
 	result := tokenmonitor.Check(cfg, payload)

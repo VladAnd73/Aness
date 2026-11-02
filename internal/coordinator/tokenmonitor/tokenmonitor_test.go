@@ -162,3 +162,22 @@ func TestAppendLedger(t *testing.T) {
 		t.Error("expected ledger content")
 	}
 }
+
+func TestDefaultsGiveCoordinatorsRoomBeforeTheCaps(t *testing.T) {
+	cfg := Config{StateDir: t.TempDir()}.Defaults()
+	if cfg.SoftCap != 350000 {
+		t.Errorf("SoftCap = %d, want 350000", cfg.SoftCap)
+	}
+	if cfg.HardCap != 400000 {
+		t.Errorf("HardCap = %d, want 400000", cfg.HardCap)
+	}
+}
+
+func TestDefaultsKeepSoftBelowHardWhenOnlyOneCapIsSet(t *testing.T) {
+	for _, c := range []Config{{HardCap: 250000}, {SoftCap: 450000}} {
+		got := Config{SoftCap: c.SoftCap, HardCap: c.HardCap, StateDir: t.TempDir()}.Defaults()
+		if got.SoftCap >= got.HardCap {
+			t.Errorf("from %d/%d: Defaults gave soft %d >= hard %d", c.SoftCap, c.HardCap, got.SoftCap, got.HardCap)
+		}
+	}
+}

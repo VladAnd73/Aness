@@ -3,6 +3,7 @@ package fleet
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -44,6 +45,13 @@ type CoordinatorConfig struct {
 	// requeue to a pane nudge. Zero means use
 	// DefaultInboxWatchdogEscalateAfter.
 	InboxWatchdogEscalateAfter int
+
+	// SoftCap and HardCap are the context-token caps at which the
+	// coordinator token monitor asks for a handoff and then a respawn.
+	// Zero means use the tokenmonitor defaults; SPORE_COORDINATOR_SOFT_CAP
+	// and SPORE_COORDINATOR_HARD_CAP win over both.
+	SoftCap int
+	HardCap int
 }
 
 // LoadInboxWatchdogEscalateAfter reads
@@ -65,6 +73,18 @@ func LoadInboxWatchdogEscalateAfter(projectRoot string) (int, error) {
 // A missing file returns a zero CoordinatorConfig with no error so callers
 // can treat absent config as "use defaults".
 func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
+	return loadCoordinatorConfig(projectRoot, os.Stderr)
+}
+
+// LoadCoordinatorConfigQuiet is LoadCoordinatorConfig without the
+// warnings. Stop hooks use it: their stderr becomes the agent's
+// feedback on exit 2, and the fleet reconciler already reports the
+// same warnings to the journal.
+func LoadCoordinatorConfigQuiet(projectRoot string) (CoordinatorConfig, error) {
+	return loadCoordinatorConfig(projectRoot, io.Discard)
+}
+
+func loadCoordinatorConfig(projectRoot string, warn io.Writer) (CoordinatorConfig, error) {
 	tomlPath := filepath.Join(projectRoot, "spore.toml")
 	b, err := os.ReadFile(tomlPath)
 	if err != nil {
@@ -75,7 +95,7 @@ func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
 	}
 	cfg, warnings, err := parseCoordinatorTOML(string(b))
 	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "coordinator: %s: %s\n", tomlPath, w)
+		fmt.Fprintf(warn, "coordinator: %s: %s\n", tomlPath, w)
 	}
 	if err != nil {
 		return CoordinatorConfig{}, fmt.Errorf("coordinator: parse %s: %w", tomlPath, err)
@@ -135,6 +155,18 @@ func parseCoordinatorTOML(content string) (CoordinatorConfig, []string, error) {
 				continue
 			}
 			cfg.InboxWatchdogEscalateAfter = n
+		case "soft_cap", "hard_cap":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 1 {
+				warnings = append(warnings, fmt.Sprintf(
+					"line %d: ignoring %s = %q: want an integer >= 1", lineNum, key, val))
+				continue
+			}
+			if key == "soft_cap" {
+				cfg.SoftCap = n
+			} else {
+				cfg.HardCap = n
+			}
 		default:
 			warnings = append(warnings, fmt.Sprintf(
 				"line %d: ignoring unknown key %q in [coordinator]", lineNum, key))
