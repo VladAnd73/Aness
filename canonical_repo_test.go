@@ -11,7 +11,7 @@ import (
 )
 
 // The bracket keeps the pre-2026-11-03 repo name out of `git grep`.
-var staleRepoURL = regexp.MustCompile(`(?:marketertechnologies|versality)/spore|Agentic[H]arness`)
+var staleRepoURL = regexp.MustCompile(`(?:marketertechnologies|versality)/spore|(?i:agentic-?[h]arness)`)
 
 // moduleRef is the Go module path, not a URL: imports, `go build`
 // targets and the buildCommit ldflag keep it after the repo moved.
@@ -112,5 +112,29 @@ func TestStaleRepoScanReadsOnlyTrackedFiles(t *testing.T) {
 	git("add", "docs/guide.md")
 	if hits, err := staleRepoHits(root); err != nil || len(hits) != 1 || !strings.HasPrefix(hits[0], "docs/guide.md:1:") {
 		t.Fatalf("tracked stale URL not reported once: hits=%v err=%v", hits, err)
+	}
+
+	// Built from parts so this file stays out of `git grep`. GitHub
+	// owner/repo names are case-insensitive, so every spelling resolves.
+	agentic, harness := "Agentic", "Harness"
+	variants := map[string]string{
+		"docs/v1.md": "github:VladAnd73/" + agentic + harness,
+		"docs/v2.md": "github:vladand73/" + strings.ToLower(agentic+harness),
+		"docs/v3.md": "https://github.com/VladAnd73/" + agentic + "-" + harness,
+		"docs/v4.md": "git+https://github.com/vladand73/" + strings.ToUpper(agentic+harness) + ".git",
+	}
+	for rel, body := range variants {
+		write(rel, body+"\n")
+		git("add", rel)
+	}
+	hits, err := staleRepoHits(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := strings.Join(hits, "\n")
+	for rel, body := range variants {
+		if !strings.Contains(reported, rel+":1: "+body) {
+			t.Errorf("old repo name %q in %s not reported; hits=%v", body, rel, hits)
+		}
 	}
 }
