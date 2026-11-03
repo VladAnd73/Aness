@@ -112,7 +112,7 @@ coordinator attach surface or a clear first-login recovery pane.
 - `tmux`, `rsync`, and the runtime tools the handoff scripts call
 
 The bundled flake declares `inputs.spore.url =
-github:VladAnd73/AgenticHarness` and `Stage()` rewrites the staged
+github:VladAnd73/Aness` and `Stage()` rewrites the staged
 `flake.lock` to pin that input to the local CLI's `BuildCommit`
 (with `-dirty` stripped), so the target still ends up running the
 exact checkout the operator ran -- just delivered through nix

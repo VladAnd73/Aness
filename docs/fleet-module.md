@@ -33,7 +33,7 @@ backward compatibility; new consumers should use `projects` directly.
 ```nix
 {
   inputs = {
-    spore.url = "github:VladAnd73/AgenticHarness";
+    spore.url = "github:VladAnd73/Aness";
     home-manager.url = "github:nix-community/home-manager";
   };
 

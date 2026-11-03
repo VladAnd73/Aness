@@ -46,7 +46,7 @@ const (
 	// bundled flake's `spore` input. Used to build SporeFlakeURL and
 	// the commits API URL for the push-first guard.
 	SporeOwner = "VladAnd73"
-	SporeRepo  = "AgenticHarness"
+	SporeRepo  = "Aness"
 
 	// SporeFlakeURL is the bare github URL the bundled flake declares
 	// as its `spore` input. PinBundledSpore overrides this input at

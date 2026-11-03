@@ -83,7 +83,7 @@
             nativeCheckInputs = [ pkgs.git pkgs.tmux ];
             meta = {
               description = "Drop-in harness template for LLM-coding agents.";
-              homepage = "https://github.com/VladAnd73/AgenticHarness";
+              homepage = "https://github.com/VladAnd73/Aness";
               license = pkgs.lib.licenses.asl20;
               mainProgram = "spore";
               platforms = pkgs.lib.platforms.unix;

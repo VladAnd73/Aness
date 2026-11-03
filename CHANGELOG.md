@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The GitHub repo moved from `VladAnd73/AgenticHarness` to
+  `VladAnd73/Aness` (2026-11-03). Every repo URL now points at the new
+  name: the bundled `bootstrap/flake` `spore` input and its lock entry,
+  the `spore infect` pin and push-first guard, the handover systemd
+  units, the README badges and install line, and CI's Codecov slug. The
+  Go module path stays `github.com/versality/spore`. GitHub redirects
+  the old name for now, but a downstream flake that pins
+  `github:VladAnd73/AgenticHarness` should move its `spore` input to
+  `github:VladAnd73/Aness`.
 - NixOS module: `spore migrate` now runs during `nixos-rebuild switch`
   with bash, coreutils, findutils, grep, sed, git and spore on PATH.
   Before, every migration failed there with `exec: "bash": executable
