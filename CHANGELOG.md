@@ -11,6 +11,16 @@
   the old name for now, but a downstream flake that pins
   `github:VladAnd73/AgenticHarness` should move its `spore` input to
   `github:VladAnd73/Aness`.
+- NixOS module: `spore migrate` now runs during `nixos-rebuild switch`
+  with bash, coreutils, findutils, grep, sed, git and spore on PATH.
+  Before, every migration failed there with `exec: "bash": executable
+  file not found in $PATH`. Run `spore migrate` by hand once to apply
+  any migration a past rebuild skipped.
+- Handover settings: a no-op PreToolUse hook now matches
+  `AskUserQuestion`. With it, Claude Code writes a pending question to
+  the session transcript before the answer arrives, so a console that
+  reads the transcript can show the full question. Hosts pick it up on
+  the next handover settings install.
 - Token caps: the coordinator token monitor now asks for a handoff at
   350000 context tokens and a respawn at 400000 (was 210000 / 250000).
   Workers wrap up at the same hard cap (was 180000, or 240000 with

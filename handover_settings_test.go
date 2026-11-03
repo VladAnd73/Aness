@@ -41,6 +41,28 @@ func TestHandoverSettingsWireCommunicationHooks(t *testing.T) {
 	}
 }
 
+// A pending AskUserQuestion reaches the transcript JSONL only once a
+// PreToolUse hook matches it; the hinterf console reads the question
+// from there while it waits for an answer.
+func TestHandoverSettingsFlushPendingAskUserQuestion(t *testing.T) {
+	raw, err := os.ReadFile("bootstrap/handover/settings.json")
+	if err != nil {
+		t.Fatalf("read handover settings: %v", err)
+	}
+	var settings struct {
+		Hooks map[string][]handoverHookGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("parse handover settings: %v", err)
+	}
+	for _, group := range settings.Hooks["PreToolUse"] {
+		if group.Matcher == "AskUserQuestion" && len(group.Hooks) > 0 {
+			return
+		}
+	}
+	t.Fatal("handover settings missing a PreToolUse hook matching AskUserQuestion")
+}
+
 func TestHandoverSettingsDeniesCrossSessionMessaging(t *testing.T) {
 	raw, err := os.ReadFile("bootstrap/handover/settings.json")
 	if err != nil {
@@ -115,7 +137,8 @@ func contains(haystack []string, needle string) bool {
 }
 
 type handoverHookGroup struct {
-	Hooks []handoverHook `json:"hooks"`
+	Matcher string         `json:"matcher"`
+	Hooks   []handoverHook `json:"hooks"`
 }
 
 type handoverHook struct {

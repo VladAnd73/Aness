@@ -377,6 +377,7 @@
                       "fleet enable") : > "''${HOME}/.local/state/spore/fleet-enabled" ; exit 0 ;;
                       "fleet disable") rm -f "''${HOME}/.local/state/spore/fleet-enabled" ; exit 0 ;;
                       "task tell") shift 2; echo "stub: tell $*" ; exit 0 ;;
+                      "migrate --auto") bash -c ': > /tmp/spore-migrate-found-bash' ; exit $? ;;
                       *) echo "stub spore: unknown $*" >&2; exit 1 ;;
                     esac
                   '';
@@ -475,6 +476,14 @@
                   # and cwd handling worked.
                   machine.succeed("grep -q 'fleet disable' /home/spore-test/spore-stub.log")
                   machine.succeed("grep -q 'fleet enable' /home/spore-test/spore-stub.log")
+
+                  # spore-migrate activation: the real binary runs each
+                  # migration as `bash -eu <script>`, so bash must be on
+                  # the PATH the activation hands it. The stub resolves
+                  # bash the same way.
+                  machine.succeed("rm -f /tmp/spore-migrate-found-bash")
+                  machine.succeed("/run/current-system/activate")
+                  machine.succeed("test -e /tmp/spore-migrate-found-bash")
                 '';
             };
           };
