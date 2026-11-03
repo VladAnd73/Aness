@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The GitHub repo moved from `VladAnd73/AgenticHarness` to
+  `VladAnd73/Aness` (2026-11-03). Every repo URL now points at the new
+  name: the bundled `bootstrap/flake` `spore` input and its lock entry,
+  the `spore infect` pin and push-first guard, the handover systemd
+  units, the README badges and install line, and CI's Codecov slug. The
+  Go module path stays `github.com/versality/spore`. GitHub redirects
+  the old name for now, but a downstream flake that pins
+  `github:VladAnd73/AgenticHarness` should move its `spore` input to
+  `github:VladAnd73/Aness`.
 - Token caps: the coordinator token monitor now asks for a handoff at
   350000 context tokens and a respawn at 400000 (was 210000 / 250000).
   Workers wrap up at the same hard cap (was 180000, or 240000 with

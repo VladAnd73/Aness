@@ -10,7 +10,8 @@ import (
 	"testing"
 )
 
-var staleRepoURL = regexp.MustCompile(`(?:marketertechnologies|versality)/spore`)
+// The bracket keeps the pre-2026-11-03 repo name out of `git grep`.
+var staleRepoURL = regexp.MustCompile(`(?:marketertechnologies|versality)/spore|Agentic[H]arness`)
 
 // moduleRef is the Go module path, not a URL: imports, `go build`
 // targets and the buildCommit ldflag keep it after the repo moved.
@@ -65,7 +66,7 @@ func TestNoStaleRepoURLs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, h := range hits {
-		t.Errorf("stale repo URL, use VladAnd73/AgenticHarness: %s", h)
+		t.Errorf("stale repo URL, use VladAnd73/Aness: %s", h)
 	}
 }
 

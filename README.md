@@ -4,8 +4,8 @@
 
 # spore
 
-[![CI](https://github.com/VladAnd73/AgenticHarness/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/VladAnd73/AgenticHarness/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/VladAnd73/AgenticHarness/branch/main/graph/badge.svg)](https://codecov.io/gh/VladAnd73/AgenticHarness)
+[![CI](https://github.com/VladAnd73/Aness/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/VladAnd73/Aness/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/VladAnd73/Aness/branch/main/graph/badge.svg)](https://codecov.io/gh/VladAnd73/Aness)
 
 A local harness for LLM coding agents. Each project gets one
 coordinator agent and a fleet of worker agents. Every task is a
@@ -31,7 +31,7 @@ Workstation (runs `spore infect`):
 - The `spore` CLI. Either of:
 
 ```sh
-nix profile install github:VladAnd73/AgenticHarness
+nix profile install github:VladAnd73/Aness
 go build -o ~/.local/bin/spore ./cmd/spore  # from a checkout, Go 1.25+
 ```
 

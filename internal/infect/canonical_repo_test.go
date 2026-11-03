@@ -12,7 +12,7 @@ import (
 )
 
 func TestPushFirstGuardURLTargetsCanonicalRepo(t *testing.T) {
-	want := "https://api.github.com/repos/VladAnd73/AgenticHarness/commits/abc123"
+	want := "https://api.github.com/repos/VladAnd73/Aness/commits/abc123"
 	if got := SporeOriginCommitsURL + "abc123"; got != want {
 		t.Fatalf("commits URL = %q, want %q", got, want)
 	}
@@ -33,7 +33,7 @@ func TestPinBundledSporeOverridesToCanonicalRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "\ngithub:VladAnd73/AgenticHarness/abc123\n") {
+	if !strings.Contains(string(got), "\ngithub:VladAnd73/Aness/abc123\n") {
 		t.Fatalf("nix flake lock args lack canonical override:\n%s", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestStagedBundledFlakeTargetsCanonicalRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(flake), `inputs.spore.url = "github:VladAnd73/AgenticHarness";`) {
+	if !strings.Contains(string(flake), `inputs.spore.url = "github:VladAnd73/Aness";`) {
 		t.Fatalf("staged flake.nix spore input is not canonical:\n%s", flake)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "flake.lock"))
@@ -65,15 +65,15 @@ func TestStagedBundledFlakeTargetsCanonicalRepo(t *testing.T) {
 	}
 	node := lock.Nodes["spore"]
 	for name, ref := range map[string]map[string]any{"locked": node.Locked, "original": node.Original} {
-		if ref["owner"] != "VladAnd73" || ref["repo"] != "AgenticHarness" {
-			t.Errorf("flake.lock spore %s = %v/%v, want VladAnd73/AgenticHarness", name, ref["owner"], ref["repo"])
+		if ref["owner"] != "VladAnd73" || ref["repo"] != "Aness" {
+			t.Errorf("flake.lock spore %s = %v/%v, want VladAnd73/Aness", name, ref["owner"], ref["repo"])
 		}
 	}
 }
 
 // TestPinnedStageResolvesOnGitHub runs the real `nix flake lock`
 // against github.com, so it needs network and a commit already pushed
-// to VladAnd73/AgenticHarness.
+// to VladAnd73/Aness.
 func TestPinnedStageResolvesOnGitHub(t *testing.T) {
 	commit := os.Getenv("SPORE_INFECT_PIN_COMMIT")
 	if commit == "" {
@@ -103,7 +103,7 @@ func TestPinnedStageResolvesOnGitHub(t *testing.T) {
 	}
 	got := meta.Locks.Nodes["spore"].Locked
 	t.Logf("spore locked: %v", got)
-	if got["owner"] != "VladAnd73" || got["repo"] != "AgenticHarness" || got["rev"] != commit {
-		t.Fatalf("spore locked = %v, want VladAnd73/AgenticHarness@%s", got, commit)
+	if got["owner"] != "VladAnd73" || got["repo"] != "Aness" || got["rev"] != commit {
+		t.Fatalf("spore locked = %v, want VladAnd73/Aness@%s", got, commit)
 	}
 }

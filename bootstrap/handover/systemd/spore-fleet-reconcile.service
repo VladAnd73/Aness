@@ -1,6 +1,6 @@
 [Unit]
 Description=spore fleet reconcile (worker + coordinator sweep)
-Documentation=https://github.com/VladAnd73/AgenticHarness
+Documentation=https://github.com/VladAnd73/Aness
 
 [Service]
 Type=oneshot

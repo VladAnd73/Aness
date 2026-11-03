@@ -42,6 +42,6 @@ jobs:
           files: ./coverage/coverage.out
           flags: go
           name: spore-go
-          slug: VladAnd73/AgenticHarness
+          slug: VladAnd73/Aness
           fail_ci_if_error: false
           use_oidc: true
