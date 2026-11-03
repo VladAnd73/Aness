@@ -17,6 +17,18 @@ let
 
   projectNames = lib.attrNames effectiveProjects;
 
+  # Activation scripts run with a PATH that lacks bash, and the
+  # migrate engine runs each migration as `bash -eu <script>`.
+  migratePath = lib.makeBinPath [
+    pkgs.bash
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.git
+    cfg.package
+  ];
+
   # Common preamble: re-exec as cfg.user with a clean systemd-user
   # environment when invoked as root (system.activationScripts and
   # colmena pre/postActivation both run as root). When already running
@@ -538,6 +550,7 @@ in
         '';
         spore-migrate = ''
           ${pkgs.util-linux}/bin/runuser -u ${cfg.user} -- \
+            ${pkgs.coreutils}/bin/env PATH=${migratePath} \
             ${cfg.package}/bin/spore migrate --auto || \
             echo "spore migrate: failed (see journal); continuing rebuild" >&2
         '';
