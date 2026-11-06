@@ -8,8 +8,8 @@ import (
 
 // versionFromFile is the source of truth for the test expectation: read
 // VERSION at test time so a release that bumps the file (and the tag)
-// does not require an `embed_test.go` edit too. Keeps `just release`
-// from cascading into hand-edited test fixtures.
+// does not require an `embed_test.go` edit too. Keeps the release
+// workflow's bump commit from cascading into hand-edited test fixtures.
 func versionFromFile(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile("VERSION")
