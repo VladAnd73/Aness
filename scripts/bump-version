@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Release the tip of main as a new version. Run by
+# .github/workflows/release.yml after every push to main; safe to rerun.
+#
+# Rules, all decided against the remote's tags, never local ones (a
+# clone that also tracks upstream holds tags the fork does not own):
+#   - VERSION already tagged at the tip: nothing to do.
+#   - VERSION has no tag yet: the merge set it by hand, so tag the tip
+#     as is. This is the escape hatch for a minor or major bump.
+#   - VERSION tagged at an older commit: bump the patch number, stamp
+#     the CHANGELOG, commit `release: vX.Y.Z` on top and tag it.
+# A tag that already exists is never moved; the run fails instead.
+#
+# Usage: scripts/bump-version [remote] [branch]
+set -euo pipefail
+
+remote=${1:-origin}
+branch=${2:-main}
+attempts=5
+
+die() {
+  echo "bump-version: $*" >&2
+  exit 1
+}
+
+# Prints the commit a remote tag points at, or nothing when the tag is
+# absent. An annotated tag lists twice; the peeled ^{} line wins.
+remote_tag_commit() {
+  git ls-remote --tags "$remote" |
+    awk -v ref="refs/tags/$1" '
+      $2 == ref { plain = $1 }
+      $2 == ref "^{}" { peeled = $1 }
+      END { print (peeled != "" ? peeled : plain) }'
+}
+
+# Turns `## Unreleased` into a fresh empty section above
+# `## X.Y.Z - YYYY-MM-DD`, matching the older headings. An empty
+# Unreleased section is left alone: a heading with no notes is noise.
+stamp_changelog() {
+  local version=$1 file=CHANGELOG.md
+  [ -f "$file" ] || return 0
+  grep -qx '## Unreleased' "$file" || return 0
+  local notes
+  notes=$(awk '
+    $0 == "## Unreleased" { inside = 1; next }
+    inside && /^## / { exit }
+    inside && NF { n++ }
+    END { print n + 0 }' "$file")
+  [ "$notes" -gt 0 ] || return 0
+  awk -v heading="## $version - $(date -u +%F)" '
+    !done && $0 == "## Unreleased" { print; print ""; print heading; done = 1; next }
+    { print }' "$file" >"$file.tmp"
+  mv "$file.tmp" "$file"
+  git add "$file"
+}
+
+next_patch() {
+  local major minor patch
+  IFS=. read -r major minor patch <<<"$1"
+  echo "$major.$minor.$((patch + 1))"
+}
+
+# One attempt. Exit status 0 means released (or nothing to do), 2 means
+# the push was rejected and a fresh attempt may succeed.
+release_once() {
+  git fetch --quiet "$remote" "$branch"
+  local tip version tagged
+  tip=$(git rev-parse FETCH_HEAD)
+  git checkout --quiet --force --detach "$tip"
+
+  version=$(tr -d '[:space:]' <VERSION)
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "VERSION holds '$version' at $tip; it must be X.Y.Z"
+
+  tagged=$(remote_tag_commit "v$version")
+  if [ "$tagged" = "$tip" ]; then
+    echo "bump-version: nothing to release, v$version already tags $tip"
+    return 0
+  fi
+
+  if [ -z "$tagged" ]; then
+    git tag --force -a "v$version" -m "v$version" "$tip" >/dev/null
+    git push --quiet "$remote" "refs/tags/v$version" || return 2
+    echo "bump-version: tagged $tip as v$version (VERSION was set by the merge)"
+    return 0
+  fi
+
+  local next
+  next=$(next_patch "$version")
+  [ -z "$(remote_tag_commit "v$next")" ] ||
+    die "tag v$next already exists on $remote; refusing to move it. Set VERSION past it in a PR to continue."
+
+  echo "$next" >VERSION
+  git add VERSION
+  stamp_changelog "$next"
+  git commit --quiet -m "release: v$next"
+  git tag --force -a "v$next" -m "v$next" >/dev/null
+  git push --quiet --atomic "$remote" "HEAD:refs/heads/$branch" "refs/tags/v$next" || return 2
+  echo "bump-version: released v$next at $(git rev-parse HEAD)"
+}
+
+for ((i = 1; i <= attempts; i++)); do
+  # A bare `release_once || ...` would switch off errexit inside it, so
+  # run it as a plain statement in a subshell and read the status after.
+  set +e
+  (
+    set -e
+    release_once
+  )
+  status=$?
+  set -e
+  [ "$status" -eq 2 ] || exit "$status"
+  echo "bump-version: push rejected (attempt $i of $attempts), refetching $remote/$branch" >&2
+  sleep "$i"
+done
+die "gave up after $attempts rejected pushes"

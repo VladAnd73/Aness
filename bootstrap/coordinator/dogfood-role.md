@@ -35,10 +35,14 @@ the operator.
   watch-inbox`. No `bin/dev/spore-token-monitor` shim is needed
   (unlike marketer & crm-gateway, which run bash scripts gated by
   transcript path).
-- **Release flow.** `just release X.Y.Z` bumps `VERSION`, commits,
-  and tags `vX.Y.Z`. It does NOT push -- operator inspects the
-  commit and tag, then pushes both. Aborts on a dirty tree, an
-  existing tag, or a failing `just check`.
+- **Release flow.** Automatic. After every merge to `main`, the
+  Release workflow (`.github/workflows/release.yml`, running
+  `scripts/bump-version`) bumps the patch number in `VERSION`, moves
+  the CHANGELOG `## Unreleased` notes under `## X.Y.Z - YYYY-MM-DD`,
+  commits `release: vX.Y.Z` to `main` and pushes tag `vX.Y.Z`. Ordinary
+  PRs never touch `VERSION`. For a minor or major bump, the PR sets
+  `VERSION` itself (and renames its `## Unreleased` heading); the
+  workflow then tags that merge as is. Never push tags by hand.
 - **Branch base.** PRs target `main`. The "branch from
   `origin/development`" rule that applies across the Rails repos
   does not apply here -- spore has no `development` branch.
@@ -69,7 +73,8 @@ operator whether a given entry should be promoted.
 
 ## Operator scope
 
-Operator pushes branches, opens PRs, and runs `just release`.
+Operator pushes branches, opens PRs, and merges them; the Release
+workflow cuts the version.
 Coordinator and workers commit locally and surface diffs; do not
 `git push` without explicit instruction. The shared coordinator
 role's destructive-action guardrails apply (no force-push, no
