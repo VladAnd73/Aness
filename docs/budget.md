@@ -208,6 +208,13 @@ account reports.
    tmux server. `disableAllHooks` is not used: it also turns off the
    status line. One run costs about one cent of quota.
 
+   The probe's tmux server starts with `-f /dev/null` (never the
+   operator's tmux config) and `remain-on-exit on`, so when claude dies
+   at once (missing binary, not logged in) `daily` reports its exit
+   status and last output within a poll instead of waiting 90s. When
+   the status line never runs, the error names the probe folder and
+   quotes the screen, which shows a trust prompt if that is the cause.
+
 A reading whose weekly used percentage is outside 0..100 (or not a
 number), or whose weekly `resets_at` is not within the coming week
 (past, zero, or more than 7 days and 1 hour ahead; the hour is slack

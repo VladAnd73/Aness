@@ -123,32 +123,48 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 		return Reading{}, err
 	}
 	env := probeEnv(p.environ())
-	tmux := func(ctx context.Context, args ...string) error {
-		_, err := p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
-		return err
+	tmux := func(ctx context.Context, args ...string) ([]byte, error) {
+		return p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
 	}
-	_ = tmux(ctx, "kill-server")
-	defer func() { _ = tmux(context.Background(), "kill-server") }()
+	_, _ = tmux(ctx, "kill-server")
+	defer func() { _, _ = tmux(context.Background(), "kill-server") }()
 
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
+	// remain-on-exit keeps a dead claude's pane, so its exit status and
+	// last output can be reported instead of waiting out the timeout.
 	// User settings hold spore's Stop hook, which spawns a stray
 	// coordinator outside a project root. disableAllHooks cannot be used
 	// instead: it also turns off the status line.
-	if err := tmux(ctx, "new-session", "-d", "-s", probeSession, "-c", p.dir, "-x", "200", "-y", "50",
+	if _, err := tmux(ctx, "start-server", ";", "set-option", "-g", "remain-on-exit", "on", ";",
+		"new-session", "-d", "-s", probeSession, "-c", p.dir, "-x", "200", "-y", "50",
 		"claude", "--model", "haiku", "--setting-sources", "project,local", "--settings", settings); err != nil {
 		return Reading{}, fmt.Errorf("start claude: %w", err)
 	}
-	if _, err := p.waitCapture(ctx, func(statusInput) bool { return true }); err != nil {
-		return Reading{}, fmt.Errorf("status line never ran (folder not trusted?): %w", err)
+	dead := func(ctx context.Context) error {
+		out, err := tmux(ctx, "display-message", "-p", "-t", probeSession, "#{pane_dead} #{pane_dead_status}")
+		if err != nil {
+			return fmt.Errorf("probe session gone: %w", err)
+		}
+		isDead, status, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
+		if isDead != "1" {
+			return nil
+		}
+		return fmt.Errorf("claude exited with status %s: %s", status, p.screen(ctx, tmux))
 	}
-	if err := tmux(ctx, "send-keys", "-t", probeSession, "-l", probePrompt); err != nil {
+	if _, err := p.waitCapture(ctx, dead, func(statusInput) bool { return true }); err != nil {
+		if ctx.Err() != nil {
+			return Reading{}, fmt.Errorf("status line never ran in %s (folder not trusted?): %w; screen: %s", p.dir, err, p.screen(context.Background(), tmux))
+		}
 		return Reading{}, err
 	}
-	if err := tmux(ctx, "send-keys", "-t", probeSession, "Enter"); err != nil {
+	if _, err := tmux(ctx, "send-keys", "-t", probeSession, "-l", probePrompt); err != nil {
 		return Reading{}, err
 	}
-	in, err := p.waitCapture(ctx, func(in statusInput) bool {
+	if _, err := tmux(ctx, "send-keys", "-t", probeSession, "Enter"); err != nil {
+		return Reading{}, err
+	}
+	in, err := p.waitCapture(ctx, dead, func(in statusInput) bool {
 		return in.RateLimits != nil && in.RateLimits.SevenDay != nil &&
 			in.RateLimits.SevenDay.UsedPercentage != nil && in.RateLimits.SevenDay.ResetsAt != nil
 	})
@@ -172,7 +188,29 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 	return r, nil
 }
 
-func (p probe) waitCapture(ctx context.Context, ok func(statusInput) bool) (statusInput, error) {
+// screen returns the last non-blank lines of the probe pane, history
+// included: a claude that dies at once leaves its output above the
+// visible area.
+func (p probe) screen(ctx context.Context, tmux func(context.Context, ...string) ([]byte, error)) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := tmux(ctx, "capture-pane", "-p", "-S", "-", "-t", probeSession)
+	if err != nil {
+		return fmt.Sprintf("(capture failed: %v)", err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > 8 {
+		lines = lines[len(lines)-8:]
+	}
+	return strings.Join(lines, " | ")
+}
+
+func (p probe) waitCapture(ctx context.Context, dead func(context.Context) error, ok func(statusInput) bool) (statusInput, error) {
 	t := time.NewTicker(p.poll)
 	defer t.Stop()
 	for {
@@ -181,6 +219,9 @@ func (p probe) waitCapture(ctx context.Context, ok func(statusInput) bool) (stat
 			if json.Unmarshal(b, &in) == nil && ok(in) {
 				return in, nil
 			}
+		}
+		if err := dead(ctx); err != nil && ctx.Err() == nil {
+			return statusInput{}, err
 		}
 		select {
 		case <-ctx.Done():

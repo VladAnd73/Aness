@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -115,24 +116,81 @@ func TestProbeTimeout(t *testing.T) {
 	}
 }
 
+func TestProbeTearsDownWhenClaudeDies(t *testing.T) {
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.timeout = 5 * time.Second
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
+		switch {
+		case isCall(args, "display-message"):
+			return []byte("1 127\n"), nil
+		case isCall(args, "capture-pane"):
+			return []byte("claude: command not found\nPane is dead (status 127)\n"), nil
+		}
+		return nil, nil
+	})
+	start := time.Now()
+	_, err := p.reading(context.Background(), time.Now())
+	if err == nil || !strings.Contains(err.Error(), "claude: command not found") || !strings.Contains(err.Error(), "status 127") {
+		t.Fatalf("reading: got %v, want the dead pane's status and output", err)
+	}
+	if strings.Contains(err.Error(), "trusted") {
+		t.Errorf("error blames folder trust for a dead claude: %v", err)
+	}
+	if waited := time.Since(start); waited > time.Second {
+		t.Errorf("took %v to notice the dead pane; the timeout is %v", waited, p.timeout)
+	}
+	calls := rec.snapshot()
+	if last := calls[len(calls)-1]; !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
+		t.Errorf("last call: got %v want kill-server", last.args)
+	}
+}
+
 func TestProbeTearsDownWhenStartFails(t *testing.T) {
 	rec := &callRecorder{}
 	p := testProbe(t, rec, nil)
-	inner := p.run
-	p.run = func(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-		_, _ = inner(ctx, env, name, args...)
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
 		if slices.Contains(args, "new-session") {
-			return nil, errors.New("no claude")
+			return nil, errors.New("no tmux server")
 		}
 		return nil, nil
-	}
-	if _, err := p.reading(context.Background(), time.Now()); err == nil || !strings.Contains(err.Error(), "no claude") {
+	})
+	if _, err := p.reading(context.Background(), time.Now()); err == nil || !strings.Contains(err.Error(), "no tmux server") {
 		t.Fatalf("reading: got %v want the start error", err)
 	}
 	calls := rec.snapshot()
-	last := calls[len(calls)-1]
-	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
+	if last := calls[len(calls)-1]; !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
 		t.Errorf("last call: got %v want kill-server", last.args)
+	}
+}
+
+// Real tmux, fake claude: proves tmux keeps the dead pane and its
+// output long enough for the probe to report them.
+func TestProbeRealTmuxReportsDeadClaude(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not on PATH")
+	}
+	bin := t.TempDir()
+	fake := "#!/bin/sh\necho 'boom: not logged in'\nexit 3\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := newProbe(t.TempDir())
+	p.socket = fmt.Sprintf("spore-budget-probe-test-%d", os.Getpid())
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", p.socket, "-f", "/dev/null", "kill-server").Run() })
+	p.environ = func() []string { return []string{"HOME=" + t.TempDir(), "PATH=" + bin + ":" + os.Getenv("PATH")} }
+	p.timeout = 10 * time.Second
+	p.poll = 20 * time.Millisecond
+	start := time.Now()
+	_, err := p.reading(context.Background(), time.Now())
+	if err == nil || !strings.Contains(err.Error(), "boom: not logged in") || !strings.Contains(err.Error(), "status 3") {
+		t.Fatalf("reading: got %v, want the fake claude's output and status", err)
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("took %v to notice the dead pane", waited)
+	}
+	if out, err := exec.Command("tmux", "-L", p.socket, "-f", "/dev/null", "list-sessions").CombinedOutput(); err == nil {
+		t.Errorf("probe tmux server still running: %s", out)
 	}
 }
 
