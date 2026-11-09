@@ -27,6 +27,7 @@ type probe struct {
 	captureFile string
 	socket      string
 	timeout     time.Duration
+	killTimeout time.Duration
 	poll        time.Duration
 	environ     func() []string
 }
@@ -60,6 +61,7 @@ func newProbe(dir string) probe {
 		captureFile: filepath.Join(dir, "statusline.json"),
 		socket:      probeSocket,
 		timeout:     90 * time.Second,
+		killTimeout: 10 * time.Second,
 		poll:        time.Second,
 		environ:     os.Environ,
 	}
@@ -126,8 +128,15 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 	tmux := func(ctx context.Context, args ...string) ([]byte, error) {
 		return p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
 	}
-	_, _ = tmux(ctx, "kill-server")
-	defer func() { _, _ = tmux(context.Background(), "kill-server") }()
+	// Bounded and detached from ctx: teardown must still run, and finish,
+	// after a signal has cancelled the run.
+	killServer := func() {
+		c, cancel := context.WithTimeout(context.Background(), p.killTimeout)
+		defer cancel()
+		_, _ = tmux(c, "kill-server")
+	}
+	killServer()
+	defer killServer()
 
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()

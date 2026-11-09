@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -322,8 +323,16 @@ func appendLine(path string, line []byte) error {
 	return f.Close()
 }
 
+// dailyContext turns Ctrl-C and a systemd stop into a cancelled run, so
+// the probe's deferred teardown kills its tmux server and claude.
+func dailyContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
 func Daily() error {
-	rec, err := runDaily(context.Background(), time.Now(), []ReadingSource{endpointReading, probeReading})
+	ctx, stop := dailyContext()
+	defer stop()
+	rec, err := runDaily(ctx, time.Now(), []ReadingSource{endpointReading, probeReading})
 	if rec.Verdict != "" {
 		fmt.Println(roomLine(rec.Verdict, rec, ""))
 	}

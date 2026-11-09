@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -176,8 +178,7 @@ func TestProbeRealTmuxReportsDeadClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := newProbe(t.TempDir())
-	p.socket = fmt.Sprintf("spore-budget-probe-test-%d", os.Getpid())
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", p.socket, "-f", "/dev/null", "kill-server").Run() })
+	p.socket = realTmuxSocket(t, "spore-budget-probe-test")
 	p.environ = func() []string { return []string{"HOME=" + t.TempDir(), "PATH=" + bin + ":" + os.Getenv("PATH")} }
 	p.timeout = 10 * time.Second
 	p.poll = 20 * time.Millisecond
@@ -222,4 +223,87 @@ func TestProbeTmuxSkipsOperatorConfig(t *testing.T) {
 			t.Errorf("tmux call may load the operator's config: %v", c.args)
 		}
 	}
+}
+
+func TestProbeKillServerIsBounded(t *testing.T) {
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.timeout = 30 * time.Millisecond
+	p.killTimeout = 50 * time.Millisecond
+	inner := rec.responder(func(string, []string) ([]byte, error) { return nil, nil })
+	p.run = func(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "kill-server") {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return inner(ctx, env, name, args...)
+	}
+	done := make(chan struct{})
+	go func() {
+		_, _ = p.reading(context.Background(), time.Now())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reading hung on a kill-server that never returns")
+	}
+}
+
+func TestDailyContextCancelsOnSignal(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(sig.String(), func(t *testing.T) {
+			guard := make(chan os.Signal, 1)
+			signal.Notify(guard, sig)
+			defer signal.Stop(guard)
+			ctx, stop := dailyContext()
+			defer stop()
+			if err := syscall.Kill(os.Getpid(), sig); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Second):
+				t.Errorf("%v did not cancel the daily context", sig)
+			}
+		})
+	}
+}
+
+func TestProbeRealTmuxCancelLeavesNoServer(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not on PATH")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := newProbe(t.TempDir())
+	p.socket = realTmuxSocket(t, "spore-budget-probe-cancel")
+	p.environ = func() []string { return []string{"HOME=" + t.TempDir(), "PATH=" + bin + ":" + os.Getenv("PATH")} }
+	p.poll = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if _, err := p.reading(ctx, time.Now()); err == nil {
+		t.Fatal("reading: want an error after cancel")
+	}
+	if out, err := exec.Command("tmux", "-L", p.socket, "-f", "/dev/null", "list-sessions").CombinedOutput(); err == nil {
+		t.Errorf("probe tmux server survived the cancel: %s", out)
+	}
+}
+
+// realTmuxSocket kills the test's tmux server and removes its socket
+// file, which tmux leaves behind after kill-server.
+func realTmuxSocket(t *testing.T, name string) string {
+	t.Helper()
+	dir := os.Getenv("TMUX_TMPDIR")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	path := filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), name)
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", name, "-f", "/dev/null", "kill-server").Run()
+		_ = os.Remove(path)
+	})
+	return name
 }

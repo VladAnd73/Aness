@@ -214,6 +214,9 @@ account reports.
    status and last output within a poll instead of waiting 90s. When
    the status line never runs, the error names the probe folder and
    quotes the screen, which shows a trust prompt if that is the cause.
+   Ctrl-C or a systemd stop (SIGINT, SIGTERM) cancels the run: the
+   probe still kills its tmux server and claude (each `kill-server`
+   bounded to 10s) and `daily` records `unknown`.
 
 A reading whose weekly used percentage is outside 0..100 (or not a
 number), or whose weekly `resets_at` is not within the coming week
