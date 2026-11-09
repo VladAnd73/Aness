@@ -198,6 +198,18 @@ func ActiveTier() error {
 // outcome the caller cannot recover from; that's the signal to fall
 // back to transcripts.
 func fetchUsage(ctx context.Context, now time.Time) (*usageResponse, error) {
+	body, err := fetchUsageBody(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	var ur usageResponse
+	if err := json.Unmarshal(body, &ur); err != nil {
+		return nil, fmt.Errorf("usage decode: %w", err)
+	}
+	return &ur, nil
+}
+
+func fetchUsageBody(ctx context.Context, now time.Time) ([]byte, error) {
 	path := oauthCredsPath()
 	if path == "" {
 		return nil, errors.New("oauth credentials path unresolved")
@@ -226,11 +238,7 @@ func fetchUsage(ctx context.Context, now time.Time) (*usageResponse, error) {
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("usage: HTTP %d", code)
 	}
-	var ur usageResponse
-	if err := json.Unmarshal(body, &ur); err != nil {
-		return nil, fmt.Errorf("usage decode: %w", err)
-	}
-	return &ur, nil
+	return body, nil
 }
 
 func callUsage(ctx context.Context, accessToken string) ([]byte, int, error) {

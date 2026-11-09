@@ -1,7 +1,12 @@
 package budget
 
 import (
+	"context"
 	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,5 +68,103 @@ func TestComputeVerdictCopiesFiveHourAndExtra(t *testing.T) {
 	}, 10, acceptResetsAt.Add(-6*24*time.Hour))
 	if rec.FiveHourUsed != 3 || !rec.FiveHourResetsAt.Equal(five) || rec.Extra["Fable"] != 4 || !rec.WeeklyResetsAt.Equal(acceptResetsAt) {
 		t.Errorf("record fields: %+v", rec)
+	}
+}
+
+func TestDailyWritesHistoryAndMode(t *testing.T) {
+	u, stateDir := dailyFixture(t)
+	u.setWeekly(15, acceptResetsAt)
+	if _, err := runDaily(context.Background(), acceptResetsAt.Add(-5*24*time.Hour), []ReadingSource{endpointReading}); err != nil {
+		t.Fatalf("runDaily: %v", err)
+	}
+	hist, err := os.ReadFile(filepath.Join(stateDir, "daily-history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(hist), "\n"); n != 1 {
+		t.Errorf("history lines: got %d want 1", n)
+	}
+	for _, name := range []string{"daily.json", "daily-history.jsonl"} {
+		fi, err := os.Stat(filepath.Join(stateDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode: got %o want 600", name, fi.Mode().Perm())
+		}
+	}
+	if fi, err := os.Stat(stateDir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("state dir mode: %v %v", fi.Mode().Perm(), err)
+	}
+}
+
+func TestDailyEndpointMissingSevenDay(t *testing.T) {
+	reset := acceptResetsAt.Format(time.RFC3339)
+	for name, body := range map[string]string{
+		"absent":          `{"five_hour":{"utilization":3,"resets_at":"` + reset + `"}}`,
+		"null":            `{"five_hour":{"utilization":3,"resets_at":"` + reset + `"},"seven_day":null}`,
+		"resets null":     `{"seven_day":{"utilization":15,"resets_at":null}}`,
+		"resets empty":    `{"seven_day":{"utilization":15,"resets_at":""}}`,
+		"resets garbage":  `{"seven_day":{"utilization":15,"resets_at":"soon"}}`,
+		"utilization nil": `{"seven_day":{"utilization":null,"resets_at":"` + reset + `"}}`,
+		"not json":        `<html>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			u, stateDir := dailyFixture(t)
+			u.set(http.StatusOK, body)
+			_, err := runDaily(context.Background(), acceptResetsAt.Add(-5*24*time.Hour), []ReadingSource{endpointReading})
+			if err == nil {
+				t.Error("runDaily: want error")
+			}
+			if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown || rec.Error == "" {
+				t.Errorf("record: verdict %q error %q, want unknown with an error", rec.Verdict, rec.Error)
+			}
+		})
+	}
+}
+
+func TestEndpointReadingPerModelExtra(t *testing.T) {
+	u, _ := dailyFixture(t)
+	reset := acceptResetsAt.Format(time.RFC3339)
+	u.set(http.StatusOK, `{"five_hour":null,"seven_day":{"utilization":23,"resets_at":"`+reset+`"},`+
+		`"limits":[{"kind":"weekly_all","percent":23},`+
+		`{"kind":"weekly_scoped","percent":7,"scope":{"model":{"display_name":"Fable"}}},`+
+		`{"kind":"weekly_scoped","percent":null,"scope":null}]}`)
+	r, err := endpointReading(context.Background(), acceptResetsAt.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("endpointReading: %v", err)
+	}
+	if r.WeeklyUsed != 23 || !r.WeeklyResetsAt.Equal(acceptResetsAt) || r.Source != "endpoint" {
+		t.Errorf("reading: %+v", r)
+	}
+	if len(r.Extra) != 1 || r.Extra["Fable"] != 7 {
+		t.Errorf("extra: got %v want map[Fable:7]", r.Extra)
+	}
+}
+
+func TestDailyBadConfig(t *testing.T) {
+	u, stateDir := dailyFixture(t)
+	u.setWeekly(15, acceptResetsAt)
+	if err := os.WriteFile(os.Getenv("SPORE_BUDGET_CONFIG"), []byte("margin = -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDaily(context.Background(), acceptResetsAt.Add(-5*24*time.Hour), []ReadingSource{endpointReading}); err == nil {
+		t.Error("runDaily: want config error")
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "daily.json")); !os.IsNotExist(err) {
+		t.Errorf("daily.json written despite bad config: %v", err)
+	}
+}
+
+func TestDailyUnknownJoinsSourceErrors(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	_, err := runDaily(context.Background(), now, []ReadingSource{failingSource("first broke"), failingSource("second broke")})
+	if err == nil || !strings.Contains(err.Error(), "first broke") || !strings.Contains(err.Error(), "second broke") {
+		t.Errorf("error: %v", err)
+	}
+	rec := readDailyJSON(t, stateDir)
+	if rec.Verdict != VerdictUnknown || !rec.TakenAt.Equal(now) || rec.Margin != 10 {
+		t.Errorf("record: %+v", rec)
 	}
 }

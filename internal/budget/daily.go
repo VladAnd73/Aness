@@ -2,8 +2,12 @@ package budget
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -66,14 +70,126 @@ func computeVerdict(r Reading, margin float64, now time.Time) DailyRecord {
 	}
 }
 
+type dailyUsageWindow struct {
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    *string  `json:"resets_at"`
+}
+
+type dailyUsageBody struct {
+	FiveHour *dailyUsageWindow `json:"five_hour"`
+	SevenDay *dailyUsageWindow `json:"seven_day"`
+	Limits   []struct {
+		Kind    string   `json:"kind"`
+		Percent *float64 `json:"percent"`
+		Scope   *struct {
+			Model *struct {
+				DisplayName string `json:"display_name"`
+			} `json:"model"`
+		} `json:"scope"`
+	} `json:"limits"`
+}
+
 func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
-	return Reading{}, errors.New("not implemented")
+	body, err := fetchUsageBody(ctx, now)
+	if err != nil {
+		return Reading{}, fmt.Errorf("endpoint: %w", err)
+	}
+	var ub dailyUsageBody
+	if err := json.Unmarshal(body, &ub); err != nil {
+		return Reading{}, fmt.Errorf("endpoint: decode: %w", err)
+	}
+	w := ub.SevenDay
+	if w == nil || w.Utilization == nil || w.ResetsAt == nil || *w.ResetsAt == "" {
+		return Reading{}, errors.New("endpoint: response has no seven_day utilization and resets_at")
+	}
+	resets, err := parseUsageTimestamp(*w.ResetsAt)
+	if err != nil {
+		return Reading{}, fmt.Errorf("endpoint: seven_day resets_at: %w", err)
+	}
+	r := Reading{Source: "endpoint", WeeklyUsed: *w.Utilization, WeeklyResetsAt: resets}
+	if f := ub.FiveHour; f != nil {
+		if f.Utilization != nil {
+			r.FiveHourUsed = *f.Utilization
+		}
+		if f.ResetsAt != nil {
+			if t, err := parseUsageTimestamp(*f.ResetsAt); err == nil {
+				r.FiveHourResetsAt = t
+			}
+		}
+	}
+	for _, l := range ub.Limits {
+		if l.Kind != "weekly_scoped" || l.Percent == nil || l.Scope == nil || l.Scope.Model == nil || l.Scope.Model.DisplayName == "" {
+			continue
+		}
+		if r.Extra == nil {
+			r.Extra = map[string]float64{}
+		}
+		r.Extra[l.Scope.Model.DisplayName] = *l.Percent
+	}
+	return r, nil
 }
 
 func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (DailyRecord, error) {
-	return DailyRecord{}, errors.New("not implemented")
+	cfg, err := loadDailyConfig()
+	if err != nil {
+		return DailyRecord{}, err
+	}
+	var errs []error
+	for _, src := range sources {
+		r, err := src(ctx, now)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		rec := computeVerdict(r, cfg.Margin, now)
+		return rec, saveDaily(rec)
+	}
+	if len(errs) == 0 {
+		errs = append(errs, errors.New("no reading sources"))
+	}
+	failed := errors.Join(errs...)
+	rec := DailyRecord{TakenAt: now.UTC(), Margin: cfg.Margin, Verdict: VerdictUnknown, Error: failed.Error()}
+	if err := saveDaily(rec); err != nil {
+		return rec, errors.Join(failed, err)
+	}
+	return rec, failed
+}
+
+func saveDaily(rec DailyRecord) error {
+	d, err := stateDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(d, stateDirMode); err != nil {
+		return err
+	}
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	p := filepath.Join(d, "daily.json")
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, append(line, '\n'), stateFileMode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(d, "daily-history.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, stateFileMode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func Daily() error {
-	return errors.New("not implemented")
+	rec, err := runDaily(context.Background(), time.Now(), []ReadingSource{endpointReading, probeReading})
+	if rec.Verdict != "" {
+		fmt.Println(roomLine(rec.Verdict, rec, ""))
+	}
+	return err
 }

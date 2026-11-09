@@ -9,3 +9,7 @@ func roomVerdict(now time.Time) (code int, line string) {
 func Room() int {
 	return 0
 }
+
+func roomLine(verdict string, rec DailyRecord, note string) string {
+	return ""
+}
