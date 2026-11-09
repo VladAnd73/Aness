@@ -3,6 +3,7 @@ package fleet
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -117,7 +118,9 @@ func TestAgentTranscriptActivityFindsADottedProjectRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 
 	root := filepath.Join(home, "spore", ".worktrees", "inbox-wake-ack")
-	encoded := strings.ReplaceAll(strings.ReplaceAll(root, "/", "-"), ".", "-")
+	// Fold every non [A-Za-z0-9-] byte, not just / and .: a CI runner's
+	// TMPDIR holds an underscore (_temp) that Claude Code also folds.
+	encoded := regexp.MustCompile(`[^A-Za-z0-9-]`).ReplaceAllString(root, "-")
 	writeTranscript(t, filepath.Join(home, ".claude", "projects", encoded))
 
 	if _, ok := agentTranscriptActivity(root); !ok {
