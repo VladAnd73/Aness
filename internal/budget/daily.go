@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -132,7 +133,7 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (DailyRecord, error) {
 	cfg, err := loadDailyConfig()
 	if err != nil {
-		return DailyRecord{}, err
+		return failDaily(now, defaultDailyMargin, err)
 	}
 	var errs []error
 	for _, src := range sources {
@@ -145,17 +146,42 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 			continue
 		}
 		rec := computeVerdict(r, cfg.Margin, now)
-		return rec, saveDaily(rec)
+		if err := saveDaily(rec); err != nil {
+			return failDaily(now, cfg.Margin, append(errs, fmt.Errorf("save %s reading: %w", r.Source, err))...)
+		}
+		return rec, nil
 	}
 	if len(errs) == 0 {
 		errs = append(errs, errors.New("no reading sources"))
 	}
+	return failDaily(now, cfg.Margin, errs...)
+}
+
+// failDaily records unknown so a failed run never leaves an earlier
+// room live. When even that save fails (a full disk still allows an
+// unlink), daily.json is removed, which room also reads as unknown.
+func failDaily(now time.Time, margin float64, errs ...error) (DailyRecord, error) {
 	failed := errors.Join(errs...)
-	rec := DailyRecord{TakenAt: now.UTC(), Margin: cfg.Margin, Verdict: VerdictUnknown, Error: failed.Error()}
+	rec := DailyRecord{TakenAt: now.UTC(), Margin: margin, Verdict: VerdictUnknown, Error: failed.Error()}
 	if err := saveDaily(rec); err != nil {
-		return rec, errors.Join(failed, err)
+		failed = errors.Join(failed, fmt.Errorf("save unknown record: %w", err))
+		if rerr := removeDaily(); rerr != nil {
+			failed = errors.Join(failed, fmt.Errorf("remove daily.json: %w", rerr))
+		}
 	}
 	return rec, failed
+}
+
+func removeDaily() error {
+	d, err := stateDir()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(d, "daily.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // A reset already past would clamp pace to 100 and read as room from
@@ -165,6 +191,14 @@ func checkWeeklyReset(r Reading, now time.Time) error {
 		return fmt.Errorf("%s: weekly resets_at %s is not within the coming week", r.Source, r.WeeklyResetsAt.UTC().Format(time.RFC3339))
 	}
 	return nil
+}
+
+var atomicWrite = func(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, stateFileMode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func saveDaily(rec DailyRecord) error {
@@ -179,19 +213,15 @@ func saveDaily(rec DailyRecord) error {
 	if err != nil {
 		return err
 	}
-	p := filepath.Join(d, "daily.json")
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(line, '\n'), stateFileMode); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, p); err != nil {
+	line = append(line, '\n')
+	if err := atomicWrite(filepath.Join(d, "daily.json"), line); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(filepath.Join(d, "daily-history.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, stateFileMode)
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
+	if _, err := f.Write(line); err != nil {
 		_ = f.Close()
 		return err
 	}

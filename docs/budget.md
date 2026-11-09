@@ -207,8 +207,11 @@ A reading whose weekly `resets_at` is not within the coming week (past,
 zero, or more than 7 days ahead) also counts as failed, so old data
 cannot read as `room`.
 
-When both fail, `daily` still writes `daily.json` with verdict
-`unknown` and exits non-zero.
+Any failed run, whether both sources failed, the config is bad, or
+the verdict could not be saved, leaves `room` answering non-zero:
+`daily` writes `daily.json` with verdict `unknown` and exits non-zero.
+When even that write fails (a full disk still allows an unlink), it
+removes `daily.json`, which `room` also reads as `unknown`.
 
 ### Files
 
@@ -246,7 +249,8 @@ margin = 10
 ```
 
 `margin` must be a number >= 0. Any other key, or a malformed line,
-makes `daily` fail without writing a record.
+makes `daily` fail: it records `unknown` (with the default margin and
+the config error) without taking a reading.
 
 ### Timer
 

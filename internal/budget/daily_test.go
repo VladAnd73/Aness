@@ -151,8 +151,8 @@ func TestDailyBadConfig(t *testing.T) {
 	if _, err := runDaily(context.Background(), acceptResetsAt.Add(-5*24*time.Hour), []ReadingSource{endpointReading}); err == nil {
 		t.Error("runDaily: want config error")
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "daily.json")); !os.IsNotExist(err) {
-		t.Errorf("daily.json written despite bad config: %v", err)
+	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown || !strings.Contains(rec.Error, "margin") {
+		t.Errorf("record after bad config: verdict %q error %q, want unknown naming the config error", rec.Verdict, rec.Error)
 	}
 }
 
