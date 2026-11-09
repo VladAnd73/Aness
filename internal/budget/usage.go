@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -72,9 +73,14 @@ type credentialsFile struct {
 	oauth oauthBlock
 }
 
+// oauthCredsPath follows claude's own lookup (CLAUDE_CONFIG_DIR, then
+// ~/.claude), so the endpoint and the daily probe read one account.
 func oauthCredsPath() string {
 	if p := os.Getenv("AGENT_BUDGET_CREDS"); p != "" {
 		return p
+	}
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(d, ".credentials.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -149,6 +155,61 @@ type usageResponse struct {
 	SevenDay usageWindow `json:"seven_day"`
 }
 
+// usageBody is the decode side of usageResponse. Its pointer fields let
+// a missing or null window read as absent instead of 0%, and limits
+// stays raw because it is optional and its shape is undocumented.
+type usageBody struct {
+	FiveHour *usageBodyWindow `json:"five_hour"`
+	SevenDay *usageBodyWindow `json:"seven_day"`
+	Limits   json.RawMessage  `json:"limits"`
+}
+
+type usageBodyWindow struct {
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    *string  `json:"resets_at"`
+}
+
+func validPercent(v float64) bool { return v >= 0 && v <= 100 }
+
+func decodeUsageBody(body []byte) (*usageBody, error) {
+	var ub usageBody
+	if err := json.Unmarshal(body, &ub); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	w := ub.SevenDay
+	if w == nil || w.Utilization == nil {
+		return nil, errors.New("response has no seven_day utilization")
+	}
+	// Above 100 is kept: an exhausted account is real data for refresh.
+	// daily's own check still demands 0..100 before it judges room.
+	if u := *w.Utilization; !(u >= 0) || math.IsInf(u, 1) {
+		return nil, fmt.Errorf("seven_day utilization %v is not a percentage", u)
+	}
+	return &ub, nil
+}
+
+func (w *usageBodyWindow) window() usageWindow {
+	var out usageWindow
+	if w == nil {
+		return out
+	}
+	if w.Utilization != nil {
+		out.Utilization = *w.Utilization
+	}
+	if w.ResetsAt != nil {
+		out.ResetsAt = *w.ResetsAt
+	}
+	return out
+}
+
+func decodeUsageResponse(body []byte) (*usageResponse, error) {
+	ub, err := decodeUsageBody(body)
+	if err != nil {
+		return nil, err
+	}
+	return &usageResponse{FiveHour: ub.FiveHour.window(), SevenDay: ub.SevenDay.window()}, nil
+}
+
 type usageSnapshot struct {
 	FetchedAt time.Time   `json:"fetched_at"`
 	Short     usageWindow `json:"short"`
@@ -198,6 +259,18 @@ func ActiveTier() error {
 // outcome the caller cannot recover from; that's the signal to fall
 // back to transcripts.
 func fetchUsage(ctx context.Context, now time.Time) (*usageResponse, error) {
+	body, err := fetchUsageBody(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	ur, err := decodeUsageResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("usage: %w", err)
+	}
+	return ur, nil
+}
+
+func fetchUsageBody(ctx context.Context, now time.Time) ([]byte, error) {
 	path := oauthCredsPath()
 	if path == "" {
 		return nil, errors.New("oauth credentials path unresolved")
@@ -226,11 +299,7 @@ func fetchUsage(ctx context.Context, now time.Time) (*usageResponse, error) {
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("usage: HTTP %d", code)
 	}
-	var ur usageResponse
-	if err := json.Unmarshal(body, &ur); err != nil {
-		return nil, fmt.Errorf("usage decode: %w", err)
-	}
-	return &ur, nil
+	return body, nil
 }
 
 func callUsage(ctx context.Context, accessToken string) ([]byte, int, error) {
@@ -465,12 +534,12 @@ func fetchUsageForFile(ctx context.Context, path string, now time.Time) (*accoun
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("usage for %s: HTTP %d", filepath.Base(path), code)
 	}
-	var ur usageResponse
-	if err := json.Unmarshal(body, &ur); err != nil {
-		return nil, fmt.Errorf("usage decode for %s: %w", filepath.Base(path), err)
+	ur, err := decodeUsageResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("usage for %s: %w", filepath.Base(path), err)
 	}
 	return &accountUsageResult{
-		Usage: &ur,
+		Usage: ur,
 		Tier:  normalizeTier(block.SubscriptionType),
 	}, nil
 }

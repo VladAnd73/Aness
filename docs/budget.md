@@ -16,6 +16,10 @@ spore budget stop-hook     Stop-hook helper: exit 2 with stderr reminder on a
                            fresh band crossing, exit 0 otherwise.
 spore budget debug-usage   Hit /usage once and print raw + parsed response
                            (bypasses the freshness throttle; diagnostic).
+spore budget daily         Take one weekly-quota reading, write the headroom
+                           verdict (see "Daily headroom").
+spore budget room          Print the last daily verdict; the exit code is the
+                           verdict.
 ```
 
 ## Caps and bands
@@ -88,15 +92,21 @@ than 30 minutes) flips into api mode.
 
 ### Subscription mode
 
-`refresh` reads `~/.claude/.credentials.json`, hits
+`refresh` reads `$AGENT_BUDGET_CREDS`, else claude's own credentials
+file (`$CLAUDE_CONFIG_DIR/.credentials.json`, else
+`~/.claude/.credentials.json`), hits
 `https://api.anthropic.com/api/oauth/usage` with `Authorization: Bearer
 <accessToken>` and `anthropic-beta: oauth-2025-04-20`, and stores the
 returned utilization percent and `resets_at` per window. On a 401 with
 a refresh token present, the binary refreshes once via
 `https://platform.claude.com/v1/oauth/token` and retries; the rolled
-credentials are written back via mktemp+rename. Other HTTP failures
-keep the previous snapshot but flag it `Stale` so consumers can decide
-whether to trust it.
+credentials are written back via mktemp+rename. Other HTTP failures,
+and a body whose `seven_day.utilization` is missing, null, negative or
+not a number, keep the previous snapshot but flag it `Stale` so consumers can
+decide whether to trust it; such a body never reads as 0%. In the
+multi-account store, an account with such a body is left out of the
+average. A value above 100 (an exhausted account) is kept as is;
+only `daily` demands 0..100 before it judges room.
 
 A freshness gate prevents hammering `/usage`: successive `refresh`
 calls within 60 seconds reuse the cached snapshot. Override with
@@ -165,6 +175,178 @@ model. Reserve top-tier models for tool-use loops and code edits.
 The "(resets in ...)" hint appears only on the binding window for the
 band - the one whose frac actually crossed. The advice tail is band-
 specific.
+
+## Daily headroom
+
+Once a day `spore budget daily` records how much of the weekly quota
+is used against how much of the week has passed. `spore budget room`
+reads that record and answers with its exit code, so a consumer never
+parses files. Design: `docs/todo/usage-headroom.md`.
+
+### The rule
+
+The weekly window starts 7 days before the weekly `resets_at` the
+account reports.
+
+- `pace` = percent of the window that has passed, clamped to 0..100.
+- `headroom` = `pace - used`, in percentage points.
+- verdict `room` when `headroom >= margin`, else `no-room`.
+
+### Reading sources
+
+1. The OAuth usage endpoint (the same one subscription mode uses). A
+   transport error, a non-200 answer, or a body without a numeric
+   `seven_day.utilization` and a parsable `seven_day.resets_at` is a
+   failed read, never a 0% reading. Per-model weekly percentages from
+   the `limits` list are kept under `extra`. `limits` is optional: when
+   it does not decode, the reading still counts and the problem is
+   noted under `errors`.
+2. A probe: an interactive `claude --model haiku` on its own tmux
+   server (`tmux -L spore-budget-probe`), started with every `SPORE_*`
+   variable removed, and also `CLAUDE_CODE_OAUTH_TOKEN`,
+   `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`, so claude logs in
+   from `~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR`), the
+   same account the endpoint reads; the timer's environment carries no
+   token anyway, `--setting-sources project,local` (user settings
+   hold spore's hooks, whose Stop hook would spawn a stray coordinator
+   session) and a `--settings` file whose status line copies its input
+   to `<state dir>/probe/statusline.json` (mode 0600, set with `chmod`
+   because a default ACL on the state dir overrides the umask). The probe sends one short
+   prompt, waits up to 90s for `rate_limits.seven_day`, then kills its
+   tmux server. `disableAllHooks` is not used: it also turns off the
+   status line. One run costs about one cent of quota.
+
+   The probe's tmux server starts with `-f /dev/null` (never the
+   operator's tmux config) and `remain-on-exit on`, so when claude dies
+   at once (missing binary, not logged in) `daily` reports its exit
+   status and last output within a poll instead of waiting 90s. When
+   the status line never runs, the error names the probe folder and
+   quotes the screen, which shows a trust prompt if that is the cause.
+   Ctrl-C or a systemd stop (SIGINT, SIGTERM) cancels the run: the
+   probe still kills its tmux server and claude (each `kill-server`
+   bounded to 10s) and `daily` records `unknown`.
+
+   claude has no way to skip saving an interactive session
+   (`--no-session-persistence` only works with `--print`), so the probe
+   starts claude with its own `--session-id` and, after teardown and
+   once claude's process has exited, deletes exactly that session's
+   `<id>.jsonl` and `<id>/` from `~/.claude/projects/<encoded probe
+   dir>/` (or under `$CLAUDE_CONFIG_DIR`; symlinks resolved), and from
+   the folder of the `transcript_path` the status line reported when
+   that is `<id>.jsonl` directly inside a `projects/` folder. Each path
+   is printed first. Nothing else is touched.
+
+A reading whose weekly used percentage is outside 0..100 (or not a
+number), or whose weekly `resets_at` is not within the coming week
+(past, zero, or more than 7 days and 1 hour ahead; the hour is slack
+for clock skew), also counts as failed, so bad or old data cannot read
+as `room`.
+
+Any failed run, whether both sources failed, the config is bad, or
+the verdict could not be saved, leaves `room` answering non-zero:
+`daily` writes `daily.json` with verdict `unknown` and exits non-zero.
+When even that write fails (a full disk still allows an unlink), it
+removes `daily.json`, which `room` also reads as `unknown`.
+
+### Files
+
+- `$AGENT_BUDGET_STATE_DIR/daily.json`: the latest record, written to
+  a uniquely named temp file, then renamed into place.
+- `$AGENT_BUDGET_STATE_DIR/daily.lock`: an flock held for the whole
+  run. A second `daily` on the same state dir waits for the first.
+  The probe also takes `$XDG_RUNTIME_DIR/spore-budget-<uid>-spore-budget-probe.lock`
+  (per user, like its tmux server), so runs on different state dirs
+  never kill each other's probe either.
+- `$AGENT_BUDGET_STATE_DIR/daily-history.jsonl`: one record per run.
+  Failing to append here only prints a warning: the fresh verdict in
+  `daily.json` is already live, so `daily` still exits 0.
+
+Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
+or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
+`margin`, `verdict`, `five_hour_used`, `five_hour_resets_at`, `extra`
+(per-model weekly percent, when present), `credentials` (the
+credentials file whose account was measured: for the endpoint
+`$AGENT_BUDGET_CREDS`, else claude's own file, for the probe claude's
+own file (`$CLAUDE_CONFIG_DIR/.credentials.json`, else
+`~/.claude/.credentials.json`); if they ever differ,
+the two sources measured different accounts), `error` (on `unknown`) and
+`errors` (failures of earlier sources and non-fatal decode problems
+when a later source succeeded; `daily` also prints them to stderr).
+An `unknown` record carries only `taken_at`, `margin`, `verdict`,
+`error` and `errors`: no numbers, so a failed day in the history never
+reads as 0% used.
+
+### `room` exit codes
+
+| Exit | Meaning |
+|------|---------|
+| 0 | `room` |
+| 1 | `no-room`, or the saved `weekly_resets_at` has passed |
+| 2 | `unknown`: no or unreadable `daily.json`, verdict `unknown`, a reading older than 26h, or one taken more than 5 minutes in the future (the clock moved) |
+
+Staleness is checked before the reset rule. `room` prints one line:
+
+```
+room used=15.0% pace=28.6% headroom=13.6 margin=10.0 taken=2026-11-11T18:00:00Z source=endpoint
+```
+
+### Config
+
+`$SPORE_BUDGET_CONFIG`, default `$XDG_CONFIG_HOME/spore/budget.toml`
+(`~/.config/spore/budget.toml`). A missing file means defaults.
+
+```toml
+# percentage points of headroom needed for "room"
+margin = 10
+```
+
+`margin` must be a number >= 0. Any other key, or a malformed line,
+makes `daily` fail: it records `unknown` (with the default margin and
+the config error) without taking a reading.
+
+### Timer
+
+`bootstrap/handover/systemd/spore-budget-daily.{service,timer}` run
+`daily` at 18:00 UTC; a run missed while the host was down happens at
+the next boot. The shims package ships them under
+`share/spore/systemd/`. Install for the current user:
+
+```sh
+cp bootstrap/handover/systemd/spore-budget-daily.* ~/.config/systemd/user/
+mkdir -p ~/.config/systemd/user/spore-budget-daily.service.d
+spore budget timer-env > ~/.config/systemd/user/spore-budget-daily.service.d/env.conf
+systemctl --user daemon-reload
+systemctl --user enable --now spore-budget-daily.timer
+```
+
+The drop-in pins what the timer would otherwise take from the user
+manager's environment, which never sees variables set in a shell rc:
+the state dir, the budget config path, `AGENT_BUDGET_CREDS` and
+`CLAUDE_CONFIG_DIR` (unset in the drop-in when unset in the shell).
+Without it, `daily` could write one state dir while `room` reads
+another, measure another account, or run claude under a config dir
+where the probe folder is not trusted. Run the install from the
+environment that will call `room` and trust the probe folder, and
+rerun `timer-env` if any of those variables change. `room` names the
+directory it looked in when it finds no reading.
+
+The service runs `/usr/bin/env spore`, so `spore`, `tmux` and
+`claude` must be on the user manager's `PATH`.
+
+### Trusting the probe folder
+
+Claude Code asks "do you trust this folder" in a folder it has not
+seen, and that prompt blocks the probe (`daily` then reports `status
+line never ran in <folder>` and quotes the prompt from the screen). Trust the probe folder once by hand:
+
+```sh
+d="$(spore budget state-dir)/probe"
+mkdir -p "$d" && cd "$d" && claude --setting-sources project,local
+```
+
+Pick "Yes, I trust this folder", then `/exit`. Keep the
+`--setting-sources` flag: a bare `claude` there loads spore's user-level
+hooks, and the Stop hook spawns a stray coordinator session.
 
 ## State file
 

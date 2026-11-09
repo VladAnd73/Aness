@@ -20,6 +20,16 @@ Usage:
   spore budget active-tier   print the live credential's tier (max|pro|team|free)
   spore budget debug-usage   hit /usage once and print raw + parsed response
                              (diagnostic; bypasses the freshness throttle)
+  spore budget daily         take one weekly-quota reading (usage endpoint, then a
+                             status-line probe), write the headroom verdict;
+                             non-zero when no fresh verdict was saved (a
+                             history append failure only warns)
+  spore budget room          print the last daily verdict; exit 0 room, 1 no-room,
+                             2 unknown (missing, failed, or older than 26h)
+  spore budget state-dir     print the absolute state dir this shell resolves
+  spore budget timer-env     print a systemd drop-in that pins the daily timer to
+                             this shell's state dir, config, credentials and claude
+                             config dir (docs/budget.md, "Timer")
 
 Env (AGENT_BUDGET_* names preserved verbatim so spore and the basecamp
 binary can shadow-soak against the same state file):
@@ -32,15 +42,21 @@ binary can shadow-soak against the same state file):
   AGENT_BUDGET_STATE_DIR     state directory (default $XDG_STATE_HOME/agent-budget
                              or ~/.local/state/agent-budget)
   AGENT_BUDGET_PROJECTS      transcript root (default ~/.claude/projects)
-  AGENT_BUDGET_CREDS         OAuth credentials path (default ~/.claude/.credentials.json)
+  AGENT_BUDGET_CREDS         OAuth credentials path (default $CLAUDE_CONFIG_DIR/.credentials.json,
+                             else ~/.claude/.credentials.json, as claude itself looks)
   AGENT_BUDGET_USAGE_MIN_INTERVAL_SEC
                              minimum seconds between subscription /usage hits (default 60;
                              0 disables the throttle for tests / operator override)
+  SPORE_BUDGET_CONFIG        daily headroom config (default
+                             $XDG_CONFIG_HOME/spore/budget.toml; key: margin, default 10)
 
 Files (mode 0600):
   $AGENT_BUDGET_STATE_DIR/state.json         tracker state
   $AGENT_BUDGET_STATE_DIR/api-headers.jsonl  per-response Anthropic ratelimit spool
   $AGENT_BUDGET_STATE_DIR/markers/           per-window-per-band fresh-crossing markers
+  $AGENT_BUDGET_STATE_DIR/daily.json         latest daily headroom verdict
+  $AGENT_BUDGET_STATE_DIR/daily-history.jsonl
+                                             one line per daily reading
 `
 
 func runBudget(args []string) int {
@@ -69,6 +85,30 @@ func runBudgetCmd(sub string, rest []string) int {
 		return budgetExec(budget.ActiveTier, "active-tier", rest)
 	case "debug-usage":
 		return budgetExec(budget.DebugUsage, "debug-usage", rest)
+	case "daily":
+		return budgetExec(budget.Daily, "daily", rest)
+	case "state-dir":
+		return budgetExec(func() error {
+			d, err := budget.ResolvedStateDir()
+			if err == nil {
+				fmt.Println(d)
+			}
+			return err
+		}, "state-dir", rest)
+	case "timer-env":
+		return budgetExec(func() error {
+			out, err := budget.TimerEnv()
+			if err == nil {
+				fmt.Print(out)
+			}
+			return err
+		}, "timer-env", rest)
+	case "room":
+		if len(rest) != 0 {
+			fmt.Fprintln(os.Stderr, "spore budget room: takes no args")
+			return 2
+		}
+		return budget.Room()
 	case "stop-hook":
 		if len(rest) != 0 {
 			fmt.Fprintln(os.Stderr, "spore budget stop-hook: takes no args")

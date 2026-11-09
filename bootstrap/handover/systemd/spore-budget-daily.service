@@ -1,0 +1,16 @@
+[Unit]
+Description=spore daily weekly-quota headroom reading
+Documentation=https://github.com/VladAnd73/Aness
+
+[Service]
+Type=oneshot
+# env resolves spore through PATH; the probe fallback also needs tmux
+# and claude on PATH.
+ExecStart=/usr/bin/env spore budget daily
+# The user manager's environment never sees variables set only in a
+# shell. Install writes a drop-in from `spore budget timer-env`
+# (docs/budget.md, "Timer") pinning the state dir, budget config,
+# credentials and claude config dir, so this timer reads the account
+# and writes the files that `spore budget room` sees.
+# The probe fallback can wait up to 90s for the status line.
+TimeoutStartSec=5min

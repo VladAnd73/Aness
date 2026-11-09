@@ -36,7 +36,13 @@ func WriteJSONAtomic(path, tmpPrefix string, v any) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+tmpPrefix+"-*.json")
+	return WriteFileAtomic(path, "."+tmpPrefix+"-*.json", b)
+}
+
+// WriteFileAtomic writes b to a uniquely named temp file (os.CreateTemp
+// pattern tmpPattern, mode 0600) beside path and renames it into place.
+func WriteFileAtomic(path, tmpPattern string, b []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), tmpPattern)
 	if err != nil {
 		return err
 	}
@@ -49,5 +55,9 @@ func WriteJSONAtomic(path, tmpPrefix string, v any) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }

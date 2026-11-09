@@ -86,20 +86,6 @@ type state struct {
 	AccountSnapshots map[string]*usageSnapshot `json:"account_snapshots,omitempty"`
 }
 
-func stateDir() (string, error) {
-	if d := os.Getenv("AGENT_BUDGET_STATE_DIR"); d != "" {
-		return d, nil
-	}
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "agent-budget"), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "state", "agent-budget"), nil
-}
-
 func projectsDir() (string, error) {
 	if d := os.Getenv("AGENT_BUDGET_PROJECTS"); d != "" {
 		return d, nil
