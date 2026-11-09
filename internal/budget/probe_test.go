@@ -448,3 +448,14 @@ func TestReadingsNameTheirCredentials(t *testing.T) {
 		t.Errorf("probe credentials: got %q want /h/.claude/.credentials.json", r.Credentials)
 	}
 }
+
+func TestProbeInterruptIsNotBlamedOnTrust(t *testing.T) {
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	_, err := p.reading(ctx, time.Now())
+	if err == nil || strings.Contains(err.Error(), "trusted") || !errors.Is(err, context.Canceled) {
+		t.Errorf("reading after an interrupt: got %v, want a plain cancellation", err)
+	}
+}

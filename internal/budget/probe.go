@@ -242,7 +242,7 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 		return fmt.Errorf("claude exited with status %s: %s", status, p.screen(ctx, tmux))
 	}
 	if _, err := p.waitCapture(ctx, dead, func(statusInput) bool { return true }); err != nil {
-		if ctx.Err() != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
 			return Reading{}, fmt.Errorf("status line never ran in %s (folder not trusted?): %w; screen: %s", p.dir, err, p.screen(context.Background(), tmux))
 		}
 		return Reading{}, err
