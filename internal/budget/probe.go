@@ -57,9 +57,12 @@ func execRunner(ctx context.Context, env []string, name string, args ...string) 
 	return out, nil
 }
 
+// probeRunner lets a test drive Daily's real source list without tmux.
+var probeRunner commandRunner = execRunner
+
 func newProbe(dir string) probe {
 	return probe{
-		run:         execRunner,
+		run:         probeRunner,
 		dir:         dir,
 		captureFile: filepath.Join(dir, "statusline.json"),
 		socket:      probeSocket,
