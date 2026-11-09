@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -38,8 +39,31 @@ type DailyRecord struct {
 
 type ReadingSource func(ctx context.Context, now time.Time) (Reading, error)
 
+const weeklyWindow = 7 * 24 * time.Hour
+
 func computeVerdict(r Reading, margin float64, now time.Time) DailyRecord {
-	return DailyRecord{}
+	start := r.WeeklyResetsAt.Add(-weeklyWindow)
+	elapsed := float64(now.Sub(start)) / float64(weeklyWindow)
+	elapsed = math.Min(math.Max(elapsed, 0), 1)
+	pace := elapsed * 100
+	headroom := pace - r.WeeklyUsed
+	verdict := VerdictNoRoom
+	if headroom >= margin {
+		verdict = VerdictRoom
+	}
+	return DailyRecord{
+		TakenAt:          now.UTC(),
+		Source:           r.Source,
+		WeeklyUsed:       r.WeeklyUsed,
+		WeeklyResetsAt:   r.WeeklyResetsAt.UTC(),
+		Pace:             pace,
+		Headroom:         headroom,
+		Margin:           margin,
+		Verdict:          verdict,
+		FiveHourUsed:     r.FiveHourUsed,
+		FiveHourResetsAt: r.FiveHourResetsAt.UTC(),
+		Extra:            r.Extra,
+	}
 }
 
 func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
