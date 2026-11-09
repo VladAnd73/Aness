@@ -203,6 +203,10 @@ account reports.
    tmux server. `disableAllHooks` is not used: it also turns off the
    status line. One run costs about one cent of quota.
 
+A reading whose weekly `resets_at` is not within the coming week (past,
+zero, or more than 7 days ahead) also counts as failed, so old data
+cannot read as `room`.
+
 When both fail, `daily` still writes `daily.json` with verdict
 `unknown` and exits non-zero.
 
@@ -268,10 +272,12 @@ line never ran`). Trust the probe folder once by hand:
 
 ```sh
 d="${AGENT_BUDGET_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-budget}/probe"
-mkdir -p "$d" && cd "$d" && claude
+mkdir -p "$d" && cd "$d" && claude --setting-sources project,local
 ```
 
-Pick "Yes, I trust this folder", then `/exit`.
+Pick "Yes, I trust this folder", then `/exit`. Keep the
+`--setting-sources` flag: a bare `claude` there loads spore's user-level
+hooks, and the Stop hook spawns a stray coordinator session.
 
 ## State file
 

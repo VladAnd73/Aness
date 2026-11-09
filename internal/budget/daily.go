@@ -137,6 +137,9 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 	var errs []error
 	for _, src := range sources {
 		r, err := src(ctx, now)
+		if err == nil {
+			err = checkWeeklyReset(r, now)
+		}
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -153,6 +156,15 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 		return rec, errors.Join(failed, err)
 	}
 	return rec, failed
+}
+
+// A reset already past would clamp pace to 100 and read as room from
+// the previous week's usage.
+func checkWeeklyReset(r Reading, now time.Time) error {
+	if !r.WeeklyResetsAt.After(now) || r.WeeklyResetsAt.After(now.Add(weeklyWindow+time.Hour)) {
+		return fmt.Errorf("%s: weekly resets_at %s is not within the coming week", r.Source, r.WeeklyResetsAt.UTC().Format(time.RFC3339))
+	}
+	return nil
 }
 
 func saveDaily(rec DailyRecord) error {

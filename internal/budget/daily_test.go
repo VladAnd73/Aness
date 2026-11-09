@@ -168,3 +168,31 @@ func TestDailyUnknownJoinsSourceErrors(t *testing.T) {
 		t.Errorf("record: %+v", rec)
 	}
 }
+
+func TestDailyRejectsImplausibleReset(t *testing.T) {
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	for name, resets := range map[string]time.Time{
+		"past":       now.Add(-time.Hour),
+		"epoch zero": time.Unix(0, 0).UTC(),
+		"beyond 7d":  now.Add(8 * 24 * time.Hour),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, stateDir := dailyFixture(t)
+			bad := fixedReading(Reading{Source: "endpoint", WeeklyUsed: 1, WeeklyResetsAt: resets})
+			if _, err := runDaily(context.Background(), now, []ReadingSource{bad}); err == nil {
+				t.Error("runDaily: want error for an implausible weekly reset")
+			}
+			if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown {
+				t.Errorf("verdict: got %q want unknown", rec.Verdict)
+			}
+
+			good := fixedReading(Reading{Source: "probe", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt})
+			if _, err := runDaily(context.Background(), now, []ReadingSource{bad, good}); err != nil {
+				t.Fatalf("runDaily with fallback: %v", err)
+			}
+			if rec := readDailyJSON(t, stateDir); rec.Source != "probe" || rec.Verdict != VerdictRoom {
+				t.Errorf("fallback record: %+v", rec)
+			}
+		})
+	}
+}
