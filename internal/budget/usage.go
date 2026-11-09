@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -179,8 +180,10 @@ func decodeUsageBody(body []byte) (*usageBody, error) {
 	if w == nil || w.Utilization == nil {
 		return nil, errors.New("response has no seven_day utilization")
 	}
-	if !validPercent(*w.Utilization) {
-		return nil, fmt.Errorf("seven_day utilization %v is not in 0..100", *w.Utilization)
+	// Above 100 is kept: an exhausted account is real data for refresh.
+	// daily's own check still demands 0..100 before it judges room.
+	if u := *w.Utilization; !(u >= 0) || math.IsInf(u, 1) {
+		return nil, fmt.Errorf("seven_day utilization %v is not a percentage", u)
 	}
 	return &ub, nil
 }

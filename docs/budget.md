@@ -101,11 +101,12 @@ returned utilization percent and `resets_at` per window. On a 401 with
 a refresh token present, the binary refreshes once via
 `https://platform.claude.com/v1/oauth/token` and retries; the rolled
 credentials are written back via mktemp+rename. Other HTTP failures,
-and a body whose `seven_day.utilization` is missing, null or outside
-0..100, keep the previous snapshot but flag it `Stale` so consumers can
+and a body whose `seven_day.utilization` is missing, null, negative or
+not a number, keep the previous snapshot but flag it `Stale` so consumers can
 decide whether to trust it; such a body never reads as 0%. In the
 multi-account store, an account with such a body is left out of the
-average.
+average. A value above 100 (an exhausted account) is kept as is;
+only `daily` demands 0..100 before it judges room.
 
 A freshness gate prevents hammering `/usage`: successive `refresh`
 calls within 60 seconds reuse the cached snapshot. Override with

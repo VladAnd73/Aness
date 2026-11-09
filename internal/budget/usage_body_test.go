@@ -137,3 +137,19 @@ func TestRefreshSkipsAccountWithoutSevenDay(t *testing.T) {
 		t.Errorf("aggregate long.frac: got %.4f want 0.60 (secondary must not count as 0%%)", s.Long.Frac)
 	}
 }
+
+func TestRefreshKeepsAnExhaustedAccount(t *testing.T) {
+	usageRefreshFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, `{"five_hour":{"utilization":40,"resets_at":"2026-04-26T17:00:00.000000+00:00"},"seven_day":{"utilization":100.4,"resets_at":"2026-04-26T20:00:00.000000+00:00"}}`)
+	})
+	if err := Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.UsageSnapshot == nil || s.UsageSnapshot.Stale || s.UsageSnapshot.Long.Utilization != 100.4 || s.UsageSnapshot.Short.Utilization != 40 {
+		t.Errorf("snapshot: got %+v, want a fresh 100.4%% weekly with its five hour data", s.UsageSnapshot)
+	}
+}
