@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -196,6 +197,8 @@ func checkReading(r Reading, now time.Time) error {
 	return nil
 }
 
+var dailyStderr io.Writer = os.Stderr
+
 var atomicWrite = func(path string, b []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, stateFileMode); err != nil {
@@ -204,6 +207,8 @@ var atomicWrite = func(path string, b []byte) error {
 	return os.Rename(tmp, path)
 }
 
+// saveDaily replaces daily.json, then appends to the history. A history
+// failure is only a warning: the fresh verdict is already live.
 func saveDaily(rec DailyRecord) error {
 	d, err := stateDir()
 	if err != nil {
@@ -220,7 +225,15 @@ func saveDaily(rec DailyRecord) error {
 	if err := atomicWrite(filepath.Join(d, "daily.json"), line); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(d, "daily-history.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, stateFileMode)
+	hist := filepath.Join(d, "daily-history.jsonl")
+	if err := appendLine(hist, line); err != nil {
+		fmt.Fprintf(dailyStderr, "spore budget daily: warning: %s not appended: %v\n", hist, err)
+	}
+	return nil
+}
+
+func appendLine(path string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, stateFileMode)
 	if err != nil {
 		return err
 	}

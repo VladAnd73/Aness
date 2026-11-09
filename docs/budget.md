@@ -220,6 +220,8 @@ removes `daily.json`, which `room` also reads as `unknown`.
 - `$AGENT_BUDGET_STATE_DIR/daily.json`: the latest record, written by
   temp file plus rename.
 - `$AGENT_BUDGET_STATE_DIR/daily-history.jsonl`: one record per run.
+  Failing to append here only prints a warning: the fresh verdict in
+  `daily.json` is already live, so `daily` still exits 0.
 
 Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
 or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,

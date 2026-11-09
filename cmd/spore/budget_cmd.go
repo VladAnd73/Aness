@@ -22,7 +22,8 @@ Usage:
                              (diagnostic; bypasses the freshness throttle)
   spore budget daily         take one weekly-quota reading (usage endpoint, then a
                              status-line probe), write the headroom verdict;
-                             non-zero when no reading could be taken
+                             non-zero when no fresh verdict was saved (a
+                             history append failure only warns)
   spore budget room          print the last daily verdict; exit 0 room, 1 no-room,
                              2 unknown (missing, failed, or older than 26h)
 

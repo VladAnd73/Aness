@@ -1,11 +1,13 @@
 package budget
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,5 +148,33 @@ func TestDailyResetBoundIsSevenDaysAndAnHour(t *testing.T) {
 		if (err != nil) != wantErr {
 			t.Errorf("reset %v ahead: err %v, want error %v", ahead, err, wantErr)
 		}
+	}
+}
+
+func captureDailyStderr(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := dailyStderr
+	dailyStderr = &buf
+	t.Cleanup(func() { dailyStderr = old })
+	return &buf
+}
+
+func TestHistoryFailureAfterSaveWarnsAndSucceeds(t *testing.T) {
+	u, stateDir := dailyFixture(t)
+	stderr := captureDailyStderr(t)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	if err := os.MkdirAll(filepath.Join(stateDir, "daily-history.jsonl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	u.setWeekly(15, acceptResetsAt)
+	if _, err := runDaily(context.Background(), now, []ReadingSource{endpointReading}); err != nil {
+		t.Errorf("runDaily: got %v, want success: the fresh verdict is live", err)
+	}
+	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictRoom {
+		t.Errorf("verdict: got %q want room", rec.Verdict)
+	}
+	if !strings.Contains(stderr.String(), "daily-history.jsonl") {
+		t.Errorf("stderr: got %q, want a warning naming the history file", stderr.String())
 	}
 }

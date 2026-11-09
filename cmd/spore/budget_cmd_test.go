@@ -37,3 +37,11 @@ func TestBudgetUsageListsDailyAndRoom(t *testing.T) {
 		}
 	}
 }
+
+func TestBudgetUsageDailyExitRule(t *testing.T) {
+	for _, want := range []string{"non-zero when no fresh verdict was saved", "history append failure only warns"} {
+		if !strings.Contains(strings.Join(strings.Fields(budgetUsage), " "), want) {
+			t.Errorf("usage text lacks %q", want)
+		}
+	}
+}
