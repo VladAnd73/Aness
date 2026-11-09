@@ -195,3 +195,23 @@ func TestFallbackRecordKeepsEarlierSourceErrors(t *testing.T) {
 		t.Errorf("stderr: got %q, want the endpoint error", stderr.String())
 	}
 }
+
+func TestFailedDayHistoryHasNoZeroNumbers(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	_, _ = runDaily(context.Background(), now, []ReadingSource{failingSource("endpoint broke")})
+	hist, err := os.ReadFile(filepath.Join(stateDir, "daily-history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"weekly_used", "weekly_resets_at", "pace", "headroom", "five_hour_used", "five_hour_resets_at"} {
+		if strings.Contains(string(hist), `"`+key+`"`) {
+			t.Errorf("failed day carries %s: %s", key, hist)
+		}
+	}
+	for _, key := range []string{`"verdict":"unknown"`, `"taken_at"`, `"margin":10`, `"error":"endpoint broke"`} {
+		if !strings.Contains(string(hist), key) {
+			t.Errorf("failed day lacks %s: %s", key, hist)
+		}
+	}
+}

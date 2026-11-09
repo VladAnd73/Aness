@@ -234,6 +234,9 @@ or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
 (per-model weekly percent, when present), `error` (on `unknown`) and
 `errors` (failures of earlier sources and non-fatal decode problems
 when a later source succeeded; `daily` also prints them to stderr).
+An `unknown` record carries only `taken_at`, `margin`, `verdict`,
+`error` and `errors`: no numbers, so a failed day in the history never
+reads as 0% used.
 
 ### `room` exit codes
 
@@ -246,7 +249,7 @@ when a later source succeeded; `daily` also prints them to stderr).
 Staleness is checked before the reset rule. `room` prints one line:
 
 ```
-room used=15.0% pace=28.6% headroom=13.6 taken=2026-11-11T18:00:00Z source=endpoint
+room used=15.0% pace=28.6% headroom=13.6 margin=10.0 taken=2026-11-11T18:00:00Z source=endpoint
 ```
 
 ### Config

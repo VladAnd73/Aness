@@ -45,6 +45,22 @@ type DailyRecord struct {
 	Errors           []string           `json:"errors,omitempty"`
 }
 
+// MarshalJSON leaves the numbers out of an unknown record, so a failed
+// day in the history cannot be mistaken for a 0% reading.
+func (r DailyRecord) MarshalJSON() ([]byte, error) {
+	type plain DailyRecord
+	if r.Verdict != VerdictUnknown {
+		return json.Marshal(plain(r))
+	}
+	return json.Marshal(struct {
+		TakenAt time.Time `json:"taken_at"`
+		Margin  float64   `json:"margin"`
+		Verdict string    `json:"verdict"`
+		Error   string    `json:"error,omitempty"`
+		Errors  []string  `json:"errors,omitempty"`
+	}{r.TakenAt, r.Margin, r.Verdict, r.Error, r.Errors})
+}
+
 type ReadingSource func(ctx context.Context, now time.Time) (Reading, error)
 
 const weeklyWindow = 7 * 24 * time.Hour

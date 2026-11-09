@@ -60,8 +60,8 @@ func Room() int {
 }
 
 func roomLine(verdict string, rec DailyRecord, note string) string {
-	line := fmt.Sprintf("%s used=%.1f%% pace=%.1f%% headroom=%.1f taken=%s source=%s",
-		verdict, rec.WeeklyUsed, rec.Pace, rec.Headroom, rec.TakenAt.UTC().Format(time.RFC3339), rec.Source)
+	line := fmt.Sprintf("%s used=%.1f%% pace=%.1f%% headroom=%.1f margin=%.1f taken=%s source=%s",
+		verdict, rec.WeeklyUsed, rec.Pace, rec.Headroom, rec.Margin, rec.TakenAt.UTC().Format(time.RFC3339), rec.Source)
 	if rec.Source == "" {
 		line = fmt.Sprintf("%s taken=%s", verdict, rec.TakenAt.UTC().Format(time.RFC3339))
 	}

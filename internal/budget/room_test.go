@@ -81,7 +81,7 @@ func TestRoomLineFormat(t *testing.T) {
 	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
 	writeDailyJSON(t, stateDir, computeVerdict(Reading{Source: "endpoint", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt}, 10, now))
 	_, line := roomVerdict(now.Add(time.Hour))
-	want := "room used=15.0% pace=28.6% headroom=13.6 taken=2026-11-11T18:00:00Z source=endpoint"
+	want := "room used=15.0% pace=28.6% headroom=13.6 margin=10.0 taken=2026-11-11T18:00:00Z source=endpoint"
 	if line != want {
 		t.Errorf("line:\n got %q\nwant %q", line, want)
 	}
