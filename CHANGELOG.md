@@ -8,7 +8,8 @@
   Any failed run leaves `room` answering unknown. A user timer
   template (`spore-budget-daily.timer`, 18:00 UTC) ships in
   `bootstrap/handover/systemd/` and the shims package; install pins
-  its state dir from the new `spore budget state-dir`. See
+  its state dir, config and credentials from the new
+  `spore budget timer-env`. See
   `docs/budget.md`, "Daily headroom".
 - `spore budget refresh`, `summary` and the advice band no longer read
   a missing or null weekly (`seven_day`) usage as 0%: the snapshot

@@ -58,3 +58,28 @@ func TestEndpointCredentialsFollowClaudeConfigDir(t *testing.T) {
 		t.Errorf("override: got %q", got)
 	}
 }
+
+func TestTimerEnvPinsWhatTheShellResolves(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	t.Setenv("AGENT_BUDGET_STATE_DIR", "my state")
+	t.Setenv("AGENT_BUDGET_CREDS", "/c/100%\"x\".json")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("SPORE_BUDGET_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "/cfg")
+	got, err := TimerEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[Service]\n",
+		`Environment="AGENT_BUDGET_STATE_DIR=` + filepath.Join(base, "my state") + `"` + "\n",
+		`Environment="AGENT_BUDGET_CREDS=/c/100%%\"x\".json"` + "\n",
+		`Environment="SPORE_BUDGET_CONFIG=/cfg/spore/budget.toml"` + "\n",
+		"UnsetEnvironment=CLAUDE_CONFIG_DIR\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("drop-in lacks %q:\n%s", want, got)
+		}
+	}
+}

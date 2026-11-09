@@ -55,3 +55,13 @@ func TestBudgetStateDirCommand(t *testing.T) {
 		t.Error("usage text lacks spore budget state-dir")
 	}
 }
+
+func TestBudgetTimerEnvCommand(t *testing.T) {
+	t.Setenv("AGENT_BUDGET_STATE_DIR", t.TempDir())
+	if code := runBudgetCmd("timer-env", nil); code != 0 {
+		t.Errorf("timer-env: got %d want 0", code)
+	}
+	if !strings.Contains(budgetUsage, "spore budget timer-env") {
+		t.Error("usage text lacks spore budget timer-env")
+	}
+}

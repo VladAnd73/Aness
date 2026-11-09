@@ -168,9 +168,9 @@ reads as 0% used.
   SIGINT and SIGTERM with a bounded `kill-server`.
 - The probe deletes its own transcript by session id:
   `--no-session-persistence` only works with `--print`.
-- The timer pins its state dir with a drop-in written from
-  `spore budget state-dir`, because the user manager never sees
-  variables set in a shell.
+- The timer pins its state dir, budget config, credentials and claude
+  config dir with a drop-in written by `spore budget timer-env`,
+  because the user manager never sees variables set in a shell.
 
 ## Constraints
 

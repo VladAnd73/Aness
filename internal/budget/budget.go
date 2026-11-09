@@ -109,6 +109,43 @@ func ResolvedStateDir() (string, error) {
 	return stateDir()
 }
 
+// TimerEnv renders a systemd drop-in that gives the daily timer what
+// this shell resolves: the user manager never sees variables set only
+// in a shell, so without it the timer could read another state dir,
+// another account or another claude config dir than `room` and a
+// manual `daily` do. A variable unset here is unset there too.
+func TimerEnv() (string, error) {
+	sd, err := stateDir()
+	if err != nil {
+		return "", err
+	}
+	cfg, err := filepath.Abs(dailyConfigPath())
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("[Service]\n")
+	set := func(key, val string) {
+		val = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%").Replace(val)
+		fmt.Fprintf(&b, "Environment=\"%s=%s\"\n", key, val)
+	}
+	set("AGENT_BUDGET_STATE_DIR", sd)
+	set("SPORE_BUDGET_CONFIG", cfg)
+	for _, key := range []string{"AGENT_BUDGET_CREDS", "CLAUDE_CONFIG_DIR"} {
+		v := os.Getenv(key)
+		if v == "" {
+			fmt.Fprintf(&b, "UnsetEnvironment=%s\n", key)
+			continue
+		}
+		abs, err := filepath.Abs(v)
+		if err != nil {
+			return "", err
+		}
+		set(key, abs)
+	}
+	return b.String(), nil
+}
+
 func projectsDir() (string, error) {
 	if d := os.Getenv("AGENT_BUDGET_PROJECTS"); d != "" {
 		return d, nil

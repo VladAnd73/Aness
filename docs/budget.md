@@ -314,20 +314,21 @@ the next boot. The shims package ships them under
 ```sh
 cp bootstrap/handover/systemd/spore-budget-daily.* ~/.config/systemd/user/
 mkdir -p ~/.config/systemd/user/spore-budget-daily.service.d
-printf '[Service]\nEnvironment=AGENT_BUDGET_STATE_DIR=%s\n' "$(spore budget state-dir)" \
-  > ~/.config/systemd/user/spore-budget-daily.service.d/state-dir.conf
+spore budget timer-env > ~/.config/systemd/user/spore-budget-daily.service.d/env.conf
 systemctl --user daemon-reload
 systemctl --user enable --now spore-budget-daily.timer
 ```
 
-The drop-in pins the state dir. The timer runs under the user
-manager's environment, which never sees `AGENT_BUDGET_STATE_DIR` or
-`XDG_STATE_HOME` set in a shell rc; without the pin, `daily` could write
-one directory while `room` in your shell reads another.
-`spore budget state-dir` prints the absolute directory the current
-shell resolves, so run the install from the same environment that will
-call `room`, and rerun it if you change either variable. `room` names
-the directory it looked in when it finds no reading.
+The drop-in pins what the timer would otherwise take from the user
+manager's environment, which never sees variables set in a shell rc:
+the state dir, the budget config path, `AGENT_BUDGET_CREDS` and
+`CLAUDE_CONFIG_DIR` (unset in the drop-in when unset in the shell).
+Without it, `daily` could write one state dir while `room` reads
+another, measure another account, or run claude under a config dir
+where the probe folder is not trusted. Run the install from the
+environment that will call `room` and trust the probe folder, and
+rerun `timer-env` if any of those variables change. `room` names the
+directory it looked in when it finds no reading.
 
 The service runs `/usr/bin/env spore`, so `spore`, `tmux` and
 `claude` must be on the user manager's `PATH`.
