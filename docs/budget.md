@@ -92,7 +92,9 @@ than 30 minutes) flips into api mode.
 
 ### Subscription mode
 
-`refresh` reads `~/.claude/.credentials.json`, hits
+`refresh` reads `$AGENT_BUDGET_CREDS`, else claude's own credentials
+file (`$CLAUDE_CONFIG_DIR/.credentials.json`, else
+`~/.claude/.credentials.json`), hits
 `https://api.anthropic.com/api/oauth/usage` with `Authorization: Bearer
 <accessToken>` and `anthropic-beta: oauth-2025-04-20`, and stores the
 returned utilization percent and `resets_at` per window. On a 401 with
@@ -258,8 +260,10 @@ Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
 or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
 `margin`, `verdict`, `five_hour_used`, `five_hour_resets_at`, `extra`
 (per-model weekly percent, when present), `credentials` (the
-credentials file whose account was measured: `$AGENT_BUDGET_CREDS` for
-the endpoint, claude's own file for the probe; if they ever differ,
+credentials file whose account was measured: for the endpoint
+`$AGENT_BUDGET_CREDS`, else claude's own file, for the probe claude's
+own file (`$CLAUDE_CONFIG_DIR/.credentials.json`, else
+`~/.claude/.credentials.json`); if they ever differ,
 the two sources measured different accounts), `error` (on `unknown`) and
 `errors` (failures of earlier sources and non-fatal decode problems
 when a later source succeeded; `daily` also prints them to stderr).

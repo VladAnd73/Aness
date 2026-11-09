@@ -40,7 +40,8 @@ binary can shadow-soak against the same state file):
   AGENT_BUDGET_STATE_DIR     state directory (default $XDG_STATE_HOME/agent-budget
                              or ~/.local/state/agent-budget)
   AGENT_BUDGET_PROJECTS      transcript root (default ~/.claude/projects)
-  AGENT_BUDGET_CREDS         OAuth credentials path (default ~/.claude/.credentials.json)
+  AGENT_BUDGET_CREDS         OAuth credentials path (default $CLAUDE_CONFIG_DIR/.credentials.json,
+                             else ~/.claude/.credentials.json, as claude itself looks)
   AGENT_BUDGET_USAGE_MIN_INTERVAL_SEC
                              minimum seconds between subscription /usage hits (default 60;
                              0 disables the throttle for tests / operator override)

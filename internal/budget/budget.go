@@ -86,14 +86,15 @@ type state struct {
 	AccountSnapshots map[string]*usageSnapshot `json:"account_snapshots,omitempty"`
 }
 
-// stateDir is absolute so a relative AGENT_BUDGET_STATE_DIR names the
-// same directory as the one pinned into the timer unit.
+// stateDir is absolute so a relative AGENT_BUDGET_STATE_DIR or
+// XDG_STATE_HOME names the same directory as the one pinned into the
+// timer unit.
 func stateDir() (string, error) {
 	if d := os.Getenv("AGENT_BUDGET_STATE_DIR"); d != "" {
 		return filepath.Abs(d)
 	}
 	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "agent-budget"), nil
+		return filepath.Abs(filepath.Join(d, "agent-budget"))
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

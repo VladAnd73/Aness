@@ -72,9 +72,14 @@ type credentialsFile struct {
 	oauth oauthBlock
 }
 
+// oauthCredsPath follows claude's own lookup (CLAUDE_CONFIG_DIR, then
+// ~/.claude), so the endpoint and the daily probe read one account.
 func oauthCredsPath() string {
 	if p := os.Getenv("AGENT_BUDGET_CREDS"); p != "" {
 		return p
+	}
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(d, ".credentials.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
