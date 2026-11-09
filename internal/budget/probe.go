@@ -193,7 +193,23 @@ func (p probe) writeSettings() (string, error) {
 	return path, os.WriteFile(path, b, stateFileMode)
 }
 
+// probeLockPath is per user and per socket, like the tmux server it
+// guards: daily runs on different state dirs would otherwise kill each
+// other's probe.
+func probeLockPath(socket string) string {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, fmt.Sprintf("spore-budget-%d-%s.lock", os.Getuid(), socket))
+}
+
 func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
+	unlock, err := lockFile(ctx, probeLockPath(p.socket))
+	if err != nil {
+		return Reading{}, err
+	}
+	defer unlock()
 	settings, err := p.writeSettings()
 	if err != nil {
 		return Reading{}, err

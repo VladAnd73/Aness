@@ -257,10 +257,8 @@ var atomicWrite = func(path string, b []byte) error {
 	return nil
 }
 
-// lockDaily serialises daily runs: two at once would share the probe's
-// tmux server, each killing the other's probe. Like spore dream's lock
-// it is an flock, so a crashed holder never wedges later runs. It
-// blocks: the holder is bounded by the probe timeout.
+// lockDaily serialises daily runs on one state dir, so two never write
+// daily.json at once.
 func lockDaily(ctx context.Context) (unlock func(), err error) {
 	d, err := stateDir()
 	if err != nil {
@@ -269,7 +267,14 @@ func lockDaily(ctx context.Context) (unlock func(), err error) {
 	if err := os.MkdirAll(d, stateDirMode); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(d, "daily.lock"), os.O_CREATE|os.O_RDWR, stateFileMode)
+	return lockFile(ctx, filepath.Join(d, "daily.lock"))
+}
+
+// lockFile takes an exclusive flock on path, waiting until ctx ends.
+// Like spore dream's lock it is an flock, so a crashed holder never
+// wedges later runs.
+func lockFile(ctx context.Context, path string) (unlock func(), err error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, stateFileMode)
 	if err != nil {
 		return nil, err
 	}
@@ -280,12 +285,12 @@ func lockDaily(ctx context.Context) (unlock func(), err error) {
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) {
 			_ = f.Close()
-			return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+			return nil, fmt.Errorf("lock %s: %w", path, err)
 		}
 		select {
 		case <-ctx.Done():
 			_ = f.Close()
-			return nil, fmt.Errorf("waiting for another daily run: %w", ctx.Err())
+			return nil, fmt.Errorf("waiting for %s: %w", path, ctx.Err())
 		case <-time.After(100 * time.Millisecond):
 		}
 	}

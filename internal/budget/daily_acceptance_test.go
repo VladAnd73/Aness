@@ -43,6 +43,7 @@ func (u *usageServer) setWeekly(used float64, resetsAt time.Time) {
 func dailyFixture(t *testing.T) (*usageServer, string) {
 	t.Helper()
 	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
 	stateDir := filepath.Join(dir, "state")
 	t.Setenv("AGENT_BUDGET_STATE_DIR", stateDir)
 	t.Setenv("SPORE_BUDGET_CONFIG", filepath.Join(dir, "budget.toml"))
@@ -269,6 +270,7 @@ func (c *callRecorder) snapshot() []recordedCall {
 
 func TestAcceptance7ProbeIsolation(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
 	rec := &callRecorder{}
 	p := newProbe(dir)
 	p.run = rec.runner(nil)

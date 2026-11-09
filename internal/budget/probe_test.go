@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ func TestProbeEnvStripsSporeAndOtherAccounts(t *testing.T) {
 
 func testProbe(t *testing.T, rec *callRecorder, onCall func(p probe, name string, args []string)) probe {
 	t.Helper()
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	p := newProbe(t.TempDir())
 	p.environ = func() []string { return []string{"HOME=/h"} }
 	p.timeout = 2 * time.Second
@@ -298,6 +300,7 @@ func TestProbeRealTmuxCancelLeavesNoServer(t *testing.T) {
 // file, which tmux leaves behind after kill-server.
 func realTmuxSocket(t *testing.T, name string) string {
 	t.Helper()
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	dir := os.Getenv("TMUX_TMPDIR")
 	if dir == "" {
 		dir = "/tmp"
@@ -457,5 +460,40 @@ func TestProbeInterruptIsNotBlamedOnTrust(t *testing.T) {
 	_, err := p.reading(ctx, time.Now())
 	if err == nil || strings.Contains(err.Error(), "trusted") || !errors.Is(err, context.Canceled) {
 		t.Errorf("reading after an interrupt: got %v, want a plain cancellation", err)
+	}
+}
+
+func TestProbesOnOneSocketDoNotOverlap(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	var mu sync.Mutex
+	type window struct{ start, end time.Time }
+	windows := make([]window, 2)
+	var wg sync.WaitGroup
+	for i := range windows {
+		p := newProbe(t.TempDir())
+		p.environ = func() []string { return []string{"HOME=/h"} }
+		p.timeout = 100 * time.Millisecond
+		p.poll = 5 * time.Millisecond
+		p.run = func(_ context.Context, _ []string, _ string, args ...string) ([]byte, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case slices.Contains(args, "new-session"):
+				windows[i].start = time.Now()
+			case slices.Contains(args, "kill-server"):
+				windows[i].end = time.Now()
+			}
+			return nil, nil
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = p.reading(context.Background(), time.Now())
+		}()
+	}
+	wg.Wait()
+	a, b := windows[0], windows[1]
+	if a.start.Before(b.end) && b.start.Before(a.end) {
+		t.Errorf("two probes on one tmux socket ran at once: %v-%v and %v-%v", a.start, a.end, b.start, b.end)
 	}
 }
