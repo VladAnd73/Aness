@@ -1,6 +1,6 @@
 # Daily usage headroom
 
-**Status**: design reviewed 2026-11-09, awaiting operator approval; not built.
+**Status**: built 2026-11-09, PR #<n>.
 
 ## Intent
 
@@ -99,6 +99,10 @@ spike on this host 2026-11-09 (Claude Code 2.1.296):
   shares the login (careful: never symlink `~/.claude/plugins`). If
   neither works cleanly, ship the endpoint path first and the probe in
   a follow-up, and say so (builder's call, made by the coordinator).
+  Result (live run, 2026-11-09): `disableAllHooks` also turns off the
+  status line, so it cannot be used. `--setting-sources project,local`
+  keeps the user-level hooks out while the `--settings` status line
+  still runs; no stray session appeared.
 - The probe must not use the operator's tmux session in a way that
   disturbs them: use a dedicated tmux server (`tmux -L <label>`), and
   tear down only that server by name.

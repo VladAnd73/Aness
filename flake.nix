@@ -111,6 +111,8 @@
             install -m 0644 $src/settings.json               $out/share/spore/settings.json
             install -m 0644 $src/systemd/spore-fleet-reconcile.service $out/share/spore/systemd/spore-fleet-reconcile.service
             install -m 0644 $src/systemd/spore-fleet-reconcile.timer   $out/share/spore/systemd/spore-fleet-reconcile.timer
+            install -m 0644 $src/systemd/spore-budget-daily.service    $out/share/spore/systemd/spore-budget-daily.service
+            install -m 0644 $src/systemd/spore-budget-daily.timer      $out/share/spore/systemd/spore-budget-daily.timer
           '';
         in
         {
@@ -317,7 +319,9 @@
                 share/spore/hooks/load-state-md.pl \
                 share/spore/settings.json \
                 share/spore/systemd/spore-fleet-reconcile.service \
-                share/spore/systemd/spore-fleet-reconcile.timer; do
+                share/spore/systemd/spore-fleet-reconcile.timer \
+                share/spore/systemd/spore-budget-daily.service \
+                share/spore/systemd/spore-budget-daily.timer; do
                 if [ ! -e "${shims}/$f" ]; then
                   echo "shims package missing $f"
                   fail=1

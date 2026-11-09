@@ -16,6 +16,10 @@ spore budget stop-hook     Stop-hook helper: exit 2 with stderr reminder on a
                            fresh band crossing, exit 0 otherwise.
 spore budget debug-usage   Hit /usage once and print raw + parsed response
                            (bypasses the freshness throttle; diagnostic).
+spore budget daily         Take one weekly-quota reading, write the headroom
+                           verdict (see "Daily headroom").
+spore budget room          Print the last daily verdict; the exit code is the
+                           verdict.
 ```
 
 ## Caps and bands
@@ -165,6 +169,109 @@ model. Reserve top-tier models for tool-use loops and code edits.
 The "(resets in ...)" hint appears only on the binding window for the
 band - the one whose frac actually crossed. The advice tail is band-
 specific.
+
+## Daily headroom
+
+Once a day `spore budget daily` records how much of the weekly quota
+is used against how much of the week has passed. `spore budget room`
+reads that record and answers with its exit code, so a consumer never
+parses files. Design: `docs/superpowers/specs/2026-11-09-usage-headroom-design.md`.
+
+### The rule
+
+The weekly window starts 7 days before the weekly `resets_at` the
+account reports.
+
+- `pace` = percent of the window that has passed, clamped to 0..100.
+- `headroom` = `pace - used`, in percentage points.
+- verdict `room` when `headroom >= margin`, else `no-room`.
+
+### Reading sources
+
+1. The OAuth usage endpoint (the same one subscription mode uses). A
+   transport error, a non-200 answer, or a body without a numeric
+   `seven_day.utilization` and a parsable `seven_day.resets_at` is a
+   failed read, never a 0% reading. Per-model weekly percentages from
+   the `limits` list are kept under `extra`.
+2. A probe: an interactive `claude --model haiku` on its own tmux
+   server (`tmux -L spore-budget-probe`), started with every `SPORE_*`
+   variable removed, `--setting-sources project,local` (user settings
+   hold spore's hooks, whose Stop hook would spawn a stray coordinator
+   session) and a `--settings` file whose status line copies its input
+   to `<state dir>/probe/statusline.json`. The probe sends one short
+   prompt, waits up to 90s for `rate_limits.seven_day`, then kills its
+   tmux server. `disableAllHooks` is not used: it also turns off the
+   status line. One run costs about one cent of quota.
+
+When both fail, `daily` still writes `daily.json` with verdict
+`unknown` and exits non-zero.
+
+### Files
+
+- `$AGENT_BUDGET_STATE_DIR/daily.json`: the latest record, written by
+  temp file plus rename.
+- `$AGENT_BUDGET_STATE_DIR/daily-history.jsonl`: one record per run.
+
+Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
+or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
+`margin`, `verdict`, `five_hour_used`, `five_hour_resets_at`, `extra`
+(per-model weekly percent, when present) and `error` (on `unknown`).
+
+### `room` exit codes
+
+| Exit | Meaning |
+|------|---------|
+| 0 | `room` |
+| 1 | `no-room`, or the saved `weekly_resets_at` has passed |
+| 2 | `unknown`: no or unreadable `daily.json`, verdict `unknown`, or a reading older than 26h |
+
+Staleness is checked before the reset rule. `room` prints one line:
+
+```
+room used=15.0% pace=28.6% headroom=13.6 taken=2026-11-11T18:00:00Z source=endpoint
+```
+
+### Config
+
+`$SPORE_BUDGET_CONFIG`, default `$XDG_CONFIG_HOME/spore/budget.toml`
+(`~/.config/spore/budget.toml`). A missing file means defaults.
+
+```toml
+# percentage points of headroom needed for "room"
+margin = 10
+```
+
+`margin` must be a number >= 0. Any other key, or a malformed line,
+makes `daily` fail without writing a record.
+
+### Timer
+
+`bootstrap/handover/systemd/spore-budget-daily.{service,timer}` run
+`daily` at 18:00 UTC; a run missed while the host was down happens at
+the next boot. The shims package ships them under
+`share/spore/systemd/`. Install for the current user:
+
+```sh
+cp bootstrap/handover/systemd/spore-budget-daily.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now spore-budget-daily.timer
+```
+
+The service runs `/usr/bin/env spore`, so `spore`, `tmux` and
+`claude` must be on the user manager's `PATH`.
+
+### Trusting the probe folder
+
+Claude Code asks "do you trust this folder" in a folder it has not
+seen, and that prompt blocks the probe (`daily` then reports `status
+line never ran`). Trust the probe folder once by hand:
+
+```sh
+d="${AGENT_BUDGET_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-budget}/probe"
+mkdir -p "$d" && cd "$d" && claude
+```
+
+Pick "Yes, I trust this folder", then `/exit`.
 
 ## State file
 

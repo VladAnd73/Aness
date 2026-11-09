@@ -1,0 +1,13 @@
+[Unit]
+Description=spore daily weekly-quota headroom reading, 18:00 UTC
+Documentation=https://github.com/VladAnd73/Aness
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 UTC
+# A reading missed while the host was down runs at the next boot.
+# `spore budget room` still treats a reading older than 26h as unknown.
+Persistent=true
+Unit=spore-budget-daily.service
+
+[Install]
+WantedBy=timers.target

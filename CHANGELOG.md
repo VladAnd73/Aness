@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `spore budget daily` records once a day how much of the weekly
+  Claude quota is used against how much of the week has passed, and
+  `spore budget room` answers room / no-room / unknown by exit code.
+  A user timer template (`spore-budget-daily.timer`, 18:00 UTC) ships
+  in `bootstrap/handover/systemd/` and the shims package. See
+  `docs/budget.md`, "Daily headroom".
+
 ## 1.0.0
 
 - Every merge to `main` now cuts a version. The new Release workflow
