@@ -226,7 +226,9 @@ removes `daily.json`, which `room` also reads as `unknown`.
 Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
 or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
 `margin`, `verdict`, `five_hour_used`, `five_hour_resets_at`, `extra`
-(per-model weekly percent, when present) and `error` (on `unknown`).
+(per-model weekly percent, when present), `error` (on `unknown`) and
+`errors` (failures of earlier sources and non-fatal decode problems
+when a later source succeeded; `daily` also prints them to stderr).
 
 ### `room` exit codes
 

@@ -178,3 +178,20 @@ func TestHistoryFailureAfterSaveWarnsAndSucceeds(t *testing.T) {
 		t.Errorf("stderr: got %q, want a warning naming the history file", stderr.String())
 	}
 }
+
+func TestFallbackRecordKeepsEarlierSourceErrors(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	stderr := captureDailyStderr(t)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	good := fixedReading(Reading{Source: "probe", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt})
+	if _, err := runDaily(context.Background(), now, []ReadingSource{failingSource("endpoint: HTTP 503"), good}); err != nil {
+		t.Fatalf("runDaily: %v", err)
+	}
+	rec := readDailyJSON(t, stateDir)
+	if rec.Source != "probe" || len(rec.Errors) != 1 || rec.Errors[0] != "endpoint: HTTP 503" {
+		t.Errorf("record: source %q errors %q, want probe with the endpoint error", rec.Source, rec.Errors)
+	}
+	if !strings.Contains(stderr.String(), "endpoint: HTTP 503") {
+		t.Errorf("stderr: got %q, want the endpoint error", stderr.String())
+	}
+}

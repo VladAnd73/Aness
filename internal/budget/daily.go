@@ -41,6 +41,7 @@ type DailyRecord struct {
 	FiveHourResetsAt time.Time          `json:"five_hour_resets_at"`
 	Extra            map[string]float64 `json:"extra,omitempty"`
 	Error            string             `json:"error,omitempty"`
+	Errors           []string           `json:"errors,omitempty"`
 }
 
 type ReadingSource func(ctx context.Context, now time.Time) (Reading, error)
@@ -147,6 +148,10 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 			continue
 		}
 		rec := computeVerdict(r, cfg.Margin, now)
+		for _, e := range errs {
+			rec.Errors = append(rec.Errors, e.Error())
+			fmt.Fprintf(dailyStderr, "spore budget daily: %v\n", e)
+		}
 		if err := saveDaily(rec); err != nil {
 			return failDaily(now, cfg.Margin, append(errs, fmt.Errorf("save %s reading: %w", r.Source, err))...)
 		}
