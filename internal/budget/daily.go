@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/versality/spore/internal/statefile"
 )
 
 const (
@@ -236,25 +238,7 @@ func checkReading(r Reading, now time.Time) error {
 var dailyStderr io.Writer = os.Stderr
 
 var atomicWrite = func(path string, b []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	if _, err := f.Write(b); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return statefile.WriteFileAtomic(path, filepath.Base(path)+".*.tmp", b)
 }
 
 // lockDaily serialises daily runs on one state dir, so two never write
