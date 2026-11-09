@@ -5,9 +5,15 @@
 - `spore budget daily` records once a day how much of the weekly
   Claude quota is used against how much of the week has passed, and
   `spore budget room` answers room / no-room / unknown by exit code.
-  A user timer template (`spore-budget-daily.timer`, 18:00 UTC) ships
-  in `bootstrap/handover/systemd/` and the shims package. See
+  Any failed run leaves `room` answering unknown. A user timer
+  template (`spore-budget-daily.timer`, 18:00 UTC) ships in
+  `bootstrap/handover/systemd/` and the shims package; install pins
+  its state dir from the new `spore budget state-dir`. See
   `docs/budget.md`, "Daily headroom".
+- `spore budget refresh`, `summary` and the advice band no longer read
+  a missing or null weekly (`seven_day`) usage as 0%: the snapshot
+  goes stale instead, and a store account with such a body is left out
+  of the average.
 
 ## 1.0.0
 
