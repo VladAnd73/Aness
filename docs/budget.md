@@ -232,7 +232,7 @@ or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
 |------|---------|
 | 0 | `room` |
 | 1 | `no-room`, or the saved `weekly_resets_at` has passed |
-| 2 | `unknown`: no or unreadable `daily.json`, verdict `unknown`, or a reading older than 26h |
+| 2 | `unknown`: no or unreadable `daily.json`, verdict `unknown`, a reading older than 26h, or one taken more than 5 minutes in the future (the clock moved) |
 
 Staleness is checked before the reset rule. `room` prints one line:
 

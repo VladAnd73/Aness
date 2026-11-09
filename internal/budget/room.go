@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const dailyStaleAfter = 26 * time.Hour
+const (
+	dailyStaleAfter  = 26 * time.Hour
+	dailyFutureSlack = 5 * time.Minute
+)
 
 func roomVerdict(now time.Time) (code int, line string) {
 	d, err := stateDir()
@@ -30,6 +33,11 @@ func roomVerdict(now time.Time) (code int, line string) {
 	}
 	if rec.TakenAt.IsZero() || now.Sub(rec.TakenAt) > dailyStaleAfter {
 		return 2, roomLine(VerdictUnknown, rec, "stale")
+	}
+	// A reading from the future means the clock moved; its age, and so
+	// its staleness, cannot be trusted.
+	if rec.TakenAt.Sub(now) > dailyFutureSlack {
+		return 2, roomLine(VerdictUnknown, rec, "future")
 	}
 	switch rec.Verdict {
 	case VerdictRoom, VerdictNoRoom:

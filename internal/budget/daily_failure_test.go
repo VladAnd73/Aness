@@ -111,3 +111,40 @@ func TestWeeklyUsedOutOfRangeIsAFailedRead(t *testing.T) {
 		}
 	}
 }
+
+func TestRoomFutureTakenAtIsUnknown(t *testing.T) {
+	now := acceptResetsAt.Add(-3 * 24 * time.Hour)
+	for name, c := range map[string]struct {
+		ahead time.Duration
+		code  int
+	}{
+		"48h ahead":  {48 * time.Hour, 2},
+		"6m ahead":   {6 * time.Minute, 2},
+		"4m ahead":   {4 * time.Minute, 0},
+		"1h earlier": {-time.Hour, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, stateDir := dailyFixture(t)
+			writeDailyJSON(t, stateDir, DailyRecord{
+				TakenAt: now.Add(c.ahead), Source: "endpoint", Verdict: VerdictRoom,
+				WeeklyUsed: 10, WeeklyResetsAt: acceptResetsAt, Pace: 40, Headroom: 30, Margin: 10,
+			})
+			if code, line := roomVerdict(now); code != c.code {
+				t.Errorf("got %d (%q) want %d", code, line, c.code)
+			}
+		})
+	}
+}
+
+func TestDailyResetBoundIsSevenDaysAndAnHour(t *testing.T) {
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	for ahead, wantErr := range map[time.Duration]bool{
+		7*24*time.Hour + 30*time.Minute: false,
+		7*24*time.Hour + 90*time.Minute: true,
+	} {
+		err := checkReading(Reading{Source: "endpoint", WeeklyUsed: 1, WeeklyResetsAt: now.Add(ahead)}, now)
+		if (err != nil) != wantErr {
+			t.Errorf("reset %v ahead: err %v, want error %v", ahead, err, wantErr)
+		}
+	}
+}
