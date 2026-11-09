@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -213,5 +214,58 @@ func TestFailedDayHistoryHasNoZeroNumbers(t *testing.T) {
 		if !strings.Contains(string(hist), key) {
 			t.Errorf("failed day lacks %s: %s", key, hist)
 		}
+	}
+}
+
+func TestConcurrentDailyRunsDoNotOverlap(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	var mu sync.Mutex
+	inside, overlapped := 0, false
+	slow := func(context.Context, time.Time) (Reading, error) {
+		mu.Lock()
+		inside++
+		overlapped = overlapped || inside > 1
+		mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
+		inside--
+		mu.Unlock()
+		return Reading{Source: "probe", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt}, nil
+	}
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runDaily(context.Background(), now, []ReadingSource{slow}); err != nil {
+				t.Errorf("runDaily: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if overlapped {
+		t.Error("two daily runs took a reading at the same time")
+	}
+	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictRoom {
+		t.Errorf("verdict: got %q want room", rec.Verdict)
+	}
+}
+
+func TestDailySaveDoesNotShareATempName(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	if err := os.MkdirAll(filepath.Join(stateDir, "daily.json.tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	good := fixedReading(Reading{Source: "endpoint", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt})
+	if _, err := runDaily(context.Background(), acceptResetsAt.Add(-5*24*time.Hour), []ReadingSource{good}); err != nil {
+		t.Fatalf("runDaily with a foreign daily.json.tmp present: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(stateDir, "daily.json"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("daily.json: %v %v", fi, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(stateDir, "daily.json.*")); len(left) != 1 {
+		t.Errorf("temp files left behind: %v", left)
 	}
 }

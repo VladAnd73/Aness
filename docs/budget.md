@@ -222,8 +222,11 @@ removes `daily.json`, which `room` also reads as `unknown`.
 
 ### Files
 
-- `$AGENT_BUDGET_STATE_DIR/daily.json`: the latest record, written by
-  temp file plus rename.
+- `$AGENT_BUDGET_STATE_DIR/daily.json`: the latest record, written to
+  a uniquely named temp file, then renamed into place.
+- `$AGENT_BUDGET_STATE_DIR/daily.lock`: an flock held for the whole
+  run. A second `daily` started meanwhile waits for the first, so two
+  runs never share the probe's tmux server.
 - `$AGENT_BUDGET_STATE_DIR/daily-history.jsonl`: one record per run.
   Failing to append here only prints a warning: the fresh verdict in
   `daily.json` is already live, so `daily` still exits 0.

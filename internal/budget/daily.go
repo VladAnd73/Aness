@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -149,6 +150,11 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 }
 
 func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (DailyRecord, error) {
+	unlock, err := lockDaily(ctx)
+	if err != nil {
+		return DailyRecord{}, err
+	}
+	defer unlock()
 	cfg, err := loadDailyConfig()
 	if err != nil {
 		return failDaily(now, defaultDailyMargin, err)
@@ -224,11 +230,59 @@ func checkReading(r Reading, now time.Time) error {
 var dailyStderr io.Writer = os.Stderr
 
 var atomicWrite = func(path string, b []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, stateFileMode); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// lockDaily serialises daily runs: two at once would share the probe's
+// tmux server, each killing the other's probe. Like spore dream's lock
+// it is an flock, so a crashed holder never wedges later runs. It
+// blocks: the holder is bounded by the probe timeout.
+func lockDaily(ctx context.Context) (unlock func(), err error) {
+	d, err := stateDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(d, stateDirMode); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(d, "daily.lock"), os.O_CREATE|os.O_RDWR, stateFileMode)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() { _ = f.Close() }, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+		}
+		select {
+		case <-ctx.Done():
+			_ = f.Close()
+			return nil, fmt.Errorf("waiting for another daily run: %w", ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // saveDaily replaces daily.json, then appends to the history. A history
