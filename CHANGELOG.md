@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.2 - 2026-11-09
+
 - `spore budget daily` records once a day how much of the weekly
   Claude quota is used against how much of the week has passed, and
   `spore budget room` answers room / no-room / unknown by exit code.
