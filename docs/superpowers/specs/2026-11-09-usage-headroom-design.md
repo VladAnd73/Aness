@@ -1,6 +1,6 @@
 # Daily usage headroom
 
-**Status**: built 2026-11-09, PR #<n>.
+**Status**: built 2026-11-09, PR #58.
 
 ## Intent
 
