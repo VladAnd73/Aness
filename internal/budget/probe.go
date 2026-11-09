@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -83,16 +84,29 @@ func probeReading(ctx context.Context, now time.Time) (Reading, error) {
 
 // probeEnv drops SPORE_* so spore's hooks do not treat the probe as a
 // fleet agent, and CLAUDECODE so a run started from inside a Claude
-// session is not refused as nested.
+// session is not refused as nested. It also drops every credential
+// variable, so claude falls back to the same credentials file the
+// endpoint reads and both sources measure one account.
 func probeEnv(base []string) []string {
+	drop := []string{"SPORE_", "CLAUDECODE=", "CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN="}
 	out := make([]string, 0, len(base))
 	for _, kv := range base {
-		if strings.HasPrefix(kv, "SPORE_") || strings.HasPrefix(kv, "CLAUDECODE=") {
+		if slices.ContainsFunc(drop, func(p string) bool { return strings.HasPrefix(kv, p) }) {
 			continue
 		}
 		out = append(out, kv)
 	}
 	return out
+}
+
+func claudeConfigDir(env []string) string {
+	if d := envValue(env, "CLAUDE_CONFIG_DIR"); d != "" {
+		return d
+	}
+	if home := envValue(env, "HOME"); home != "" {
+		return filepath.Join(home, ".claude")
+	}
+	return ""
 }
 
 func envValue(env []string, key string) string {
@@ -112,12 +126,7 @@ var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 // byte turned into '-'. Empty when no config dir can be resolved, so a
 // caller never deletes relative to the working directory.
 func claudeProjectDir(env []string, dir string) string {
-	base := envValue(env, "CLAUDE_CONFIG_DIR")
-	if base == "" {
-		if home := envValue(env, "HOME"); home != "" {
-			base = filepath.Join(home, ".claude")
-		}
-	}
+	base := claudeConfigDir(env)
 	if base == "" || !filepath.IsAbs(base) || !filepath.IsAbs(dir) {
 		return ""
 	}
@@ -253,6 +262,9 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 		Source:         "probe",
 		WeeklyUsed:     *w.UsedPercentage,
 		WeeklyResetsAt: time.Unix(int64(*w.ResetsAt), 0).UTC(),
+	}
+	if d := claudeConfigDir(env); d != "" {
+		r.Credentials = filepath.Join(d, ".credentials.json")
 	}
 	if f := in.RateLimits.FiveHour; f != nil {
 		if f.UsedPercentage != nil {

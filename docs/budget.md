@@ -200,7 +200,11 @@ account reports.
    noted under `errors`.
 2. A probe: an interactive `claude --model haiku` on its own tmux
    server (`tmux -L spore-budget-probe`), started with every `SPORE_*`
-   variable removed, `--setting-sources project,local` (user settings
+   variable removed, and also `CLAUDE_CODE_OAUTH_TOKEN`,
+   `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`, so claude logs in
+   from `~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR`), the
+   same account the endpoint reads; the timer's environment carries no
+   token anyway, `--setting-sources project,local` (user settings
    hold spore's hooks, whose Stop hook would spawn a stray coordinator
    session) and a `--settings` file whose status line copies its input
    to `<state dir>/probe/statusline.json` (mode 0600, set with `chmod`
@@ -253,7 +257,10 @@ removes `daily.json`, which `room` also reads as `unknown`.
 Both are mode 0600. A record carries `taken_at`, `source` (`endpoint`
 or `probe`), `weekly_used`, `weekly_resets_at`, `pace`, `headroom`,
 `margin`, `verdict`, `five_hour_used`, `five_hour_resets_at`, `extra`
-(per-model weekly percent, when present), `error` (on `unknown`) and
+(per-model weekly percent, when present), `credentials` (the
+credentials file whose account was measured: `$AGENT_BUDGET_CREDS` for
+the endpoint, claude's own file for the probe; if they ever differ,
+the two sources measured different accounts), `error` (on `unknown`) and
 `errors` (failures of earlier sources and non-fatal decode problems
 when a later source succeeded; `daily` also prints them to stderr).
 An `unknown` record carries only `taken_at`, `margin`, `verdict`,

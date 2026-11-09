@@ -29,6 +29,7 @@ type Reading struct {
 	FiveHourResetsAt time.Time
 	Extra            map[string]float64
 	Warnings         []string
+	Credentials      string
 }
 
 type DailyRecord struct {
@@ -43,6 +44,7 @@ type DailyRecord struct {
 	FiveHourUsed     float64            `json:"five_hour_used"`
 	FiveHourResetsAt time.Time          `json:"five_hour_resets_at"`
 	Extra            map[string]float64 `json:"extra,omitempty"`
+	Credentials      string             `json:"credentials,omitempty"`
 	Error            string             `json:"error,omitempty"`
 	Errors           []string           `json:"errors,omitempty"`
 }
@@ -89,6 +91,7 @@ func computeVerdict(r Reading, margin float64, now time.Time) DailyRecord {
 		FiveHourUsed:     r.FiveHourUsed,
 		FiveHourResetsAt: r.FiveHourResetsAt.UTC(),
 		Extra:            r.Extra,
+		Credentials:      r.Credentials,
 	}
 }
 
@@ -119,7 +122,7 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("endpoint: seven_day resets_at: %w", err)
 	}
-	r := Reading{Source: "endpoint", WeeklyUsed: *w.Utilization, WeeklyResetsAt: resets}
+	r := Reading{Source: "endpoint", WeeklyUsed: *w.Utilization, WeeklyResetsAt: resets, Credentials: oauthCredsPath()}
 	if f := ub.FiveHour; f != nil {
 		if f.Utilization != nil {
 			r.FiveHourUsed = *f.Utilization

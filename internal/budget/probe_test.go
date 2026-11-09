@@ -16,9 +16,10 @@ import (
 	"time"
 )
 
-func TestProbeEnvStripsSpore(t *testing.T) {
-	got := probeEnv([]string{"SPORE_TASK_SLUG=coordinator", "SPORE_PROJECT_ROOT=/x", "HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_OAUTH_TOKEN=tok"})
-	want := []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=tok"}
+func TestProbeEnvStripsSporeAndOtherAccounts(t *testing.T) {
+	got := probeEnv([]string{"SPORE_TASK_SLUG=coordinator", "SPORE_PROJECT_ROOT=/x", "HOME=/h", "CLAUDECODE=1",
+		"CLAUDE_CODE_OAUTH_TOKEN=tok", "ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=a", "CLAUDE_CONFIG_DIR=/c"})
+	want := []string{"HOME=/h", "CLAUDE_CONFIG_DIR=/c"}
 	if !slices.Equal(got, want) {
 		t.Errorf("probeEnv: got %v want %v", got, want)
 	}
@@ -416,5 +417,34 @@ func TestProbeTranscriptDirNeedsAHome(t *testing.T) {
 	}
 	if d := claudeProjectDir([]string{"HOME=/h", "CLAUDE_CONFIG_DIR=/c"}, "/home/x/.local/state/agent-budget/probe"); d != "/c/projects/-home-x--local-state-agent-budget-probe" {
 		t.Errorf("CLAUDE_CONFIG_DIR: got %q", d)
+	}
+}
+
+func TestReadingsNameTheirCredentials(t *testing.T) {
+	u, stateDir := dailyFixture(t)
+	u.setWeekly(15, acceptResetsAt)
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	if _, err := runDaily(context.Background(), now, []ReadingSource{endpointReading}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := readDailyJSON(t, stateDir); rec.Credentials != os.Getenv("AGENT_BUDGET_CREDS") {
+		t.Errorf("endpoint credentials: got %q want %q", rec.Credentials, os.Getenv("AGENT_BUDGET_CREDS"))
+	}
+
+	weekly := time.Now().Add(48 * time.Hour)
+	rec := &callRecorder{}
+	p := testProbe(t, rec, func(p probe, name string, args []string) {
+		if isCall(args, "send-keys", "Enter") {
+			writeCapture(t, p, fmt.Sprintf(`{"rate_limits":{"seven_day":{"used_percentage":15,"resets_at":%d}}}`, weekly.Unix()))
+		} else if isCall(args, "new-session") {
+			writeCapture(t, p, `{}`)
+		}
+	})
+	r, err := p.reading(context.Background(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Credentials != "/h/.claude/.credentials.json" {
+		t.Errorf("probe credentials: got %q want /h/.claude/.credentials.json", r.Credentials)
 	}
 }
