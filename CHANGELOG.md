@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Worker TDD rule: an implementation plan's first task writes the whole
+  acceptance suite and proves it red before any implementation, and a
+  brief for a code-changing worker names
+  `superpowers:test-driven-development`.
+
 ## 1.0.0
 
 - Every merge to `main` now cuts a version. The new Release workflow

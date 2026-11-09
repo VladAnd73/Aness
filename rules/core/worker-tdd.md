@@ -18,3 +18,14 @@ implementation code:
 - Run them. Confirm they fail for the right reason (red).
 - Implement until they pass (green).
 - Deliver only when the acceptance tests and `just check` are green.
+
+The whole acceptance suite goes red before any implementation exists.
+Red/green per task is not enough: a test written after its code is
+biased by that code. When you write an implementation plan, its first
+task writes every acceptance test (stubs only so they compile) and
+proves each one fails on an assertion, not on a panic or setup error.
+A test that passes against stubs tests nothing; fix it.
+
+When you mint a task whose worker changes code, name
+`superpowers:test-driven-development` in the brief and say to invoke
+it before writing any code.
