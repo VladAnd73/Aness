@@ -135,3 +135,17 @@ func TestProbeTearsDownWhenStartFails(t *testing.T) {
 		t.Errorf("last call: got %v want kill-server", last.args)
 	}
 }
+
+func TestProbeIgnoresYesterdaysCapture(t *testing.T) {
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.timeout = 100 * time.Millisecond
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(24 * time.Hour).Unix()
+	writeCapture(t, p, fmt.Sprintf(`{"rate_limits":{"seven_day":{"used_percentage":1,"resets_at":%d}}}`, stale))
+	if r, err := p.reading(context.Background(), time.Now()); err == nil {
+		t.Errorf("reading: got %+v from the previous run's capture, want a timeout", r)
+	}
+}
