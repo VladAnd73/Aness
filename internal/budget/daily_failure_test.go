@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -267,5 +268,27 @@ func TestDailySaveDoesNotShareATempName(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(stateDir, "daily.json.*")); len(left) != 1 {
 		t.Errorf("temp files left behind: %v", left)
+	}
+}
+
+func TestCancelledWhileWaitingForLockRecordsUnknown(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	now := acceptResetsAt.Add(-4 * 24 * time.Hour)
+	yesterdayRoom(t, stateDir, now)
+	held, err := os.OpenFile(filepath.Join(stateDir, "daily.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if _, err := runDaily(ctx, now, []ReadingSource{failingSource("never reached")}); err == nil {
+		t.Fatal("want error")
+	}
+	if code, line := roomVerdict(now.Add(time.Minute)); code != 2 {
+		t.Errorf("room after a run cancelled at the lock: got %d (%q) want 2", code, line)
 	}
 }

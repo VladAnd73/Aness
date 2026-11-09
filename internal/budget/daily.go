@@ -154,9 +154,11 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 }
 
 func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (DailyRecord, error) {
+	// Without the lock, unknown is still written: racing the holder can
+	// only replace its verdict with unknown, never keep an old room.
 	unlock, err := lockDaily(ctx)
 	if err != nil {
-		return DailyRecord{}, err
+		return failDaily(now, defaultDailyMargin, err)
 	}
 	defer unlock()
 	cfg, err := loadDailyConfig()
