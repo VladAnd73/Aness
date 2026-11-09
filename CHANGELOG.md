@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.0.0
+
+- Every merge to `main` now cuts a version. The new Release workflow
+  (`.github/workflows/release.yml`) runs `scripts/bump-version`, which
+  bumps the patch number in `VERSION`, moves these `## Unreleased`
+  notes under `## X.Y.Z - YYYY-MM-DD`, commits `release: vX.Y.Z` to
+  `main` and pushes tag `vX.Y.Z`. A PR that sets `VERSION` itself (a
+  minor or major bump) is tagged as is, with no bump commit; rename the
+  `## Unreleased` heading in that same PR. `just release` is gone.
+- Version numbering restarts at 1.0.0 on the fork. Upstream
+  `marketertechnologies/spore` already owns tags `v0.4.4` to `v0.29.1`,
+  so the fork's next patch would have clashed with them. The flake's
+  package version jumps from `0.4.3` to `1.0.0`; a downstream flake
+  that pins `spore` by tag should move to `v1.0.0` or later.
 - The GitHub repo moved from `VladAnd73/AgenticHarness` to
   `VladAnd73/Aness` (2026-11-03). Every repo URL now points at the new
   name: the bundled `bootstrap/flake` `spore` input and its lock entry,

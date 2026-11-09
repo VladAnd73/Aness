@@ -1,0 +1,37 @@
+name: Release
+
+# Every push to main becomes a version: scripts/bump-version bumps the
+# patch number (or tags a VERSION the merge set by hand) and pushes the
+# commit plus tag vX.Y.Z. Its own push uses GITHUB_TOKEN, which does not
+# trigger workflows, so the release commit cannot loop back here.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time. GitHub keeps one run pending per group and drops
+# older pending ones; that is safe because each run releases the whole
+# current tip of main, not one specific merge.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bump and tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Bump and tag
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          scripts/bump-version
