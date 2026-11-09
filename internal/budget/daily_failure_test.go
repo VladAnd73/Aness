@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,4 +70,44 @@ func swapAtomicWrite(t *testing.T, f func(string, []byte) error) {
 	old := atomicWrite
 	atomicWrite = f
 	t.Cleanup(func() { atomicWrite = old })
+}
+
+func TestEndpointNegativeUtilizationIsAFailedRead(t *testing.T) {
+	u, stateDir := dailyFixture(t)
+	now := acceptResetsAt.Add(-7*24*time.Hour + time.Hour)
+	u.setWeekly(-50, acceptResetsAt)
+	if _, err := runDaily(context.Background(), now, []ReadingSource{endpointReading}); err == nil {
+		t.Error("runDaily: want error for utilization -50")
+	}
+	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown {
+		t.Errorf("verdict: got %q want unknown", rec.Verdict)
+	}
+}
+
+func TestWeeklyUsedOutOfRangeIsAFailedRead(t *testing.T) {
+	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
+	for name, used := range map[string]float64{"negative": -0.1, "over 100": 100.1, "NaN": math.NaN(), "+Inf": math.Inf(1)} {
+		for _, source := range []string{"endpoint", "probe"} {
+			t.Run(name+" "+source, func(t *testing.T) {
+				_, stateDir := dailyFixture(t)
+				bad := fixedReading(Reading{Source: source, WeeklyUsed: used, WeeklyResetsAt: acceptResetsAt})
+				if _, err := runDaily(context.Background(), now, []ReadingSource{bad}); err == nil {
+					t.Error("runDaily: want error")
+				}
+				if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown {
+					t.Errorf("verdict: got %q want unknown", rec.Verdict)
+				}
+			})
+		}
+	}
+	for _, used := range []float64{0, 100} {
+		_, stateDir := dailyFixture(t)
+		ok := fixedReading(Reading{Source: "probe", WeeklyUsed: used, WeeklyResetsAt: acceptResetsAt})
+		if _, err := runDaily(context.Background(), now, []ReadingSource{ok}); err != nil {
+			t.Errorf("used %v: %v", used, err)
+		}
+		if rec := readDailyJSON(t, stateDir); rec.Verdict == VerdictUnknown {
+			t.Errorf("used %v: verdict unknown", used)
+		}
+	}
 }

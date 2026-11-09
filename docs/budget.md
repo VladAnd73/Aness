@@ -203,9 +203,11 @@ account reports.
    tmux server. `disableAllHooks` is not used: it also turns off the
    status line. One run costs about one cent of quota.
 
-A reading whose weekly `resets_at` is not within the coming week (past,
-zero, or more than 7 days ahead) also counts as failed, so old data
-cannot read as `room`.
+A reading whose weekly used percentage is outside 0..100 (or not a
+number), or whose weekly `resets_at` is not within the coming week
+(past, zero, or more than 7 days and 1 hour ahead; the hour is slack
+for clock skew), also counts as failed, so bad or old data cannot read
+as `room`.
 
 Any failed run, whether both sources failed, the config is bad, or
 the verdict could not be saved, leaves `room` answering non-zero:

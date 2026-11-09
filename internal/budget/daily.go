@@ -139,7 +139,7 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 	for _, src := range sources {
 		r, err := src(ctx, now)
 		if err == nil {
-			err = checkWeeklyReset(r, now)
+			err = checkReading(r, now)
 		}
 		if err != nil {
 			errs = append(errs, err)
@@ -186,7 +186,10 @@ func removeDaily() error {
 
 // A reset already past would clamp pace to 100 and read as room from
 // the previous week's usage.
-func checkWeeklyReset(r Reading, now time.Time) error {
+func checkReading(r Reading, now time.Time) error {
+	if !(r.WeeklyUsed >= 0 && r.WeeklyUsed <= 100) {
+		return fmt.Errorf("%s: weekly used %v is not a percentage in 0..100", r.Source, r.WeeklyUsed)
+	}
 	if !r.WeeklyResetsAt.After(now) || r.WeeklyResetsAt.After(now.Add(weeklyWindow+time.Hour)) {
 		return fmt.Errorf("%s: weekly resets_at %s is not within the coming week", r.Source, r.WeeklyResetsAt.UTC().Format(time.RFC3339))
 	}
