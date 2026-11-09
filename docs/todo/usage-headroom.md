@@ -1,6 +1,7 @@
-# Daily usage headroom
+**Status**: built 2026-11-09, PR #58, including the fixes from its
+review. Operator docs: `docs/budget.md`, "Daily headroom".
 
-**Status**: built 2026-11-09, PR #58.
+# Daily usage headroom
 
 ## Intent
 
@@ -124,9 +125,11 @@ spike on this host 2026-11-09 (Claude Code 2.1.296):
 
 - `spore budget daily`: what the timer runs. Takes a fresh reading
   (primary, then fallback), computes the verdict, writes `daily.json`,
-  appends one history line. Exit 0 when a verdict was written (room or
-  not), non-zero when both sources failed. On total failure it still
-  writes `daily.json` with verdict `unknown`.
+  appends one history line. Exit 0 when a fresh verdict was saved (room
+  or not; a failed history append only warns), non-zero otherwise. Any
+  failed run, including a bad config or a failed save, leaves `room`
+  answering non-zero: it writes `daily.json` with verdict `unknown`,
+  and if even that write fails it removes `daily.json`.
 - `spore budget room`: what the later feature calls. Reads `daily.json`
   only, never fetches. Exit 0 = `room`, exit 1 = `no-room`, exit 2 =
   `unknown` (no file, verdict `unknown`, or the reading is older than
@@ -134,14 +137,40 @@ spike on this host 2026-11-09 (Claude Code 2.1.296):
   `weekly_resets_at` is in the past, `room` answers `no-room` (exit 1)
   until the next daily reading, whatever the file says (operator
   decision 2026-11-09: the old week's headroom is gone, and right after
-  a reset a fresh reading would say no room anyway). Prints one line:
-  verdict, used, pace, headroom, reading time, source.
+  a reset a fresh reading would say no room anyway). A `taken_at` more
+  than 5 minutes in the future also reads as `unknown`: the clock moved.
+  Prints one line: verdict, used, pace, headroom, margin, reading time,
+  source.
 
 `daily.json` and each history line carry at least: `taken_at`,
 `source` (`endpoint` or `probe`), `weekly_used`, `weekly_resets_at`,
 `pace`, `headroom`, `margin`, `verdict`, `five_hour_used`,
 `five_hour_resets_at`, plus any per-model weekly numbers the endpoint
-returned.
+returned. An `unknown` record carries no numbers, so a failed day never
+reads as 0% used.
+
+## Decisions from the PR #58 review
+
+- Both sources measure the account in `~/.claude/.credentials.json`:
+  the endpoint reads that file, and the probe drops
+  `CLAUDE_CODE_OAUTH_TOKEN` (and the API key variables) so claude logs
+  in from the same file. Measured 2026-11-09: the user manager's
+  environment carries no token, so the timer's probe already used the
+  file; the shell was the only place two accounts could mix. Each
+  record names its `credentials` file.
+- A weekly used percentage outside 0..100 is a failed read on both
+  sources. `refresh` and the multi-account store apply the same rule,
+  so a missing `seven_day` is a stale snapshot, never 0%.
+- Concurrent `daily` runs serialise on an flock (`daily.lock`), like
+  `spore dream`.
+- The probe's tmux server ignores the operator's config, keeps dead
+  panes so a dying claude is reported at once, and is torn down on
+  SIGINT and SIGTERM with a bounded `kill-server`.
+- The probe deletes its own transcript by session id:
+  `--no-session-persistence` only works with `--print`.
+- The timer pins its state dir with a drop-in written from
+  `spore budget state-dir`, because the user manager never sees
+  variables set in a shell.
 
 ## Constraints
 

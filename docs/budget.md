@@ -178,7 +178,7 @@ specific.
 Once a day `spore budget daily` records how much of the weekly quota
 is used against how much of the week has passed. `spore budget room`
 reads that record and answers with its exit code, so a consumer never
-parses files. Design: `docs/superpowers/specs/2026-11-09-usage-headroom-design.md`.
+parses files. Design: `docs/todo/usage-headroom.md`.
 
 ### The rule
 
