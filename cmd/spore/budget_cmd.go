@@ -20,6 +20,11 @@ Usage:
   spore budget active-tier   print the live credential's tier (max|pro|team|free)
   spore budget debug-usage   hit /usage once and print raw + parsed response
                              (diagnostic; bypasses the freshness throttle)
+  spore budget daily         take one weekly-quota reading (usage endpoint, then a
+                             status-line probe), write the headroom verdict;
+                             non-zero when no reading could be taken
+  spore budget room          print the last daily verdict; exit 0 room, 1 no-room,
+                             2 unknown (missing, failed, or older than 26h)
 
 Env (AGENT_BUDGET_* names preserved verbatim so spore and the basecamp
 binary can shadow-soak against the same state file):
@@ -36,11 +41,16 @@ binary can shadow-soak against the same state file):
   AGENT_BUDGET_USAGE_MIN_INTERVAL_SEC
                              minimum seconds between subscription /usage hits (default 60;
                              0 disables the throttle for tests / operator override)
+  SPORE_BUDGET_CONFIG        daily headroom config (default
+                             $XDG_CONFIG_HOME/spore/budget.toml; key: margin, default 10)
 
 Files (mode 0600):
   $AGENT_BUDGET_STATE_DIR/state.json         tracker state
   $AGENT_BUDGET_STATE_DIR/api-headers.jsonl  per-response Anthropic ratelimit spool
   $AGENT_BUDGET_STATE_DIR/markers/           per-window-per-band fresh-crossing markers
+  $AGENT_BUDGET_STATE_DIR/daily.json         latest daily headroom verdict
+  $AGENT_BUDGET_STATE_DIR/daily-history.jsonl
+                                             one line per daily reading
 `
 
 func runBudget(args []string) int {
@@ -69,6 +79,14 @@ func runBudgetCmd(sub string, rest []string) int {
 		return budgetExec(budget.ActiveTier, "active-tier", rest)
 	case "debug-usage":
 		return budgetExec(budget.DebugUsage, "debug-usage", rest)
+	case "daily":
+		return budgetExec(budget.Daily, "daily", rest)
+	case "room":
+		if len(rest) != 0 {
+			fmt.Fprintln(os.Stderr, "spore budget room: takes no args")
+			return 2
+		}
+		return budget.Room()
 	case "stop-hook":
 		if len(rest) != 0 {
 			fmt.Fprintln(os.Stderr, "spore budget stop-hook: takes no args")
