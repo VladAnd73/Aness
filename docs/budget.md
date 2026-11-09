@@ -228,11 +228,13 @@ account reports.
 
    claude has no way to skip saving an interactive session
    (`--no-session-persistence` only works with `--print`), so the probe
-   starts claude with its own `--session-id` and, after teardown,
-   deletes exactly that session's `<id>.jsonl` and `<id>/` from
-   `~/.claude/projects/<encoded probe dir>/` (or under
-   `$CLAUDE_CONFIG_DIR`), printing each path first. Nothing else in that
-   folder is touched.
+   starts claude with its own `--session-id` and, after teardown and
+   once claude's process has exited, deletes exactly that session's
+   `<id>.jsonl` and `<id>/` from `~/.claude/projects/<encoded probe
+   dir>/` (or under `$CLAUDE_CONFIG_DIR`; symlinks resolved), and from
+   the folder of the `transcript_path` the status line reported when
+   that is `<id>.jsonl` directly inside a `projects/` folder. Each path
+   is printed first. Nothing else is touched.
 
 A reading whose weekly used percentage is outside 0..100 (or not a
 number), or whose weekly `resets_at` is not within the coming week

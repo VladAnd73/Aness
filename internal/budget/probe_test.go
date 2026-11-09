@@ -497,3 +497,112 @@ func TestProbesOnOneSocketDoNotOverlap(t *testing.T) {
 		t.Errorf("two probes on one tmux socket ran at once: %v-%v and %v-%v", a.start, a.end, b.start, b.end)
 	}
 }
+
+func TestProbeWaitsForClaudeBeforeRemovingTranscript(t *testing.T) {
+	home := t.TempDir()
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.environ = func() []string { return []string{"HOME=" + home} }
+	p.timeout = 50 * time.Millisecond
+	project := claudeProjectDir([]string{"HOME=" + home}, p.dir)
+	var transcript string
+	var late *exec.Cmd
+	exited := make(chan struct{})
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
+		switch {
+		case isCall(args, "new-session"):
+			transcript = filepath.Join(project, argAfter(args, "--session-id")+".jsonl")
+			if err := os.MkdirAll(project, 0o700); err != nil {
+				t.Error(err)
+			}
+			late = exec.Command("sh", "-c", `sleep 0.3; echo late >> "$0"`, transcript)
+			if err := late.Start(); err != nil {
+				t.Error(err)
+			}
+			go func() { _ = late.Wait(); close(exited) }()
+		case isCall(args, "display-message") && strings.Contains(strings.Join(args, " "), "pane_pid"):
+			return []byte(fmt.Sprintf("%d\n", late.Process.Pid)), nil
+		}
+		return nil, nil
+	})
+	_, _ = p.reading(context.Background(), time.Now())
+	<-exited
+	if _, err := os.Stat(transcript); !os.IsNotExist(err) {
+		t.Errorf("claude wrote %s after it was removed: %v", transcript, err)
+	}
+}
+
+func TestProbeRemovesTheTranscriptTheStatusLineNamed(t *testing.T) {
+	home := t.TempDir()
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.environ = func() []string { return []string{"HOME=" + home} }
+	p.timeout = 100 * time.Millisecond
+	other := filepath.Join(home, ".claude", "projects", "-hashed-long-name-1a2b3c")
+	outside := filepath.Join(home, "elsewhere")
+	var named, stranger string
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
+		if !isCall(args, "new-session") {
+			return nil, nil
+		}
+		id := argAfter(args, "--session-id")
+		named = filepath.Join(other, id+".jsonl")
+		stranger = filepath.Join(outside, id+".jsonl")
+		for _, f := range []string{named, stranger} {
+			if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+				t.Error(err)
+			}
+			if err := os.WriteFile(f, nil, 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+		writeCapture(t, p, fmt.Sprintf(`{"transcript_path":%q}`, named))
+		return nil, nil
+	})
+	_, _ = p.reading(context.Background(), time.Now())
+	if _, err := os.Stat(named); !os.IsNotExist(err) {
+		t.Errorf("transcript named by the status line survived: %v", err)
+	}
+	if _, err := os.Stat(stranger); err != nil {
+		t.Errorf("file outside the projects dir was removed: %v", err)
+	}
+}
+
+func TestProbeTranscriptDirFollowsSymlinks(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	got := claudeProjectDir([]string{"HOME=/h"}, link)
+	if want := claudeProjectDir([]string{"HOME=/h"}, real); got != want {
+		t.Errorf("symlinked dir: got %q want %q", got, want)
+	}
+}
+
+func TestProbeIgnoresATranscriptPathOutsideProjects(t *testing.T) {
+	home := t.TempDir()
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.environ = func() []string { return []string{"HOME=" + home} }
+	p.timeout = 100 * time.Millisecond
+	var stranger string
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
+		if !isCall(args, "new-session") {
+			return nil, nil
+		}
+		stranger = filepath.Join(home, "elsewhere", argAfter(args, "--session-id")+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(stranger), 0o700); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(stranger, nil, 0o600); err != nil {
+			t.Error(err)
+		}
+		writeCapture(t, p, fmt.Sprintf(`{"transcript_path":%q}`, stranger))
+		return nil, nil
+	})
+	_, _ = p.reading(context.Background(), time.Now())
+	if _, err := os.Stat(stranger); err != nil {
+		t.Errorf("a transcript_path outside the projects dir was removed: %v", err)
+	}
+}

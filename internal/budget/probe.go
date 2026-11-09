@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -133,6 +135,10 @@ func claudeProjectDir(env []string, dir string) string {
 	if base == "" || !filepath.IsAbs(base) || !filepath.IsAbs(dir) {
 		return ""
 	}
+	// claude names the folder after its resolved working directory.
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
 	return filepath.Join(base, "projects", nonAlnum.ReplaceAllString(dir, "-"))
 }
 
@@ -148,21 +154,67 @@ func newSessionID() (string, error) {
 
 // removeTranscript deletes the probe session's transcript, and nothing
 // else: --no-session-persistence only works with --print, and every
-// daily probe would otherwise leave one behind.
-func (p probe) removeTranscript(env []string, sessionID string) {
-	project := claudeProjectDir(env, p.dir)
-	if project == "" || sessionID == "" {
+// daily probe would otherwise leave one behind. kill-server does not
+// wait for claude, so it first waits for claude's pid to go, or claude
+// could write the file again after it is removed.
+func (p probe) removeTranscript(env []string, sessionID string, claudePID int) {
+	if sessionID == "" {
 		return
 	}
-	for _, path := range []string{filepath.Join(project, sessionID+".jsonl"), filepath.Join(project, sessionID)} {
-		if _, err := os.Lstat(path); err != nil {
-			continue
-		}
-		fmt.Fprintf(dailyStderr, "spore budget daily: removing probe transcript %s\n", path)
-		if err := os.RemoveAll(path); err != nil {
-			fmt.Fprintf(dailyStderr, "spore budget daily: warning: %v\n", err)
+	if claudePID > 0 {
+		deadline := time.Now().Add(p.killTimeout)
+		for syscall.Kill(claudePID, 0) == nil {
+			if time.Now().After(deadline) {
+				fmt.Fprintf(dailyStderr, "spore budget daily: warning: probe claude (pid %d) still running\n", claudePID)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	var paths []string
+	if project := claudeProjectDir(env, p.dir); project != "" {
+		paths = append(paths, filepath.Join(project, sessionID+".jsonl"))
+	}
+	if named := p.namedTranscript(env, sessionID); named != "" {
+		paths = append(paths, named)
+	}
+	for _, jsonl := range paths {
+		for _, path := range []string{jsonl, strings.TrimSuffix(jsonl, ".jsonl")} {
+			if _, err := os.Lstat(path); err != nil {
+				continue
+			}
+			fmt.Fprintf(dailyStderr, "spore budget daily: removing probe transcript %s\n", path)
+			if err := os.RemoveAll(path); err != nil {
+				fmt.Fprintf(dailyStderr, "spore budget daily: warning: %v\n", err)
+			}
+		}
+	}
+}
+
+// namedTranscript is the transcript_path the status line reported, kept
+// only when it is this session's file directly inside a folder of the
+// config dir's projects/. It covers folder names claude derives in ways
+// claudeProjectDir cannot, such as hashed long paths.
+func (p probe) namedTranscript(env []string, sessionID string) string {
+	b, err := os.ReadFile(p.captureFile)
+	if err != nil {
+		return ""
+	}
+	var in struct {
+		TranscriptPath string `json:"transcript_path"`
+	}
+	if json.Unmarshal(b, &in) != nil || in.TranscriptPath == "" {
+		return ""
+	}
+	base := claudeConfigDir(env)
+	if base == "" || !filepath.IsAbs(base) {
+		return ""
+	}
+	path := filepath.Clean(in.TranscriptPath)
+	if filepath.Base(path) != sessionID+".jsonl" || filepath.Dir(filepath.Dir(path)) != filepath.Join(filepath.Clean(base), "projects") {
+		return ""
+	}
+	return path
 }
 
 func shellQuote(s string) string {
@@ -219,7 +271,8 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 		return Reading{}, err
 	}
 	env := probeEnv(p.environ())
-	defer p.removeTranscript(env, sessionID)
+	claudePID := 0
+	defer func() { p.removeTranscript(env, sessionID, claudePID) }()
 	tmux := func(ctx context.Context, args ...string) ([]byte, error) {
 		return p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
 	}
@@ -245,6 +298,9 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 		"claude", "--model", "haiku", "--session-id", sessionID,
 		"--setting-sources", "project,local", "--settings", settings); err != nil {
 		return Reading{}, fmt.Errorf("start claude: %w", err)
+	}
+	if out, err := tmux(ctx, "display-message", "-p", "-t", probeSession, "#{pane_pid}"); err == nil {
+		claudePID, _ = strconv.Atoi(strings.TrimSpace(string(out)))
 	}
 	dead := func(ctx context.Context) error {
 		out, err := tmux(ctx, "display-message", "-p", "-t", probeSession, "#{pane_dead} #{pane_dead_status}")
