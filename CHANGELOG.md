@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.1 - 2026-11-09
+
 - Worker TDD rule: an implementation plan's first task writes the whole
   acceptance suite and proves it red before any implementation, and a
   brief for a code-changing worker names
