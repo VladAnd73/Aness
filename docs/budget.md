@@ -203,7 +203,8 @@ account reports.
    variable removed, `--setting-sources project,local` (user settings
    hold spore's hooks, whose Stop hook would spawn a stray coordinator
    session) and a `--settings` file whose status line copies its input
-   to `<state dir>/probe/statusline.json`. The probe sends one short
+   to `<state dir>/probe/statusline.json` (mode 0600, set with `chmod`
+   because a default ACL on the state dir overrides the umask). The probe sends one short
    prompt, waits up to 90s for `rate_limits.seven_day`, then kills its
    tmux server. `disableAllHooks` is not used: it also turns off the
    status line. One run costs about one cent of quota.

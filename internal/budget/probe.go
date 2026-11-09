@@ -104,11 +104,13 @@ func (p probe) writeSettings() (string, error) {
 	if err := os.Remove(p.captureFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	tmp := p.captureFile + ".tmp"
+	tmp := shellQuote(p.captureFile + ".tmp")
+	// A default ACL on the state dir overrides the umask, so the temp
+	// file is made private with chmod before any content goes in.
 	settings := map[string]any{
 		"statusLine": map[string]any{
 			"type":    "command",
-			"command": "umask 077; cat > " + shellQuote(tmp) + " && mv " + shellQuote(tmp) + " " + shellQuote(p.captureFile),
+			"command": "umask 077; : > " + tmp + " && chmod 600 " + tmp + " && cat > " + tmp + " && mv " + tmp + " " + shellQuote(p.captureFile),
 		},
 	}
 	b, err := json.Marshal(settings)

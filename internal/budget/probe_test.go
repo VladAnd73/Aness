@@ -2,6 +2,7 @@ package budget
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -306,4 +307,46 @@ func realTmuxSocket(t *testing.T, name string) string {
 		_ = os.Remove(path)
 	})
 	return name
+}
+
+// A default ACL on the state dir overrides the umask, which is how the
+// capture came out 0640 on a real host.
+func TestProbeCaptureIsPrivateUnderDefaultACL(t *testing.T) {
+	setfacl, err := exec.LookPath("setfacl")
+	if err != nil {
+		t.Skip("setfacl not on PATH")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command(setfacl, "-d", "-m", "u::rwx,g::r-x,o::---", dir).CombinedOutput(); err != nil {
+		t.Skipf("no ACL support here: %v: %s", err, out)
+	}
+	p := newProbe(filepath.Join(dir, "probe"))
+	settings, err := p.writeSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		StatusLine struct {
+			Command string `json:"command"`
+		} `json:"statusLine"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", s.StatusLine.Command)
+	cmd.Stdin = strings.NewReader(`{"rate_limits":null}`)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("status line command: %v: %s", err, out)
+	}
+	fi, err := os.Stat(p.captureFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("capture mode: got %o want 600", fi.Mode().Perm())
+	}
 }
