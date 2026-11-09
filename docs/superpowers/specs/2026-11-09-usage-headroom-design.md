@@ -1,6 +1,6 @@
 # Daily usage headroom
 
-**Status**: design approved in conversation 2026-11-09; not built.
+**Status**: design reviewed 2026-11-09, awaiting operator approval; not built.
 
 ## Intent
 
@@ -90,6 +90,15 @@ spike on this host 2026-11-09 (Claude Code 2.1.296):
 - A folder Claude Code has not seen shows a "do you trust this folder"
   prompt that blocks the session. The probe must run in one fixed folder
   that is trusted once.
+- Running `claude` in a folder that is not a spore project root makes
+  spore's Stop hook spawn a stray `spore/<dirname>/coordinator` tmux
+  session. The 2026-11-09 spike did exactly that, even with `SPORE_*`
+  removed. The probe must prevent it. Test first whether
+  `disableAllHooks` in the probe's `--settings` still lets the status
+  line run; if not, consider a separate Claude config directory that
+  shares the login (careful: never symlink `~/.claude/plugins`). If
+  neither works cleanly, ship the endpoint path first and the probe in
+  a follow-up, and say so (builder's call, made by the coordinator).
 - The probe must not use the operator's tmux session in a way that
   disturbs them: use a dedicated tmux server (`tmux -L <label>`), and
   tear down only that server by name.
@@ -117,8 +126,12 @@ spike on this host 2026-11-09 (Claude Code 2.1.296):
 - `spore budget room`: what the later feature calls. Reads `daily.json`
   only, never fetches. Exit 0 = `room`, exit 1 = `no-room`, exit 2 =
   `unknown` (no file, verdict `unknown`, or the reading is older than
-  26 hours, meaning a daily run was missed). Prints one line: verdict,
-  used, pace, headroom, reading time, source.
+  26 hours, meaning a daily run was missed). Once the saved
+  `weekly_resets_at` is in the past, `room` answers `no-room` (exit 1)
+  until the next daily reading, whatever the file says (operator
+  decision 2026-11-09: the old week's headroom is gone, and right after
+  a reset a fresh reading would say no room anyway). Prints one line:
+  verdict, used, pace, headroom, reading time, source.
 
 `daily.json` and each history line carry at least: `taken_at`,
 `source` (`endpoint` or `probe`), `weekly_used`, `weekly_resets_at`,
@@ -150,6 +163,8 @@ returned.
    non-zero, and `room` exits 2.
 5. Given `daily.json` is 27 hours old, then `room` exits 2 whatever it
    says.
+5b. Given `daily.json` says `room` and its `weekly_resets_at` is one hour
+   in the past, then `room` exits 1.
 6. Given no config file, then margin 10 is used. Given `margin = 5`,
    then 5 is used.
 7. Given the probe runs, then its process environment has no `SPORE_*`
