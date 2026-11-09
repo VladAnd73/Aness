@@ -19,7 +19,7 @@ const (
 	probePrompt  = "Reply with the single word ok."
 )
 
-type commandRunner func(ctx context.Context, env []string, name string, args ...string) error
+type commandRunner func(ctx context.Context, env []string, name string, args ...string) ([]byte, error)
 
 type probe struct {
 	run         commandRunner
@@ -43,14 +43,14 @@ type statusInput struct {
 	} `json:"rate_limits"`
 }
 
-func execRunner(ctx context.Context, env []string, name string, args ...string) error {
+func execRunner(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, bytes.TrimSpace(out))
+		return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, bytes.TrimSpace(out))
 	}
-	return nil
+	return out, nil
 }
 
 func newProbe(dir string) probe {
@@ -124,7 +124,8 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 	}
 	env := probeEnv(p.environ())
 	tmux := func(ctx context.Context, args ...string) error {
-		return p.run(ctx, env, "tmux", append([]string{"-L", p.socket}, args...)...)
+		_, err := p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
+		return err
 	}
 	_ = tmux(ctx, "kill-server")
 	defer func() { _ = tmux(context.Background(), "kill-server") }()

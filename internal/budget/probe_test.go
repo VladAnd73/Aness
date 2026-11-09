@@ -84,7 +84,7 @@ func TestProbeParsesRateLimits(t *testing.T) {
 		t.Errorf("prompt never sent: %+v", calls)
 	}
 	last := calls[len(calls)-1]
-	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "kill-server"}) {
+	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
 		t.Errorf("last call: got %v want kill-server on the probe socket", last.args)
 	}
 	settings, err := os.ReadFile(filepath.Join(p.dir, "settings.json"))
@@ -110,7 +110,7 @@ func TestProbeTimeout(t *testing.T) {
 		t.Fatal("no calls recorded")
 	}
 	last := calls[len(calls)-1]
-	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "kill-server"}) {
+	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
 		t.Errorf("last call: got %v want kill-server on the probe socket", last.args)
 	}
 }
@@ -119,19 +119,19 @@ func TestProbeTearsDownWhenStartFails(t *testing.T) {
 	rec := &callRecorder{}
 	p := testProbe(t, rec, nil)
 	inner := p.run
-	p.run = func(ctx context.Context, env []string, name string, args ...string) error {
-		_ = inner(ctx, env, name, args...)
+	p.run = func(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
+		_, _ = inner(ctx, env, name, args...)
 		if slices.Contains(args, "new-session") {
-			return errors.New("no claude")
+			return nil, errors.New("no claude")
 		}
-		return nil
+		return nil, nil
 	}
 	if _, err := p.reading(context.Background(), time.Now()); err == nil || !strings.Contains(err.Error(), "no claude") {
 		t.Fatalf("reading: got %v want the start error", err)
 	}
 	calls := rec.snapshot()
 	last := calls[len(calls)-1]
-	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "kill-server"}) {
+	if !slices.Equal(last.args, []string{"-L", "spore-budget-probe", "-f", "/dev/null", "kill-server"}) {
 		t.Errorf("last call: got %v want kill-server", last.args)
 	}
 }
@@ -147,5 +147,21 @@ func TestProbeIgnoresYesterdaysCapture(t *testing.T) {
 	writeCapture(t, p, fmt.Sprintf(`{"rate_limits":{"seven_day":{"used_percentage":1,"resets_at":%d}}}`, stale))
 	if r, err := p.reading(context.Background(), time.Now()); err == nil {
 		t.Errorf("reading: got %+v from the previous run's capture, want a timeout", r)
+	}
+}
+
+func TestProbeTmuxSkipsOperatorConfig(t *testing.T) {
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.timeout = 30 * time.Millisecond
+	_, _ = p.reading(context.Background(), time.Now())
+	calls := rec.snapshot()
+	if len(calls) == 0 {
+		t.Fatal("no calls")
+	}
+	for _, c := range calls {
+		if c.name == "tmux" && (len(c.args) < 4 || !slices.Equal(c.args[:4], []string{"-L", "spore-budget-probe", "-f", "/dev/null"})) {
+			t.Errorf("tmux call may load the operator's config: %v", c.args)
+		}
 	}
 }

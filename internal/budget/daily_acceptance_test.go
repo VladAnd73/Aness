@@ -244,14 +244,20 @@ type callRecorder struct {
 }
 
 func (c *callRecorder) runner(onCall func(name string, args []string)) commandRunner {
-	return func(_ context.Context, env []string, name string, args ...string) error {
-		c.mu.Lock()
-		c.calls = append(c.calls, recordedCall{env: append([]string(nil), env...), name: name, args: append([]string(nil), args...)})
-		c.mu.Unlock()
+	return c.responder(func(name string, args []string) ([]byte, error) {
 		if onCall != nil {
 			onCall(name, args)
 		}
-		return nil
+		return nil, nil
+	})
+}
+
+func (c *callRecorder) responder(respond func(name string, args []string) ([]byte, error)) commandRunner {
+	return func(_ context.Context, env []string, name string, args ...string) ([]byte, error) {
+		c.mu.Lock()
+		c.calls = append(c.calls, recordedCall{env: append([]string(nil), env...), name: name, args: append([]string(nil), args...)})
+		c.mu.Unlock()
+		return respond(name, args)
 	}
 }
 
