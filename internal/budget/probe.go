@@ -3,12 +3,14 @@ package budget
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -93,6 +95,64 @@ func probeEnv(base []string) []string {
 	return out
 }
 
+func envValue(env []string, key string) string {
+	v := ""
+	for _, kv := range env {
+		if k, val, ok := strings.Cut(kv, "="); ok && k == key {
+			v = val
+		}
+	}
+	return v
+}
+
+var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// claudeProjectDir is where claude keeps transcripts for sessions run in
+// dir: its config dir's projects/ plus dir with every non-alphanumeric
+// byte turned into '-'. Empty when no config dir can be resolved, so a
+// caller never deletes relative to the working directory.
+func claudeProjectDir(env []string, dir string) string {
+	base := envValue(env, "CLAUDE_CONFIG_DIR")
+	if base == "" {
+		if home := envValue(env, "HOME"); home != "" {
+			base = filepath.Join(home, ".claude")
+		}
+	}
+	if base == "" || !filepath.IsAbs(base) || !filepath.IsAbs(dir) {
+		return ""
+	}
+	return filepath.Join(base, "projects", nonAlnum.ReplaceAllString(dir, "-"))
+}
+
+func newSessionID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+// removeTranscript deletes the probe session's transcript, and nothing
+// else: --no-session-persistence only works with --print, and every
+// daily probe would otherwise leave one behind.
+func (p probe) removeTranscript(env []string, sessionID string) {
+	project := claudeProjectDir(env, p.dir)
+	if project == "" || sessionID == "" {
+		return
+	}
+	for _, path := range []string{filepath.Join(project, sessionID+".jsonl"), filepath.Join(project, sessionID)} {
+		if _, err := os.Lstat(path); err != nil {
+			continue
+		}
+		fmt.Fprintf(dailyStderr, "spore budget daily: removing probe transcript %s\n", path)
+		if err := os.RemoveAll(path); err != nil {
+			fmt.Fprintf(dailyStderr, "spore budget daily: warning: %v\n", err)
+		}
+	}
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -126,7 +186,12 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
+	sessionID, err := newSessionID()
+	if err != nil {
+		return Reading{}, err
+	}
 	env := probeEnv(p.environ())
+	defer p.removeTranscript(env, sessionID)
 	tmux := func(ctx context.Context, args ...string) ([]byte, error) {
 		return p.run(ctx, env, "tmux", append([]string{"-L", p.socket, "-f", "/dev/null"}, args...)...)
 	}
@@ -149,7 +214,8 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 	// instead: it also turns off the status line.
 	if _, err := tmux(ctx, "start-server", ";", "set-option", "-g", "remain-on-exit", "on", ";",
 		"new-session", "-d", "-s", probeSession, "-c", p.dir, "-x", "200", "-y", "50",
-		"claude", "--model", "haiku", "--setting-sources", "project,local", "--settings", settings); err != nil {
+		"claude", "--model", "haiku", "--session-id", sessionID,
+		"--setting-sources", "project,local", "--settings", settings); err != nil {
 		return Reading{}, fmt.Errorf("start claude: %w", err)
 	}
 	dead := func(ctx context.Context) error {

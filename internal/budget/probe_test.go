@@ -350,3 +350,71 @@ func TestProbeCaptureIsPrivateUnderDefaultACL(t *testing.T) {
 		t.Errorf("capture mode: got %o want 600", fi.Mode().Perm())
 	}
 }
+
+func argAfter(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func TestProbeRemovesOnlyItsOwnTranscript(t *testing.T) {
+	home := t.TempDir()
+	stderr := captureDailyStderr(t)
+	rec := &callRecorder{}
+	p := testProbe(t, rec, nil)
+	p.environ = func() []string { return []string{"HOME=" + home} }
+	p.timeout = 50 * time.Millisecond
+	project := filepath.Join(home, ".claude", "projects", strings.NewReplacer("/", "-", ".", "-", "_", "-").Replace(p.dir))
+	var transcript string
+	p.run = rec.responder(func(name string, args []string) ([]byte, error) {
+		if !isCall(args, "new-session") {
+			return nil, nil
+		}
+		id := argAfter(args, "--session-id")
+		if id == "" {
+			t.Error("claude started without --session-id")
+			return nil, nil
+		}
+		transcript = filepath.Join(project, id+".jsonl")
+		for _, f := range []string{transcript, filepath.Join(project, id, "subagent.jsonl"), filepath.Join(project, "other.jsonl"), filepath.Join(project, "memory", "keep.md")} {
+			if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+				t.Error(err)
+			}
+			if err := os.WriteFile(f, []byte("{}\n"), 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+		return nil, nil
+	})
+	_, _ = p.reading(context.Background(), time.Now())
+	if transcript == "" {
+		t.Fatal("no transcript was created")
+	}
+	for _, gone := range []string{transcript, strings.TrimSuffix(transcript, ".jsonl")} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s survived the probe: %v", gone, err)
+		}
+	}
+	for _, kept := range []string{filepath.Join(project, "other.jsonl"), filepath.Join(project, "memory", "keep.md")} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s was removed: %v", kept, err)
+		}
+	}
+	if !strings.Contains(stderr.String(), transcript) {
+		t.Errorf("stderr: got %q, want the removed path printed", stderr.String())
+	}
+}
+
+func TestProbeTranscriptDirNeedsAHome(t *testing.T) {
+	for _, env := range [][]string{nil, {"HOME="}, {"CLAUDE_CONFIG_DIR="}} {
+		if d := claudeProjectDir(env, "/state/probe"); d != "" {
+			t.Errorf("env %q: got %q, want no directory", env, d)
+		}
+	}
+	if d := claudeProjectDir([]string{"HOME=/h", "CLAUDE_CONFIG_DIR=/c"}, "/home/x/.local/state/agent-budget/probe"); d != "/c/projects/-home-x--local-state-agent-budget-probe" {
+		t.Errorf("CLAUDE_CONFIG_DIR: got %q", d)
+	}
+}

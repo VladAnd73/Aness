@@ -219,6 +219,14 @@ account reports.
    probe still kills its tmux server and claude (each `kill-server`
    bounded to 10s) and `daily` records `unknown`.
 
+   claude has no way to skip saving an interactive session
+   (`--no-session-persistence` only works with `--print`), so the probe
+   starts claude with its own `--session-id` and, after teardown,
+   deletes exactly that session's `<id>.jsonl` and `<id>/` from
+   `~/.claude/projects/<encoded probe dir>/` (or under
+   `$CLAUDE_CONFIG_DIR`), printing each path first. Nothing else in that
+   folder is touched.
+
 A reading whose weekly used percentage is outside 0..100 (or not a
 number), or whose weekly `resets_at` is not within the coming week
 (past, zero, or more than 7 days and 1 hour ahead; the hour is slack
