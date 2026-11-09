@@ -73,8 +73,8 @@ func TestProbeParsesRateLimits(t *testing.T) {
 	calls := rec.snapshot()
 	var sentPrompt bool
 	for _, c := range calls {
-		if isCall(c.args, "new-session") && !isCall(c.args, "claude", "--settings") {
-			t.Errorf("new-session does not start claude with --settings: %v", c.args)
+		if isCall(c.args, "new-session") && !isCall(c.args, "claude", "--settings", "--setting-sources", "project,local") {
+			t.Errorf("new-session does not start claude with --settings and without user settings: %v", c.args)
 		}
 		if isCall(c.args, "send-keys", probePrompt) {
 			sentPrompt = true
@@ -91,7 +91,7 @@ func TestProbeParsesRateLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(settings), `"disableAllHooks":true`) || !strings.Contains(string(settings), "statusLine") {
+	if strings.Contains(string(settings), "disableAllHooks") || !strings.Contains(string(settings), "statusLine") || !strings.Contains(string(settings), "umask 077") {
 		t.Errorf("settings: %s", settings)
 	}
 }

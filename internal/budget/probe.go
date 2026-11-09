@@ -104,10 +104,9 @@ func (p probe) writeSettings() (string, error) {
 	}
 	tmp := p.captureFile + ".tmp"
 	settings := map[string]any{
-		"disableAllHooks": true,
 		"statusLine": map[string]any{
 			"type":    "command",
-			"command": "cat > " + shellQuote(tmp) + " && mv " + shellQuote(tmp) + " " + shellQuote(p.captureFile),
+			"command": "umask 077; cat > " + shellQuote(tmp) + " && mv " + shellQuote(tmp) + " " + shellQuote(p.captureFile),
 		},
 	}
 	b, err := json.Marshal(settings)
@@ -132,8 +131,11 @@ func (p probe) reading(ctx context.Context, now time.Time) (Reading, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
+	// User settings hold spore's Stop hook, which spawns a stray
+	// coordinator outside a project root. disableAllHooks cannot be used
+	// instead: it also turns off the status line.
 	if err := tmux(ctx, "new-session", "-d", "-s", probeSession, "-c", p.dir, "-x", "200", "-y", "50",
-		"claude", "--model", "haiku", "--settings", settings); err != nil {
+		"claude", "--model", "haiku", "--setting-sources", "project,local", "--settings", settings); err != nil {
 		return Reading{}, fmt.Errorf("start claude: %w", err)
 	}
 	if _, err := p.waitCapture(ctx, func(statusInput) bool { return true }); err != nil {
