@@ -26,6 +26,7 @@ type Reading struct {
 	FiveHourUsed     float64
 	FiveHourResetsAt time.Time
 	Extra            map[string]float64
+	Warnings         []string
 }
 
 type DailyRecord struct {
@@ -73,23 +74,14 @@ func computeVerdict(r Reading, margin float64, now time.Time) DailyRecord {
 	}
 }
 
-type dailyUsageWindow struct {
-	Utilization *float64 `json:"utilization"`
-	ResetsAt    *string  `json:"resets_at"`
-}
-
-type dailyUsageBody struct {
-	FiveHour *dailyUsageWindow `json:"five_hour"`
-	SevenDay *dailyUsageWindow `json:"seven_day"`
-	Limits   []struct {
-		Kind    string   `json:"kind"`
-		Percent *float64 `json:"percent"`
-		Scope   *struct {
-			Model *struct {
-				DisplayName string `json:"display_name"`
-			} `json:"model"`
-		} `json:"scope"`
-	} `json:"limits"`
+type usageLimit struct {
+	Kind    string   `json:"kind"`
+	Percent *float64 `json:"percent"`
+	Scope   *struct {
+		Model *struct {
+			DisplayName string `json:"display_name"`
+		} `json:"model"`
+	} `json:"scope"`
 }
 
 func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
@@ -97,13 +89,13 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("endpoint: %w", err)
 	}
-	var ub dailyUsageBody
-	if err := json.Unmarshal(body, &ub); err != nil {
-		return Reading{}, fmt.Errorf("endpoint: decode: %w", err)
+	ub, err := decodeUsageBody(body)
+	if err != nil {
+		return Reading{}, fmt.Errorf("endpoint: %w", err)
 	}
 	w := ub.SevenDay
-	if w == nil || w.Utilization == nil || w.ResetsAt == nil || *w.ResetsAt == "" {
-		return Reading{}, errors.New("endpoint: response has no seven_day utilization and resets_at")
+	if w.ResetsAt == nil || *w.ResetsAt == "" {
+		return Reading{}, errors.New("endpoint: response has no seven_day resets_at")
 	}
 	resets, err := parseUsageTimestamp(*w.ResetsAt)
 	if err != nil {
@@ -120,7 +112,15 @@ func endpointReading(ctx context.Context, now time.Time) (Reading, error) {
 			}
 		}
 	}
-	for _, l := range ub.Limits {
+	if len(ub.Limits) == 0 || string(ub.Limits) == "null" {
+		return r, nil
+	}
+	var limits []usageLimit
+	if err := json.Unmarshal(ub.Limits, &limits); err != nil {
+		r.Warnings = append(r.Warnings, fmt.Sprintf("endpoint: limits ignored: %v", err))
+		return r, nil
+	}
+	for _, l := range limits {
 		if l.Kind != "weekly_scoped" || l.Percent == nil || l.Scope == nil || l.Scope.Model == nil || l.Scope.Model.DisplayName == "" {
 			continue
 		}
@@ -150,7 +150,10 @@ func runDaily(ctx context.Context, now time.Time, sources []ReadingSource) (Dail
 		rec := computeVerdict(r, cfg.Margin, now)
 		for _, e := range errs {
 			rec.Errors = append(rec.Errors, e.Error())
-			fmt.Fprintf(dailyStderr, "spore budget daily: %v\n", e)
+		}
+		rec.Errors = append(rec.Errors, r.Warnings...)
+		for _, e := range rec.Errors {
+			fmt.Fprintf(dailyStderr, "spore budget daily: %s\n", e)
 		}
 		if err := saveDaily(rec); err != nil {
 			return failDaily(now, cfg.Margin, append(errs, fmt.Errorf("save %s reading: %w", r.Source, err))...)
@@ -193,7 +196,7 @@ func removeDaily() error {
 // A reset already past would clamp pace to 100 and read as room from
 // the previous week's usage.
 func checkReading(r Reading, now time.Time) error {
-	if !(r.WeeklyUsed >= 0 && r.WeeklyUsed <= 100) {
+	if !validPercent(r.WeeklyUsed) {
 		return fmt.Errorf("%s: weekly used %v is not a percentage in 0..100", r.Source, r.WeeklyUsed)
 	}
 	if !r.WeeklyResetsAt.After(now) || r.WeeklyResetsAt.After(now.Add(weeklyWindow+time.Hour)) {

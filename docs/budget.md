@@ -98,9 +98,12 @@ than 30 minutes) flips into api mode.
 returned utilization percent and `resets_at` per window. On a 401 with
 a refresh token present, the binary refreshes once via
 `https://platform.claude.com/v1/oauth/token` and retries; the rolled
-credentials are written back via mktemp+rename. Other HTTP failures
-keep the previous snapshot but flag it `Stale` so consumers can decide
-whether to trust it.
+credentials are written back via mktemp+rename. Other HTTP failures,
+and a body whose `seven_day.utilization` is missing, null or outside
+0..100, keep the previous snapshot but flag it `Stale` so consumers can
+decide whether to trust it; such a body never reads as 0%. In the
+multi-account store, an account with such a body is left out of the
+average.
 
 A freshness gate prevents hammering `/usage`: successive `refresh`
 calls within 60 seconds reuse the cached snapshot. Override with
@@ -192,7 +195,9 @@ account reports.
    transport error, a non-200 answer, or a body without a numeric
    `seven_day.utilization` and a parsable `seven_day.resets_at` is a
    failed read, never a 0% reading. Per-model weekly percentages from
-   the `limits` list are kept under `extra`.
+   the `limits` list are kept under `extra`. `limits` is optional: when
+   it does not decode, the reading still counts and the problem is
+   noted under `errors`.
 2. A probe: an interactive `claude --model haiku` on its own tmux
    server (`tmux -L spore-budget-probe`), started with every `SPORE_*`
    variable removed, `--setting-sources project,local` (user settings
