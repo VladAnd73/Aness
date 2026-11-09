@@ -7,5 +7,9 @@ Type=oneshot
 # env resolves spore through PATH; the probe fallback also needs tmux
 # and claude on PATH.
 ExecStart=/usr/bin/env spore budget daily
+# The state dir comes from the user manager's environment, which never
+# sees variables set only in a shell. Install pins it with a drop-in
+# from `spore budget state-dir` (docs/budget.md, "Timer"), so this
+# timer writes where `spore budget room` reads.
 # The probe fallback can wait up to 90s for the status line.
 TimeoutStartSec=5min

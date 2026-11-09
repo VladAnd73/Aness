@@ -45,3 +45,13 @@ func TestBudgetUsageDailyExitRule(t *testing.T) {
 		}
 	}
 }
+
+func TestBudgetStateDirCommand(t *testing.T) {
+	t.Setenv("AGENT_BUDGET_STATE_DIR", t.TempDir())
+	if code := runBudgetCmd("state-dir", nil); code != 0 {
+		t.Errorf("state-dir: got %d want 0", code)
+	}
+	if !strings.Contains(budgetUsage, "spore budget state-dir") {
+		t.Error("usage text lacks spore budget state-dir")
+	}
+}

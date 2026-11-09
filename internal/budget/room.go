@@ -22,7 +22,7 @@ func roomVerdict(now time.Time) (code int, line string) {
 	}
 	b, err := os.ReadFile(filepath.Join(d, "daily.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return 2, "unknown no daily reading"
+		return 2, "unknown no daily reading in " + d
 	}
 	if err != nil {
 		return 2, fmt.Sprintf("unknown unreadable daily.json: %v", err)

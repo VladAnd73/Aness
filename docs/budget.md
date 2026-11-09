@@ -304,9 +304,21 @@ the next boot. The shims package ships them under
 
 ```sh
 cp bootstrap/handover/systemd/spore-budget-daily.* ~/.config/systemd/user/
+mkdir -p ~/.config/systemd/user/spore-budget-daily.service.d
+printf '[Service]\nEnvironment=AGENT_BUDGET_STATE_DIR=%s\n' "$(spore budget state-dir)" \
+  > ~/.config/systemd/user/spore-budget-daily.service.d/state-dir.conf
 systemctl --user daemon-reload
 systemctl --user enable --now spore-budget-daily.timer
 ```
+
+The drop-in pins the state dir. The timer runs under the user
+manager's environment, which never sees `AGENT_BUDGET_STATE_DIR` or
+`XDG_STATE_HOME` set in a shell rc; without the pin, `daily` could write
+one directory while `room` in your shell reads another.
+`spore budget state-dir` prints the absolute directory the current
+shell resolves, so run the install from the same environment that will
+call `room`, and rerun it if you change either variable. `room` names
+the directory it looked in when it finds no reading.
 
 The service runs `/usr/bin/env spore`, so `spore`, `tmux` and
 `claude` must be on the user manager's `PATH`.
@@ -315,10 +327,10 @@ The service runs `/usr/bin/env spore`, so `spore`, `tmux` and
 
 Claude Code asks "do you trust this folder" in a folder it has not
 seen, and that prompt blocks the probe (`daily` then reports `status
-line never ran`). Trust the probe folder once by hand:
+line never ran in <folder>` and quotes the prompt from the screen). Trust the probe folder once by hand:
 
 ```sh
-d="${AGENT_BUDGET_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-budget}/probe"
+d="$(spore budget state-dir)/probe"
 mkdir -p "$d" && cd "$d" && claude --setting-sources project,local
 ```
 

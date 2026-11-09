@@ -86,9 +86,11 @@ type state struct {
 	AccountSnapshots map[string]*usageSnapshot `json:"account_snapshots,omitempty"`
 }
 
+// stateDir is absolute so a relative AGENT_BUDGET_STATE_DIR names the
+// same directory as the one pinned into the timer unit.
 func stateDir() (string, error) {
 	if d := os.Getenv("AGENT_BUDGET_STATE_DIR"); d != "" {
-		return d, nil
+		return filepath.Abs(d)
 	}
 	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
 		return filepath.Join(d, "agent-budget"), nil
@@ -98,6 +100,12 @@ func stateDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "state", "agent-budget"), nil
+}
+
+// ResolvedStateDir is what `spore budget state-dir` prints, so the timer
+// drop-in and the probe trust step use the directory room reads.
+func ResolvedStateDir() (string, error) {
+	return stateDir()
 }
 
 func projectsDir() (string, error) {

@@ -24,7 +24,7 @@ func TestRoomExitCodes(t *testing.T) {
 		{"no-room", func(t *testing.T, d string) { r := base; r.Verdict = VerdictNoRoom; writeDailyJSON(t, d, r) }, 1, "no-room "},
 		{"unknown", func(t *testing.T, d string) { r := base; r.Verdict = VerdictUnknown; writeDailyJSON(t, d, r) }, 2, "unknown"},
 		{"odd verdict", func(t *testing.T, d string) { r := base; r.Verdict = "maybe"; writeDailyJSON(t, d, r) }, 2, "unknown"},
-		{"missing file", func(t *testing.T, d string) {}, 2, "unknown no daily reading"},
+		{"missing file", func(t *testing.T, d string) {}, 2, "unknown no daily reading in "},
 		{"corrupt", func(t *testing.T, d string) {
 			if err := os.MkdirAll(d, 0o700); err != nil {
 				t.Fatal(err)

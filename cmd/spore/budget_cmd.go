@@ -26,6 +26,8 @@ Usage:
                              history append failure only warns)
   spore budget room          print the last daily verdict; exit 0 room, 1 no-room,
                              2 unknown (missing, failed, or older than 26h)
+  spore budget state-dir     print the absolute state dir this shell resolves;
+                             pin it into the daily timer (docs/budget.md)
 
 Env (AGENT_BUDGET_* names preserved verbatim so spore and the basecamp
 binary can shadow-soak against the same state file):
@@ -82,6 +84,14 @@ func runBudgetCmd(sub string, rest []string) int {
 		return budgetExec(budget.DebugUsage, "debug-usage", rest)
 	case "daily":
 		return budgetExec(budget.Daily, "daily", rest)
+	case "state-dir":
+		return budgetExec(func() error {
+			d, err := budget.ResolvedStateDir()
+			if err == nil {
+				fmt.Println(d)
+			}
+			return err
+		}, "state-dir", rest)
 	case "room":
 		if len(rest) != 0 {
 			fmt.Fprintln(os.Stderr, "spore budget room: takes no args")
