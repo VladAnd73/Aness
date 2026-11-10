@@ -32,7 +32,6 @@ func wantRefused(t *testing.T, err error, ed *fakeEditor, j *fakeJudge, want ...
 }
 
 func TestAcceptance01NightRefusesWhenOff(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, nil)
 	if err := f.store.SetOn(f.name, false); err != nil {
 		t.Fatalf("SetOn(false): %v", err)
@@ -43,7 +42,6 @@ func TestAcceptance01NightRefusesWhenOff(t *testing.T) {
 }
 
 func TestAcceptance02NightRefusesWithoutBudgetRoom(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	for _, code := range []int{1, 2} {
 		t.Run(map[int]string{1: "no-room", 2: "unknown"}[code], func(t *testing.T) {
 			f := newCampaign(t, nil)
@@ -57,7 +55,6 @@ func TestAcceptance02NightRefusesWithoutBudgetRoom(t *testing.T) {
 }
 
 func TestAcceptance03NightRefusesOnJudgeHashMismatch(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	for _, set := range []struct{ name, scenario string }{{"main", "m1"}, {"holdout", "h1"}} {
 		t.Run(set.name, func(t *testing.T) {
 			f := newCampaign(t, nil)
