@@ -207,10 +207,20 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 	}
 	wt := filepath.Join(s.Dir(cfg.Name), "accept-worktree")
 	os.RemoveAll(wt)
+	// A run killed before its cleanup leaves the path registered.
+	if err := git(top, "worktree", "prune"); err != nil {
+		return AcceptResult{}, err
+	}
 	if err := git(top, "worktree", "add", "--quiet", "-b", branch, wt, "HEAD"); err != nil {
 		return AcceptResult{}, err
 	}
-	defer git(top, "worktree", "remove", "--force", wt)
+	committed := false
+	defer func() {
+		git(top, "worktree", "remove", "--force", wt)
+		if !committed {
+			git(top, "branch", "-D", branch)
+		}
+	}()
 	if err := os.WriteFile(filepath.Join(wt, rel), winner, 0o644); err != nil {
 		return AcceptResult{}, err
 	}
@@ -220,6 +230,7 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 	if err := git(wt, "commit", "--quiet", "-m", fmt.Sprintf("research: %s winner for %s", cfg.Name, filepath.ToSlash(rel))); err != nil {
 		return AcceptResult{}, err
 	}
+	committed = true
 	return AcceptResult{Written: branch + ":" + filepath.ToSlash(rel), Branch: branch}, nil
 }
 

@@ -121,9 +121,12 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
+// sporeRepoWinner builds a temp checkout declaring the spore module,
+// with a stopped campaign on its skill whose winner passed holdout.
+func sporeRepoWinner(t *testing.T) (top, target, headBefore string, store Store, f fixture) {
+	t.Helper()
 	root := t.TempDir()
-	top := filepath.Join(root, "spore")
+	top = filepath.Join(root, "spore")
 	live := filepath.Join(top, "skills", "demo")
 	os.MkdirAll(live, 0o700)
 	gitT(t, root, "init", "-q", "-b", "main", top)
@@ -131,13 +134,13 @@ func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
 	gitT(t, top, "config", "user.name", "t")
 	os.WriteFile(filepath.Join(top, "go.mod"), []byte("module "+sporeModule+"\n\ngo 1.25\n"), 0o600)
 	original := []byte(strings.Repeat("b", 99) + "\n")
-	target := filepath.Join(live, "SKILL.md")
+	target = filepath.Join(live, "SKILL.md")
 	os.WriteFile(target, original, 0o600)
 	gitT(t, top, "add", "-A")
 	gitT(t, top, "commit", "-qm", "init")
-	headBefore := gitT(t, top, "rev-parse", "HEAD")
+	headBefore = gitT(t, top, "rev-parse", "HEAD")
 
-	store := Store{Root: filepath.Join(root, "state")}
+	store = Store{Root: filepath.Join(root, "state")}
 	goal := filepath.Join(root, "goal.md")
 	os.WriteFile(goal, []byte("g\n"), 0o600)
 	bin := filepath.Join(root, "bin")
@@ -154,9 +157,15 @@ func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
 	cfg, _ := store.Load("demo")
 	cfg.MaxTriesPerNight = 1
 	store.Save(cfg)
-	f := fixture{store: store, name: "demo", liveDir: live, liveTarget: target, original: original, notes: new([]string)}
+	f = fixture{store: store, name: "demo", liveDir: live, liveTarget: target, original: original, notes: new([]string)}
 	stoppedWinner(t, f)
 
+	return
+}
+
+func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
+	top, target, headBefore, store, f := sporeRepoWinner(t)
+	original := f.original
 	res, err := Accept(store, "demo", false)
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
@@ -202,5 +211,33 @@ func TestAcceptPrunesTranscripts(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "judge-1.json,judge-2.json" {
 		t.Errorf("try dir after accept holds %v, want only the judge results", names)
+	}
+}
+
+func TestAcceptBranchFailureLeavesNoBranch(t *testing.T) {
+	top, _, _, store, _ := sporeRepoWinner(t)
+	hooks := filepath.Join(top, ".git", "hooks")
+	os.MkdirAll(hooks, 0o700)
+	hook := filepath.Join(hooks, "commit-msg")
+	os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o700)
+	if _, err := Accept(store, "demo", false); err == nil {
+		t.Fatalf("Accept succeeded through a failing commit hook")
+	}
+	if out, _ := exec.Command("git", "-C", top, "branch", "--list", "research/demo").Output(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("a failed accept left branch research/demo behind")
+	}
+	os.Remove(hook)
+	if _, err := Accept(store, "demo", false); err != nil {
+		t.Errorf("retry after fixing the hook: %v", err)
+	}
+}
+
+func TestAcceptBranchSurvivesStaleWorktree(t *testing.T) {
+	top, _, _, store, f := sporeRepoWinner(t)
+	wt := filepath.Join(store.Dir(f.name), "accept-worktree")
+	gitT(t, top, "worktree", "add", "-q", "--detach", wt, "HEAD")
+	os.RemoveAll(wt)
+	if _, err := Accept(store, "demo", false); err != nil {
+		t.Errorf("Accept after a killed run left a registered worktree: %v", err)
 	}
 }

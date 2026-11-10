@@ -37,6 +37,8 @@ func (j CommandJudge) Run(ctx context.Context, candidate, set, outPath string) (
 	argv := append(append([]string{}, j.Argv...), "--candidate", candidate, "--set", set, "--out", outPath)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Cancel runs before the judge is reaped, so its group id is still
+	// its own; killing the group after Wait could hit a reused id.
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
 	log, err := os.OpenFile(outPath+".log", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
@@ -46,10 +48,6 @@ func (j CommandJudge) Run(ctx context.Context, candidate, set, outPath string) (
 	defer log.Close()
 	cmd.Stdout, cmd.Stderr = log, log
 	runErr := cmd.Run()
-	if cmd.Process != nil {
-		// The judge's own children share its group; none may outlive it.
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
 	if err := ctx.Err(); err != nil {
 		return JudgeResult{}, fmt.Errorf("research: judge: %w", err)
 	}
