@@ -33,7 +33,9 @@ func Stop(ctx context.Context, s Store, name, reason string, d Deps) error {
 	return stopCampaign(ctx, s, cfg, reason, d)
 }
 
-func (cfg Config) hasKeptChange() bool { return cfg.BestCommit != "" && cfg.BestCommit != cfg.StartCommit }
+func (cfg Config) hasKeptChange() bool {
+	return cfg.BestCommit != "" && cfg.BestCommit != cfg.StartCommit
+}
 
 // stopCampaign runs with the lock held. A holdout failure leaves the
 // status untouched, so the stop can be retried.

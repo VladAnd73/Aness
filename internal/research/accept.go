@@ -16,7 +16,7 @@ import (
 
 type AcceptResult struct{ Written, Backup, Branch string }
 
-const sporeModule = "module github.com/versality/spore"
+const sporeModule = "github.com/versality/spore"
 
 // Accept lands a stopped campaign's winner. Outside the spore repo it
 // overwrites the live target, keeping a backup beside it. Inside the
@@ -152,7 +152,7 @@ func sporeCheckout(dir string) string {
 		return ""
 	}
 	first, _, _ := strings.Cut(string(mod), "\n")
-	if strings.TrimSpace(first) != sporeModule {
+	if path, ok := strings.CutPrefix(strings.TrimSpace(first), "module "); !ok || strings.TrimSpace(path) != sporeModule {
 		return ""
 	}
 	return top

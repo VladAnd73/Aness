@@ -129,7 +129,7 @@ func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
 	gitT(t, root, "init", "-q", "-b", "main", top)
 	gitT(t, top, "config", "user.email", "t@localhost")
 	gitT(t, top, "config", "user.name", "t")
-	os.WriteFile(filepath.Join(top, "go.mod"), []byte("module github.com/versality/spore\n\ngo 1.25\n"), 0o600)
+	os.WriteFile(filepath.Join(top, "go.mod"), []byte("module "+sporeModule+"\n\ngo 1.25\n"), 0o600)
 	original := []byte(strings.Repeat("b", 99) + "\n")
 	target := filepath.Join(live, "SKILL.md")
 	os.WriteFile(target, original, 0o600)
