@@ -124,7 +124,6 @@ func TestAcceptance05LuckyResultRejected(t *testing.T) {
 }
 
 func TestAcceptance06aMaximizeScoreTieShorterWins(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	obj, err := LookupObjective("maximize-score")
 	if err != nil || obj == nil {
 		t.Errorf("LookupObjective(maximize-score) = %v, %v; want an objective", obj, err)
