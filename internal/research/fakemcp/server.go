@@ -124,10 +124,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		var list []map[string]any
 		for _, t := range h.tools[server] {
+			var schema any = map[string]any{"type": "object", "additionalProperties": true}
+			if len(t.InputSchema) > 0 {
+				schema = t.InputSchema
+			}
 			list = append(list, map[string]any{
 				"name":        t.Name,
 				"description": t.Name,
-				"inputSchema": map[string]any{"type": "object", "additionalProperties": true},
+				"inputSchema": schema,
 			})
 		}
 		reply(w, req.ID, map[string]any{"tools": list}, nil)

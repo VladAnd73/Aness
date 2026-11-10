@@ -16,6 +16,8 @@ type Tool struct {
 	Server   string          `json:"server"`
 	Name     string          `json:"name"`
 	Response json.RawMessage `json:"response"`
+	// InputSchema is advertised in tools/list; empty means any object.
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
 type Call struct {

@@ -210,3 +210,24 @@ func TestServeReadsServicesFile(t *testing.T) {
 		t.Error("Serve accepted a missing services file")
 	}
 }
+
+func TestFakeMCPListsDeclaredInputSchema(t *testing.T) {
+	schema := `{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`
+	tools := []Tool{{Server: "s", Name: "a", InputSchema: json.RawMessage(schema), Response: json.RawMessage(`{}`)}}
+	urls, stop, err := Start(context.Background(), tools, filepath.Join(t.TempDir(), "c.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	r := rpc(t, urls["s"], 1, "tools/list", nil)
+	list, _ := r.body["result"].(map[string]any)["tools"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("tools/list = %v", r.body)
+	}
+	got, _ := json.Marshal(list[0].(map[string]any)["inputSchema"])
+	var want any
+	_ = json.Unmarshal([]byte(schema), &want)
+	if w, _ := json.Marshal(want); string(got) != string(w) {
+		t.Errorf("inputSchema = %s, want %s", got, schema)
+	}
+}
