@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/versality/spore/internal/evalharness"
 )
 
-const evalUsage = `usage: spore eval <list|run> [flags]
+const evalUsage = `usage: spore eval <list|run|judge> [flags]
 
   list
          List every registered eval scenario: its name, which dream
@@ -20,6 +22,18 @@ const evalUsage = `usage: spore eval <list|run> [flags]
          Spawn a real, sandboxed Claude Code agent against one
          scenario (or every registered scenario with --all) and grade
          the result. Exits non-zero if any scenario fails or errors.
+
+  judge --scenarios-root DIR --skill NAME --candidate PATH --set main|holdout --out PATH
+        [--frozen DIR] [--model M] [--repeats 3] [--parallel 3] [--timeout 5m]
+        [--agent-binary claude] [--isolation bwrap|none] [--keep DIR]
+         Score a candidate SKILL.md on the scenario set DIR/<set>: every
+         scenario runs --repeats times, each in its own sandbox with the
+         candidate installed as skill NAME over the --frozen folder. Writes
+         the JSON score to --out and exits 0 whatever the score; exits 1 when
+         the judge itself failed. --isolation bwrap (the default) is
+         refused until bwrap isolation exists; --isolation none runs
+         unsandboxed and needs SPORE_RESEARCH_ALLOW_UNSANDBOXED=1. Sandboxes are deleted unless
+         --keep names a directory to leave them (transcripts included) in.
 
 --brief-override replaces the embedded proposer or reviewer brief (the
 one the scenario's own Kind uses) with the file's contents, for
@@ -53,6 +67,8 @@ func evalMain(out, errOut io.Writer, args []string, spawner evalharness.AgentSpa
 		return evalList(out)
 	case "run":
 		return evalRun(out, errOut, args[1:], spawner)
+	case "judge":
+		return evalJudge(out, errOut, args[1:], spawner)
 	default:
 		fmt.Fprintf(errOut, "spore eval: unknown subcommand %q\n\n%s", args[0], evalUsage)
 		return 2
@@ -135,5 +151,73 @@ func evalRun(out, errOut io.Writer, args []string, spawner evalharness.AgentSpaw
 	if !allPass {
 		return 1
 	}
+	return 0
+}
+
+func evalJudge(out, errOut io.Writer, args []string, spawner evalharness.AgentSpawner) int {
+	fs := flag.NewFlagSet("eval judge", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	root := fs.String("scenarios-root", "", "directory holding the main and holdout scenario sets")
+	set := fs.String("set", "", "main or holdout")
+	candidate := fs.String("candidate", "", "candidate SKILL.md")
+	frozen := fs.String("frozen", "", "skill folder the candidate is installed over")
+	skill := fs.String("skill", "", "skill name the agent under test loads it as")
+	outPath := fs.String("out", "", "result JSON path")
+	model := fs.String("model", "", "model for the agent under test (empty: the CLI default)")
+	repeats := fs.Int("repeats", 3, "runs per scenario")
+	parallel := fs.Int("parallel", 3, "scenario runs at once")
+	timeout := fs.Duration("timeout", 5*time.Minute, "limit per scenario run")
+	agentBinary := fs.String("agent-binary", "claude", "agent CLI to run")
+	isolation := fs.String("isolation", "bwrap", "bwrap or none")
+	keep := fs.String("keep", "", "leave every run's sandbox under this directory")
+	if err := fs.Parse(reorderFlagsFirst(fs, args)); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 || *root == "" || *candidate == "" || *skill == "" || *outPath == "" {
+		fmt.Fprint(errOut, "spore eval judge: --scenarios-root, --skill, --candidate, --set and --out are required\n\n"+evalUsage)
+		return 2
+	}
+	if *set != "main" && *set != "holdout" {
+		fmt.Fprintf(errOut, "spore eval judge: --set must be main or holdout, got %q\n", *set)
+		return 2
+	}
+
+	parent := *keep
+	if parent == "" {
+		tmp, err := os.MkdirTemp("", "spore-judge-")
+		if err != nil {
+			fmt.Fprintf(errOut, "spore eval judge: %v\n", err)
+			return 1
+		}
+		defer os.RemoveAll(tmp)
+		parent = tmp
+	} else if err := os.MkdirAll(parent, 0o700); err != nil {
+		fmt.Fprintf(errOut, "spore eval judge: --keep: %v\n", err)
+		return 1
+	}
+
+	rep, err := evalharness.RunJudge(context.Background(), evalharness.JudgeOptions{
+		SetDir:        filepath.Join(*root, *set),
+		Candidate:     *candidate,
+		FrozenDir:     *frozen,
+		SkillName:     *skill,
+		Model:         *model,
+		AgentBinary:   *agentBinary,
+		Isolation:     *isolation,
+		SandboxParent: parent,
+		Repeats:       *repeats,
+		Parallel:      *parallel,
+		Timeout:       *timeout,
+		Spawner:       spawner,
+	})
+	if err != nil {
+		fmt.Fprintf(errOut, "spore eval judge: %v\n", err)
+		return 1
+	}
+	if err := evalharness.WriteJudgeReport(*outPath, rep); err != nil {
+		fmt.Fprintf(errOut, "spore eval judge: write result: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(out, "score %.1f: %d of %d runs passed, %d crashed\n", rep.Score, rep.Passed, rep.Runs, rep.Crashes)
 	return 0
 }

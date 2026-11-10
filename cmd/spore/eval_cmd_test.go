@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,5 +113,94 @@ func TestEvalRunUsesTheAgentBinaryFlag(t *testing.T) {
 
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("--agent-binary was not run (%v)\nstdout: %s\nstderr: %s", err, out.String(), errOut.String())
+	}
+}
+
+func readJudgeResult(t *testing.T, path string) evalharness.JudgeReport {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	var r evalharness.JudgeReport
+	if err := json.Unmarshal(b, &r); err != nil {
+		t.Fatalf("decode result %s: %v", b, err)
+	}
+	return r
+}
+
+func TestEvalJudgeCLIWritesResultJSON(t *testing.T) {
+	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
+	out := filepath.Join(t.TempDir(), "result.json")
+	var stdout, stderr bytes.Buffer
+	code := evalMain(&stdout, &stderr, []string{"judge",
+		"--scenarios-root", "testdata/research-e2e/drafts", "--skill", "e2e",
+		"--isolation", "none", "--repeats", "2", "--parallel", "2",
+		"--candidate", "testdata/research-e2e/skill/SKILL.md", "--set", "main", "--out", out,
+	}, fakeSpawner{stdout: `{"type":"result","result":"ok","total_cost_usd":0.25}`})
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+	}
+	r := readJudgeResult(t, out)
+	if r.Runs != 6 || r.Crashes != 0 || r.Score != 0 || r.CostUSD != 1.5 {
+		t.Errorf("result = %+v, want 6 runs, 0 crashes, score 0 (no out.txt), cost 1.5", r)
+	}
+}
+
+func TestEvalJudgeCLIRunsTheAgentBinaryHandover(t *testing.T) {
+	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
+	fake, err := filepath.Abs("testdata/research-e2e/fake-claude.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	todo, err := os.ReadFile("testdata/research-e2e/skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(done, bytes.ReplaceAll(todo, []byte("status: todo"), []byte("status: done")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		candidate, set string
+		score          float64
+	}{
+		{"testdata/research-e2e/skill/SKILL.md", "main", 0},
+		{done, "main", 100},
+		{done, "holdout", 100},
+	} {
+		out := filepath.Join(t.TempDir(), "result.json")
+		var stdout, stderr bytes.Buffer
+		code := evalMain(&stdout, &stderr, []string{"judge",
+			"--scenarios-root", "testdata/research-e2e/drafts", "--skill", "e2e",
+			"--frozen", "testdata/research-e2e/skill", "--agent-binary", fake, "--isolation", "none",
+			"--candidate", c.candidate, "--set", c.set, "--out", out,
+		}, nil)
+		if code != 0 {
+			t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+		}
+		if r := readJudgeResult(t, out); r.Score != c.score || r.Crashes != 0 {
+			t.Errorf("%s on %s: result = %+v, want score %v and no crashes", c.candidate, c.set, r, c.score)
+		}
+	}
+}
+
+func TestEvalJudgeCLIRejects(t *testing.T) {
+	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
+	base := []string{"judge", "--scenarios-root", "testdata/research-e2e/drafts", "--skill", "e2e",
+		"--isolation", "none", "--candidate", "testdata/research-e2e/skill/SKILL.md"}
+	for name, c := range map[string]struct {
+		args []string
+		code int
+	}{
+		"bad set":      {[]string{"--set", "other", "--out", "x"}, 2},
+		"missing out":  {[]string{"--set", "main"}, 2},
+		"missing set":  {[]string{"--set", "nope-not-here", "--out", "x"}, 2},
+		"judge failed": {[]string{"--set", "main", "--out", filepath.Join(t.TempDir(), "r.json"), "--isolation", "bwrap"}, 1},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := evalMain(&stdout, &stderr, append(append([]string{}, base...), c.args...), fakeSpawner{}); code != c.code {
+			t.Errorf("%s: exit %d, want %d (stderr %s)", name, code, c.code, stderr.String())
+		}
 	}
 }
