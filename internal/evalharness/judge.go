@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/versality/spore/internal/isolate"
 	"github.com/versality/spore/internal/research/fakemcp"
 	"github.com/versality/spore/internal/statefile"
 )
@@ -20,8 +22,9 @@ const AllowUnsandboxedEnv = "SPORE_RESEARCH_ALLOW_UNSANDBOXED"
 
 // JudgeOptions configures one judge run over one scenario set. Zero
 // Repeats, Parallel and Timeout take the defaults 3, 3 and 5 minutes.
-// Spawner and Grader default to ClaudeSpawner on AgentBinary. Services
-// starts a scenario's fake services; nil refuses a set that declares any.
+// Spawner defaults to IsolatedSpawner on AgentBinary (ClaudeSpawner for
+// Isolation "none"); Grader defaults to ClaudeSpawner. Services starts
+// a scenario's fake services and defaults to FakeServices.
 type JudgeOptions struct {
 	SetDir, Candidate, FrozenDir, SkillName, Model, AgentBinary, Isolation, SandboxParent string
 	Repeats, Parallel                                                                     int
@@ -86,7 +89,14 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 		o.SandboxParent = os.TempDir()
 	}
 	if o.Spawner == nil {
-		o.Spawner = ClaudeSpawner{Binary: o.AgentBinary}
+		if o.Isolation == "none" {
+			o.Spawner = ClaudeSpawner{Binary: o.AgentBinary}
+		} else {
+			o.Spawner = IsolatedSpawner{Binary: o.AgentBinary}
+		}
+	}
+	if o.Services == nil {
+		o.Services = FakeServices()
 	}
 	if o.Grader == nil {
 		o.Grader = ClaudeSpawner{Binary: o.AgentBinary}
@@ -97,11 +107,6 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 	set, err := LoadSet(o.SetDir)
 	if err != nil {
 		return JudgeReport{}, err
-	}
-	for _, sc := range set {
-		if len(sc.Services) > 0 && o.Services == nil {
-			return JudgeReport{}, fmt.Errorf("evalharness: judge: scenario %s declares fake services and no service starter is configured", sc.Name)
-		}
 	}
 	if err := checkSkillName(o.SkillName); err != nil {
 		return JudgeReport{}, err
@@ -175,7 +180,10 @@ func checkIsolation(mode string) error {
 		}
 		return nil
 	case "", "bwrap":
-		return fmt.Errorf("evalharness: judge: isolation bwrap is not implemented yet; use isolation none with %s=1", AllowUnsandboxedEnv)
+		if err := isolate.Available(); err != nil {
+			return fmt.Errorf("evalharness: judge: %w", err)
+		}
+		return nil
 	default:
 		return fmt.Errorf("evalharness: judge: unknown isolation %q (want bwrap or none)", mode)
 	}
@@ -206,22 +214,29 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 		args = append(args, "--model", o.Model)
 	}
 	run := RunReport{SandboxRoot: sb.Root, TranscriptPath: filepath.Join(sb.Root, "transcript.jsonl")}
+	cfg := fakemcp.MCPConfig(nil)
 	if len(sc.Services) > 0 {
 		run.CallsLog = filepath.Join(sb.Root, "calls.jsonl")
-		cfg, stop, err := o.Services(ctx, sc.Services, run.CallsLog)
+		var stop func() error
+		cfg, stop, err = o.Services(ctx, sc.Services, run.CallsLog)
 		if err != nil {
 			return runOutcome{}, fmt.Errorf("fake services: %w", err)
 		}
 		defer stop()
-		cfgPath := filepath.Join(sb.Root, "mcp.json")
-		if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
-			return runOutcome{}, err
-		}
-		args = append(args, "--mcp-config", cfgPath)
+	}
+	cfgPath := filepath.Join(sb.Root, "mcp.json")
+	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
+		return runOutcome{}, err
+	}
+	args = append(args, "--mcp-config", cfgPath)
+	req := SpawnRequest{Prompt: sc.Prompt, WorkDir: sb.RunWD, Env: sb.Env(), ExtraArgs: args}
+	if o.Isolation != "none" {
+		spec := agentSpec(sb, cfgPath)
+		req.Env, req.Isolate = spec.Env, &spec
 	}
 
 	rctx, cancel := context.WithTimeout(ctx, o.Timeout)
-	res, spawnErr := o.Spawner.Spawn(rctx, SpawnRequest{Prompt: sc.Prompt, WorkDir: sb.RunWD, Env: sb.Env(), ExtraArgs: args})
+	res, spawnErr := o.Spawner.Spawn(rctx, req)
 	timedOut := errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	cancel()
 	if err := ctx.Err(); err != nil {
@@ -297,5 +312,59 @@ func WriteJudgeReport(path string, r JudgeReport) error {
 // ProbeIsolated runs argv under the same isolation RunJudge gives the
 // agent under test and returns its combined output.
 func ProbeIsolated(ctx context.Context, o JudgeOptions, argv []string) (string, error) {
-	return "", nil
+	if err := checkIsolation(o.Isolation); err != nil {
+		return "", err
+	}
+	if len(argv) == 0 {
+		return "", errors.New("evalharness: probe: empty argv")
+	}
+	parent := o.SandboxParent
+	if parent == "" {
+		parent = os.TempDir()
+	}
+	sb, err := NewSandbox(parent)
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(sb.Root)
+	var cmd *exec.Cmd
+	if o.Isolation == "none" {
+		cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)
+		cmd.Dir, cmd.Env = sb.RunWD, sb.Env()
+	} else if cmd, err = isolate.Command(ctx, agentSpec(sb, ""), argv); err != nil {
+		return "", err
+	}
+	out, err := cmd.CombinedOutput()
+	for _, f := range cmd.ExtraFiles {
+		f.Close()
+	}
+	return string(out), err
+}
+
+// agentSpec is the sandbox for one agent under test: the run dir and a
+// fresh home, the MCP config read-only, nothing from the scenario store.
+func agentSpec(sb *Sandbox, mcpConfig string) isolate.Spec {
+	s := isolate.Spec{
+		Work:        sb.RunWD,
+		Home:        sb.AgentHome,
+		Credentials: isolate.CredentialsPath(),
+		Env:         isolate.BaseEnv(sb.AgentHome),
+	}
+	if mcpConfig != "" {
+		s.Extra = []isolate.Bind{{Src: mcpConfig, Dst: mcpConfig}}
+	}
+	return s
+}
+
+// FakeServices starts the scenario's tools on a fakemcp server outside
+// the sandbox, so the agent can neither read the canned answers nor
+// write the calls log.
+func FakeServices() ServiceStarter {
+	return func(ctx context.Context, svcs []fakemcp.Tool, callsLog string) ([]byte, func() error, error) {
+		urls, stop, err := fakemcp.Start(ctx, svcs, callsLog)
+		if err != nil {
+			return nil, nil, err
+		}
+		return fakemcp.MCPConfig(urls), stop, nil
+	}
 }

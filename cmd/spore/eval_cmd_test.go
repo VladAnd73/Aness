@@ -196,7 +196,7 @@ func TestEvalJudgeCLIRejects(t *testing.T) {
 		"bad set":      {[]string{"--set", "other", "--out", "x"}, 2},
 		"missing out":  {[]string{"--set", "main"}, 2},
 		"missing set":  {[]string{"--set", "nope-not-here", "--out", "x"}, 2},
-		"judge failed": {[]string{"--set", "main", "--out", filepath.Join(t.TempDir(), "r.json"), "--isolation", "bwrap"}, 1},
+		"judge failed": {[]string{"--set", "main", "--out", filepath.Join(t.TempDir(), "r.json"), "--isolation", "chroot"}, 1},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := evalMain(&stdout, &stderr, append(append([]string{}, base...), c.args...), fakeSpawner{}); code != c.code {

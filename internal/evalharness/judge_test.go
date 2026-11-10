@@ -309,17 +309,6 @@ func TestRunJudgeRefusesUnsandboxedWithoutOptIn(t *testing.T) {
 	}
 }
 
-func TestRunJudgeRefusesServicesWithoutAStarter(t *testing.T) {
-	sp := &scriptSpawner{fn: replyOK}
-	o := judgeOpts(t, "testdata/notion-set/main", sp)
-	if _, err := RunJudge(context.Background(), o); err == nil {
-		t.Error("RunJudge ran a scenario that declares services with no service starter")
-	}
-	if len(sp.reqs) != 0 {
-		t.Errorf("spawned %d agents before refusing", len(sp.reqs))
-	}
-}
-
 func TestRunJudgeWiresFakeServicesAndGradesTheirCalls(t *testing.T) {
 	var gotTools []fakemcp.Tool
 	stopped := 0
