@@ -212,5 +212,10 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 	if err := appendReport(n.s, cfg.Name, section); err != nil {
 		return n.sum, err
 	}
+	if cfg.Status == StatusOff && cfg.hasKeptChange() && ctx.Err() == nil {
+		if err := stopCampaign(ctx, n.s, cfg, cfg.StopReason, n.d); err != nil {
+			return n.sum, fmt.Errorf("research: night %d switched the campaign off, but stopping it failed: %w", n.num, err)
+		}
+	}
 	return n.sum, nil
 }

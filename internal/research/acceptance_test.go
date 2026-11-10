@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/versality/spore/internal/acceptpending"
 )
 
 // wantRefused checks err is a *RefusedError whose reason names every
@@ -153,7 +151,6 @@ func TestAcceptance06bLengthCapRejectsWithoutJudging(t *testing.T) {
 }
 
 func TestAcceptance09HoldoutOverfitBlocksAccept(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("winner\n")}}
 	j := &fakeJudge{
