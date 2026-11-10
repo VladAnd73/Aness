@@ -1,0 +1,4 @@
+{
+  "prompt": "Write done.txt.",
+  "checks": [{"kind": "file-exists", "path": "done.txt"}]
+}

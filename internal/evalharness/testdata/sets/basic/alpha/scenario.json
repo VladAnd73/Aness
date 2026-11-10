@@ -1,0 +1,9 @@
+{
+  "name": "alpha",
+  "prompt": "Create a page in Notion.",
+  "services": [{"server": "claude_ai_Notion", "name": "notion-create-pages", "response": {"ok": true}}],
+  "checks": [
+    {"kind": "service-call", "tool": "notion-create-pages", "fields": {"title": "Nightly"}},
+    {"kind": "reply-contains", "text": "done", "negate": true}
+  ]
+}
