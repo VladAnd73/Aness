@@ -23,10 +23,8 @@ func binds(args []string) [][3]string {
 }
 
 func testSpec(t *testing.T) Spec {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := filepath.Join(t.TempDir(), "host-home")
+	t.Setenv("HOME", home)
 	root := t.TempDir()
 	return Spec{
 		Work:        filepath.Join(root, "work"),
