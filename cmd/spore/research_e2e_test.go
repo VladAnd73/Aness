@@ -66,6 +66,7 @@ func TestAcceptance10EndToEndNight(t *testing.T) {
 	bin := buildSporeBin(t)
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_RUNTIME_DIR", root)
 	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
 
 	fixture, err := filepath.Abs("testdata/research-e2e")
