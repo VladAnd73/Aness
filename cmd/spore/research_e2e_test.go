@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/versality/spore/internal/acceptpending"
 	"github.com/versality/spore/internal/research"
 )
 
@@ -64,10 +63,10 @@ func setCampaignKeys(t *testing.T, path string, kv map[string]string) {
 }
 
 func TestAcceptance10EndToEndNight(t *testing.T) {
-	acceptpending.Skip(t, "E")
 	bin := buildSporeBin(t)
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_RUNTIME_DIR", root)
 	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
 
 	fixture, err := filepath.Abs("testdata/research-e2e")

@@ -1,4 +1,4 @@
-**Status**: design, approved by nobody yet (2026-11-10). Not built.
+**Status**: built (2026-11-10). Operator doc: `docs/autoresearch.md`.
 
 # Autoresearch: an overnight improve-and-judge loop
 

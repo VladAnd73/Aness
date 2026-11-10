@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -366,5 +367,19 @@ func TestNightReportSection(t *testing.T) {
 	}
 	if cfg := f.load(t); cfg.QuotaUsed != 2 {
 		t.Errorf("cfg.QuotaUsed = %v, want 2", cfg.QuotaUsed)
+	}
+}
+
+func TestNightReportsEachRowToProgress(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 2 })
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("x\n"), appendBytes("y\n")}}
+	d := f.deps(ed, &fakeJudge{scores: []float64{50, 50, 80, 80, 40}})
+	var got []string
+	d.Progress = func(r Row) { got = append(got, fmt.Sprintf("%d:%s", r.Try, r.Status)) }
+	if _, err := RunNight(context.Background(), f.store, f.name, d); err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if want := "0:baseline 1:kept 2:reset"; strings.Join(got, " ") != want {
+		t.Errorf("progress = %v, want %s", got, want)
 	}
 }

@@ -110,8 +110,7 @@ func (n *night) keep(row Row) error {
 	}
 	n.cfg = cfg
 	n.sum.Kept++
-	row.At = n.d.Now()
-	return AppendRow(n.resultsPath(), row)
+	return n.log(row)
 }
 
 // reset moves the repo back to the best commit, which the saved config
@@ -123,6 +122,16 @@ func (n *night) reset(row Row) error {
 	if err := n.s.Save(n.cfg); err != nil {
 		return err
 	}
+	return n.log(row)
+}
+
+func (n *night) log(row Row) error {
 	row.At = n.d.Now()
-	return AppendRow(n.resultsPath(), row)
+	if err := AppendRow(n.resultsPath(), row); err != nil {
+		return err
+	}
+	if n.d.Progress != nil {
+		n.d.Progress(row)
+	}
+	return nil
 }

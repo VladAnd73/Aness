@@ -22,7 +22,7 @@ func TestResolvedStateDirIsAbsolute(t *testing.T) {
 
 func TestRoomNamesTheDirItRead(t *testing.T) {
 	_, stateDir := dailyFixture(t)
-	code, line := roomVerdict(time.Now())
+	code, line := RoomCode(time.Now())
 	if code != 2 || !strings.Contains(line, stateDir) {
 		t.Errorf("got %d %q, want 2 naming %s", code, line, stateDir)
 	}

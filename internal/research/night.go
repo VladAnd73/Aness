@@ -16,6 +16,8 @@ type Deps struct {
 	Notify     func(msg string) error
 	Now        func() time.Time
 	LockPath   string
+	// Progress, when set, sees every results.tsv row right after it is written.
+	Progress func(Row)
 }
 
 func (d Deps) withDefaults() Deps {
@@ -153,7 +155,7 @@ func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 		return "", err
 	}
 	n.cfg = cfg
-	return "", AppendRow(n.resultsPath(), Row{Try: 0, At: n.d.Now(), Score: cfg.BestScore, Status: "baseline",
+	return "", n.log(Row{Try: 0, Score: cfg.BestScore, Status: "baseline",
 		Bytes: cfg.StartBytes, Commit: cfg.StartCommit, Description: "baseline"})
 }
 
