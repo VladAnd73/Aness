@@ -161,7 +161,9 @@ func (c *researchCmd) new(args []string) error {
 		return err
 	}
 	if *model != "" {
-		if err := c.store.Set(cfg.Name, "model", *model, c.lockPath); err != nil {
+		// Not Set: its lock is host-wide, and a draft cannot be in a night.
+		cfg.Model = *model
+		if err := c.store.Save(cfg); err != nil {
 			return err
 		}
 	}

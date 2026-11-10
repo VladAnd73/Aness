@@ -353,3 +353,16 @@ func TestResearchFakeMCPPrintsURL(t *testing.T) {
 		t.Errorf("first line %q, want `<server> <url>`", line)
 	}
 }
+
+func TestResearchNewWithModelWhileAnotherNightRuns(t *testing.T) {
+	e := newResearchEnv(t)
+	unlock, _, err := research.Lock(research.DefaultLockPath(), "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--model", "haiku")
+	if cfg, err := e.store.Load("c"); err != nil || cfg.Model != "haiku" {
+		t.Errorf("model = %q, %v; want haiku", cfg.Model, err)
+	}
+}
