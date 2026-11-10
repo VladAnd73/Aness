@@ -161,6 +161,9 @@ func TestAcceptInSporeRepoMakesBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
+	if res.Written != "research/demo:skills/demo/SKILL.md" {
+		t.Errorf("res.Written = %q, want the branch and path", res.Written)
+	}
 	if res.Branch != "research/demo" || res.Backup != "" {
 		t.Errorf("res = %+v, want branch research/demo and no backup", res)
 	}

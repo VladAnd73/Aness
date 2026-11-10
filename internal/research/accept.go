@@ -220,7 +220,7 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 	if err := git(wt, "commit", "--quiet", "-m", fmt.Sprintf("research: %s winner for %s", cfg.Name, filepath.ToSlash(rel))); err != nil {
 		return AcceptResult{}, err
 	}
-	return AcceptResult{Written: filepath.Join(wt, rel), Branch: branch}, nil
+	return AcceptResult{Written: branch + ":" + filepath.ToSlash(rel), Branch: branch}, nil
 }
 
 // pruneTries drops editor scratch folders and transcripts, keeping the
