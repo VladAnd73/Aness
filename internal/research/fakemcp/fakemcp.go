@@ -6,6 +6,10 @@ package fakemcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -31,4 +35,26 @@ func Start(ctx context.Context, tools []Tool, callsLog string) (map[string]strin
 	return nil, func() error { return nil }, nil
 }
 
-func ReadCalls(callsLog string) ([]Call, error) { return nil, nil }
+// ReadCalls reads a calls log, one JSON Call per line. A log that does
+// not exist means no call was made.
+func ReadCalls(callsLog string) ([]Call, error) {
+	b, err := os.ReadFile(callsLog)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var calls []Call
+	for i, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var c Call
+		if err := json.Unmarshal([]byte(line), &c); err != nil {
+			return nil, fmt.Errorf("fakemcp: %s line %d: %w", callsLog, i+1, err)
+		}
+		calls = append(calls, c)
+	}
+	return calls, nil
+}
