@@ -326,6 +326,7 @@ func ProbeIsolated(ctx context.Context, o JudgeOptions, argv []string) (string, 
 	if err != nil {
 		return "", err
 	}
+	defer os.RemoveAll(sb.Root)
 	var cmd *exec.Cmd
 	if o.Isolation == "none" {
 		cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)

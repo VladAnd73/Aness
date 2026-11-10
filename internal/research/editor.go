@@ -1,7 +1,6 @@
 package research
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -116,7 +115,7 @@ func (e ClaudeEditor) Propose(ctx context.Context, req EditRequest) (EditResult,
 
 	run := e.run
 	if run == nil {
-		run = runEditor
+		run = evalharness.RunCommand
 	}
 	descPath := filepath.Join(req.ScratchDir, descriptionFile)
 	os.Remove(descPath)
@@ -152,20 +151,4 @@ func readDescription(path string) string {
 		return "(no description)"
 	}
 	return line
-}
-
-func runEditor(cmd *exec.Cmd) (string, int, error) {
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	code := 0
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		code = exitErr.ExitCode()
-	}
-	out := stdout.String()
-	if stderr.Len() > 0 {
-		out += "\n--- stderr ---\n" + stderr.String()
-	}
-	return out, code, err
 }

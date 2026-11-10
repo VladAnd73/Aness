@@ -247,3 +247,15 @@ func callFake(t *testing.T, url, tool string, args map[string]any) {
 	}
 	resp.Body.Close()
 }
+
+func TestProbeIsolatedRemovesItsSandbox(t *testing.T) {
+	requireBwrap(t)
+	longLivedCreds(t)
+	parent := t.TempDir()
+	if _, err := ProbeIsolated(context.Background(), JudgeOptions{Isolation: "bwrap", SandboxParent: parent}, []string{"true"}); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := os.ReadDir(parent); len(left) != 0 {
+		t.Errorf("probe left %d entries in %s", len(left), parent)
+	}
+}

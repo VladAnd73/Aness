@@ -101,10 +101,12 @@ func execCommand(ctx context.Context, bin, dir string, env []string, args []stri
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	return runCmd(cmd)
+	return RunCommand(cmd)
 }
 
-func runCmd(cmd *exec.Cmd) (string, int, error) {
+// RunCommand runs cmd and returns its stdout, then stderr after a marker
+// line, and its exit code.
+func RunCommand(cmd *exec.Cmd) (string, int, error) {
 	// Separate buffers, not one shared writer: os/exec copies a
 	// process's stdout and stderr pipes on two concurrent goroutines,
 	// and two goroutines calling Write on the same bytes.Buffer race.
@@ -161,7 +163,7 @@ func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResu
 			f.Close()
 		}
 	}()
-	stdout, code, err := runCmd(cmd)
+	stdout, code, err := RunCommand(cmd)
 	if err != nil {
 		return SpawnResult{Stdout: stdout, ExitCode: code}, fmt.Errorf("evalharness: spawn %s in bwrap: %w", bin, err)
 	}
