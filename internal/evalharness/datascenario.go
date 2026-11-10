@@ -14,9 +14,10 @@ import (
 
 // DataScenario is one scenario loaded from <set>/<name>/scenario.json.
 // Files under <set>/<name>/files/ are copied into the run's working
-// directory before the agent starts. Name is the directory name; a name
-// in the JSON must agree with it. An llm-judge check needs LLMJudge set,
-// so a set never grades by a model without saying so up front.
+// directory before the skill is injected, so a fixture never overwrites
+// the candidate. Name is the directory name; a name in the JSON must
+// agree with it. An llm-judge check needs LLMJudge set, so a set never
+// grades by a model without saying so up front.
 type DataScenario struct {
 	Name     string          `json:"name"`
 	Dir      string          `json:"-"`
