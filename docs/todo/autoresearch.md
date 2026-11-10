@@ -124,9 +124,9 @@ plug-in on top of that core.
 14. The agent under test runs on the production model (today the one
     real workers use), so a score means "better for the agents that
     load this file".
-16. v1 targets skills only. Other kinds come later as plug-ins.
 15. Nights start by hand only: `spore research night <campaign>`. No
     timer.
+16. v1 targets skills only. Other kinds come later as plug-ins.
 
 ## How a night runs
 
