@@ -1,0 +1,5 @@
+{
+  "name": "s2",
+  "prompt": "Record the run status. Use the e2e skill.",
+  "checks": [{"kind": "file-matches", "path": "out.txt", "pattern": "^status: done$"}]
+}
