@@ -63,6 +63,9 @@ type Options struct {
 	DeepReadCap  *int
 	DigestBudget int
 	DryRun       bool
+	// StateHome replaces XDG_STATE_HOME for this run's watermark and run
+	// directory. Empty keeps the environment lookup.
+	StateHome string
 }
 
 // TranscriptError names a transcript the run could not read. Discovery
@@ -181,7 +184,7 @@ func Run(opts Options) (Report, error) {
 		opts.Now = time.Now().UTC()
 	}
 
-	wmPath, err := statefile.Path(opts.Project, filepath.Join("dreams", "watermark.json"))
+	wmPath, err := opts.statePath(filepath.Join("dreams", "watermark.json"))
 	if err != nil {
 		return rep, err
 	}
@@ -231,7 +234,7 @@ func Run(opts Options) (Report, error) {
 	FlagDeepReads(digests, deepReadCap(opts))
 	rep.warn(opts, digests)
 
-	runDir, err := statefile.Path(opts.Project, filepath.Join("dreams", opts.RunID))
+	runDir, err := opts.statePath(filepath.Join("dreams", opts.RunID))
 	if err != nil {
 		return rep, err
 	}
@@ -246,7 +249,11 @@ func Run(opts Options) (Report, error) {
 	deep := deepReads(digests)
 	rep.DeepRead = len(deep)
 
-	claims, err := LoadLedger(opts.Project)
+	ledgerPath, err := opts.statePath(filepath.Join("dreams", "ledger.json"))
+	if err != nil {
+		return rep, err
+	}
+	claims, err := loadLedgerAt(ledgerPath)
 	if err != nil {
 		return rep, err
 	}
@@ -258,7 +265,7 @@ func Run(opts Options) (Report, error) {
 	// the run directory has to be finished by then.
 	_, statErr := os.Stat(runDir)
 	fresh := os.IsNotExist(statErr)
-	if _, err := RunDir(opts.Project, opts.RunID); err != nil {
+	if err := os.MkdirAll(runDir, runDirMode); err != nil {
 		return rep, err
 	}
 	if err := writeRunFile(runDir, DigestFile, body); err != nil {
@@ -534,4 +541,11 @@ func discardRunDir(runDir string) {
 
 func writeRunFile(runDir, name, body string) error {
 	return os.WriteFile(filepath.Join(runDir, name), []byte(body), backupCopyMode)
+}
+
+func (o Options) statePath(name string) (string, error) {
+	if o.StateHome != "" {
+		return statefile.PathUnder(o.StateHome, o.Project, name), nil
+	}
+	return statefile.Path(o.Project, name)
 }

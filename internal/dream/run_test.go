@@ -688,3 +688,32 @@ func readWatermarkRunID(t *testing.T, state, project string) string {
 	}
 	return wm.RunID
 }
+
+func TestRunWithStateHomeNeverTouchesTheEnvStateDir(t *testing.T) {
+	f := newRunFixture(t, "proj")
+	cwd := workerCwd("proj", "fix-a")
+	f.worker(t, "proj", "fix-a",
+		userLine(cwd, "2026-09-01T01:00:00Z", "# Goal"),
+		userLine(cwd, "2026-09-01T01:05:00Z", "no, always fetch origin first"))
+	envState := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", envState)
+	envDreams := filepath.Join(envState, "spore", "proj", "dreams")
+	if err := os.MkdirAll(envDreams, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDreams, "ledger.json"), []byte("{corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := f.opts
+	opts.StateHome = t.TempDir()
+
+	rep := mustRun(t, opts)
+
+	if !strings.HasPrefix(rep.RunDir, opts.StateHome) {
+		t.Errorf("RunDir = %q, want it under StateHome %q", rep.RunDir, opts.StateHome)
+	}
+	entries, _ := os.ReadDir(envDreams)
+	if len(entries) != 1 {
+		t.Errorf("env state dir gained entries: %v", entries)
+	}
+}
