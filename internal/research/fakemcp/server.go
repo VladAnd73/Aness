@@ -50,8 +50,9 @@ func startOn(ln net.Listener, tools []Tool, callsLog string) (map[string]string,
 }
 
 // Serve runs the fake in the foreground on listen until ctx ends.
-// servicesFile is a JSON array of Tool.
-func Serve(ctx context.Context, servicesFile, callsLog, listen string) error {
+// servicesFile is a JSON array of Tool. ready, when set, gets the
+// server name -> URL map once the listener is up.
+func Serve(ctx context.Context, servicesFile, callsLog, listen string, ready func(urls map[string]string)) error {
 	b, err := os.ReadFile(servicesFile)
 	if err != nil {
 		return fmt.Errorf("fakemcp: services: %w", err)
@@ -64,15 +65,15 @@ func Serve(ctx context.Context, servicesFile, callsLog, listen string) error {
 	if err != nil {
 		return fmt.Errorf("fakemcp: listen: %w", err)
 	}
-	srv := &http.Server{Handler: newHandler(tools, callsLog)}
-	go func() {
-		<-ctx.Done()
-		srv.Close()
-	}()
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+	urls, stop, err := startOn(ln, tools, callsLog)
+	if err != nil {
 		return err
 	}
-	return nil
+	if ready != nil {
+		ready(urls)
+	}
+	<-ctx.Done()
+	return stop()
 }
 
 type handler struct {

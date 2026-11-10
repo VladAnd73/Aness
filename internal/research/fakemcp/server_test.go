@@ -204,12 +204,12 @@ func TestServeReadsServicesFile(t *testing.T) {
 	os.WriteFile(svc, b, 0o600)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, svc, filepath.Join(dir, "calls.jsonl"), "127.0.0.1:0") }()
+	go func() { done <- Serve(ctx, svc, filepath.Join(dir, "calls.jsonl"), "127.0.0.1:0", nil) }()
 	cancel()
 	if err := <-done; err != nil {
 		t.Errorf("Serve after cancel = %v, want nil", err)
 	}
-	if err := Serve(context.Background(), filepath.Join(dir, "absent.json"), filepath.Join(dir, "c.jsonl"), "127.0.0.1:0"); err == nil {
+	if err := Serve(context.Background(), filepath.Join(dir, "absent.json"), filepath.Join(dir, "c.jsonl"), "127.0.0.1:0", nil); err == nil {
 		t.Error("Serve accepted a missing services file")
 	}
 }
@@ -268,5 +268,36 @@ func TestStopAfterCleanServeIsNil(t *testing.T) {
 	}
 	if err := stop(); err != nil {
 		t.Errorf("stop() = %v, want nil", err)
+	}
+}
+
+func TestServeReportsURLsAndStopsOnCancel(t *testing.T) {
+	dir := t.TempDir()
+	services := filepath.Join(dir, "services.json")
+	b, _ := json.Marshal(notionTools)
+	if err := os.WriteFile(services, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan map[string]string, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, services, filepath.Join(dir, "calls.jsonl"), "127.0.0.1:0", func(urls map[string]string) { got <- urls })
+	}()
+	var urls map[string]string
+	select {
+	case urls = <-got:
+	case err := <-done:
+		t.Fatalf("Serve returned before ready: %v", err)
+	}
+	if len(urls) != 2 || !strings.HasPrefix(urls["claude_ai_Notion"], "http://127.0.0.1:") {
+		t.Errorf("urls = %v, want one loopback URL per server", urls)
+	}
+	if r := rpc(t, urls["claude_ai_Notion"], 1, "tools/list", map[string]any{}); len(toolNames(r)) != 2 {
+		t.Errorf("tools/list = %v, want 2 Notion tools", toolNames(r))
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("Serve after cancel: %v", err)
 	}
 }

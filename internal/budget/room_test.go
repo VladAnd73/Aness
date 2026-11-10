@@ -1,6 +1,7 @@
 package budget
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,7 @@ func TestRoomExitCodes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			_, stateDir := dailyFixture(t)
 			c.write(t, stateDir)
-			code, line := roomVerdict(now)
+			code, line := RoomCode(now)
 			if code != c.code {
 				t.Errorf("code: got %d (%q) want %d", code, line, c.code)
 			}
@@ -80,9 +81,36 @@ func TestRoomLineFormat(t *testing.T) {
 	_, stateDir := dailyFixture(t)
 	now := acceptResetsAt.Add(-5 * 24 * time.Hour)
 	writeDailyJSON(t, stateDir, computeVerdict(Reading{Source: "endpoint", WeeklyUsed: 15, WeeklyResetsAt: acceptResetsAt}, 10, now))
-	_, line := roomVerdict(now.Add(time.Hour))
+	_, line := RoomCode(now.Add(time.Hour))
 	want := "room used=15.0% pace=28.6% headroom=13.6 margin=10.0 taken=2026-11-11T18:00:00Z source=endpoint"
 	if line != want {
 		t.Errorf("line:\n got %q\nwant %q", line, want)
+	}
+}
+
+func TestBudgetRoomCodeMatchesRoom(t *testing.T) {
+	_, stateDir := dailyFixture(t)
+	now := time.Now()
+	writeDailyJSON(t, stateDir, DailyRecord{
+		TakenAt: now.Add(-time.Hour), Source: "endpoint", Verdict: VerdictRoom, WeeklyUsed: 15,
+		WeeklyResetsAt: now.Add(48 * time.Hour), Pace: 28.6, Headroom: 13.6, Margin: 10,
+	})
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	roomCode := Room()
+	os.Stdout = stdout
+	w.Close()
+	printed, _ := io.ReadAll(r)
+
+	code, line := RoomCode(time.Now())
+	if code != 0 || code != roomCode {
+		t.Errorf("RoomCode = %d, Room = %d; want both 0", code, roomCode)
+	}
+	if line+"\n" != string(printed) {
+		t.Errorf("RoomCode line %q, Room printed %q", line, printed)
 	}
 }

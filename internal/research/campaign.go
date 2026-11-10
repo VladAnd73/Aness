@@ -206,7 +206,7 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 			return cfg, fmt.Errorf("research: judge approve: %w", err)
 		}
 	}
-	pinned := filepath.Join(dir, "bin", "spore")
+	pinned := s.pinnedBinary(name)
 	if err := os.MkdirAll(filepath.Dir(pinned), 0o700); err != nil {
 		return cfg, err
 	}
