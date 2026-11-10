@@ -49,9 +49,15 @@ type Config struct {
 // Store is the directory holding every campaign, one folder each.
 type Store struct{ Root string }
 
-// DefaultStore is $XDG_STATE_HOME/spore/research, falling back to
-// $HOME/.local/state/spore/research.
+// DefaultStore is $SPORE_RESEARCH_DIR when set, else
+// $XDG_STATE_HOME/spore/research, falling back to
+// $HOME/.local/state/spore/research. SPORE_RESEARCH_DIR moves only the
+// store: a throwaway XDG_STATE_HOME would also move the coordinator
+// inbox the stop notice is delivered to.
 func DefaultStore() (Store, error) {
+	if d := os.Getenv("SPORE_RESEARCH_DIR"); d != "" {
+		return Store{Root: d}, nil
+	}
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		home := os.Getenv("HOME")

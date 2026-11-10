@@ -137,3 +137,17 @@ func TestSetOnRefusedAfterMaxNights(t *testing.T) {
 		t.Errorf("SetOn after max nights succeeded")
 	}
 }
+
+func TestDefaultStoreResearchDirWinsOverXDG(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "xdg"))
+	t.Setenv("SPORE_RESEARCH_DIR", filepath.Join(dir, "store"))
+	s, err := DefaultStore()
+	if err != nil || s.Root != filepath.Join(dir, "store") {
+		t.Errorf("DefaultStore = %q, %v; want SPORE_RESEARCH_DIR", s.Root, err)
+	}
+	t.Setenv("SPORE_RESEARCH_DIR", "")
+	if s, _ := DefaultStore(); s.Root != filepath.Join(dir, "xdg", "spore", "research") {
+		t.Errorf("DefaultStore without the override = %q", s.Root)
+	}
+}
