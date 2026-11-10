@@ -30,8 +30,9 @@ const evalUsage = `usage: spore eval <list|run|judge> [flags]
          scenario runs --repeats times, each in its own sandbox with the
          candidate installed as skill NAME over the --frozen folder. Writes
          the JSON score to --out and exits 0 whatever the score; exits 1 when
-         the judge itself failed. --isolation none also needs
-         SPORE_RESEARCH_ALLOW_UNSANDBOXED=1. Sandboxes are deleted unless
+         the judge itself failed. --isolation bwrap (the default) is
+         refused until bwrap isolation exists; --isolation none runs
+         unsandboxed and needs SPORE_RESEARCH_ALLOW_UNSANDBOXED=1. Sandboxes are deleted unless
          --keep names a directory to leave them (transcripts included) in.
 
 --brief-override replaces the embedded proposer or reviewer brief (the
