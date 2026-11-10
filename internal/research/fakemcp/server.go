@@ -22,17 +22,29 @@ func Start(ctx context.Context, tools []Tool, callsLog string) (map[string]strin
 	if err != nil {
 		return nil, nil, fmt.Errorf("fakemcp: listen: %w", err)
 	}
+	return startOn(ln, tools, callsLog)
+}
+
+func startOn(ln net.Listener, tools []Tool, callsLog string) (map[string]string, func() error, error) {
 	srv := &http.Server{Handler: newHandler(tools, callsLog)}
-	go srv.Serve(ln)
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
 	urls := map[string]string{}
 	for _, t := range tools {
 		urls[t.Server] = "http://" + ln.Addr().String() + "/mcp/" + t.Server
 	}
 	var once sync.Once
+	var stopErr error
 	stop := func() error {
-		var err error
-		once.Do(func() { err = srv.Close() })
-		return err
+		once.Do(func() {
+			closeErr := srv.Close()
+			if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+				stopErr = fmt.Errorf("fakemcp: serve: %w", err)
+				return
+			}
+			stopErr = closeErr
+		})
+		return stopErr
 	}
 	return urls, stop, nil
 }

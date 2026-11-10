@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -229,5 +232,41 @@ func TestFakeMCPListsDeclaredInputSchema(t *testing.T) {
 	_ = json.Unmarshal([]byte(schema), &want)
 	if w, _ := json.Marshal(want); string(got) != string(w) {
 		t.Errorf("inputSchema = %s, want %s", got, schema)
+	}
+}
+
+type brokenListener struct {
+	net.Listener
+	accepted chan struct{}
+}
+
+func (l brokenListener) Accept() (net.Conn, error) {
+	close(l.accepted)
+	return nil, errors.New("accept broke")
+}
+
+func TestStopReportsServeError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bl := brokenListener{ln, make(chan struct{})}
+	_, stop, err := startOn(bl, notionTools, filepath.Join(t.TempDir(), "calls.jsonl"))
+	if err != nil {
+		t.Fatalf("startOn: %v", err)
+	}
+	<-bl.accepted
+	if err := stop(); err == nil || !strings.Contains(err.Error(), "accept broke") {
+		t.Errorf("stop() = %v, want the serve error", err)
+	}
+}
+
+func TestStopAfterCleanServeIsNil(t *testing.T) {
+	_, stop, err := Start(context.Background(), notionTools, filepath.Join(t.TempDir(), "calls.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stop(); err != nil {
+		t.Errorf("stop() = %v, want nil", err)
 	}
 }

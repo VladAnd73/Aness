@@ -199,14 +199,15 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	if err := gitInitNoRemote(sb.RunWD); err != nil {
 		return runOutcome{}, err
 	}
-	if err := InjectSkill(sb.RunWD, o.FrozenDir, o.SkillName, o.Candidate); err != nil {
-		return runOutcome{}, err
-	}
+	// Fixtures go in first so the injected skill always wins a collision.
 	files := filepath.Join(sc.Dir, "files")
 	if _, err := os.Stat(files); err == nil {
 		if err := copyTree(files, sb.RunWD); err != nil {
 			return runOutcome{}, fmt.Errorf("fixture files: %w", err)
 		}
+	}
+	if err := InjectSkill(sb.RunWD, o.FrozenDir, o.SkillName, o.Candidate); err != nil {
+		return runOutcome{}, err
 	}
 
 	args := append(append([]string{}, SessionSpawnArgs...), "--strict-mcp-config")
@@ -215,6 +216,7 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 	run := RunReport{SandboxRoot: sb.Root, TranscriptPath: filepath.Join(sb.Root, "transcript.jsonl")}
 	cfg := fakemcp.MCPConfig(nil)
+	stopServices := func() error { return nil }
 	if len(sc.Services) > 0 {
 		run.CallsLog = filepath.Join(sb.Root, "calls.jsonl")
 		var stop func() error
@@ -222,7 +224,8 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 		if err != nil {
 			return runOutcome{}, fmt.Errorf("fake services: %w", err)
 		}
-		defer stop()
+		stopServices = sync.OnceValue(stop)
+		defer stopServices()
 	}
 	cfgPath := filepath.Join(sb.Root, "mcp.json")
 	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
@@ -239,6 +242,7 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	res, spawnErr := o.Spawner.Spawn(rctx, req)
 	timedOut := errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	cancel()
+	servicesErr := stopServices()
 	if err := ctx.Err(); err != nil {
 		return runOutcome{}, err
 	}
@@ -257,6 +261,8 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 		run.Reason = "spawn: " + spawnErr.Error()
 	case !stream.SawResult:
 		run.Reason = "no result line"
+	case servicesErr != nil:
+		run.Reason = "fake services: " + servicesErr.Error()
 	}
 	if run.Reason != "" {
 		run.Crashed = true

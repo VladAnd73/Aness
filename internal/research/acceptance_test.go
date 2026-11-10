@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/versality/spore/internal/acceptpending"
 )
 
 // wantRefused checks err is a *RefusedError whose reason names every
@@ -32,7 +30,6 @@ func wantRefused(t *testing.T, err error, ed *fakeEditor, j *fakeJudge, want ...
 }
 
 func TestAcceptance01NightRefusesWhenOff(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, nil)
 	if err := f.store.SetOn(f.name, false); err != nil {
 		t.Fatalf("SetOn(false): %v", err)
@@ -43,7 +40,6 @@ func TestAcceptance01NightRefusesWhenOff(t *testing.T) {
 }
 
 func TestAcceptance02NightRefusesWithoutBudgetRoom(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	for _, code := range []int{1, 2} {
 		t.Run(map[int]string{1: "no-room", 2: "unknown"}[code], func(t *testing.T) {
 			f := newCampaign(t, nil)
@@ -57,7 +53,6 @@ func TestAcceptance02NightRefusesWithoutBudgetRoom(t *testing.T) {
 }
 
 func TestAcceptance03NightRefusesOnJudgeHashMismatch(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	for _, set := range []struct{ name, scenario string }{{"main", "m1"}, {"holdout", "h1"}} {
 		t.Run(set.name, func(t *testing.T) {
 			f := newCampaign(t, nil)
@@ -81,7 +76,6 @@ func TestAcceptance03NightRefusesOnJudgeHashMismatch(t *testing.T) {
 }
 
 func TestAcceptance04WorseEditIsReset(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("worse\n")}}
 	j := &fakeJudge{scores: []float64{60, 60, 40}}
@@ -103,7 +97,6 @@ func TestAcceptance04WorseEditIsReset(t *testing.T) {
 }
 
 func TestAcceptance05LuckyResultRejected(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("lucky\n")}}
 	j := &fakeJudge{scores: []float64{50, 50, 80, 40}}
@@ -124,7 +117,6 @@ func TestAcceptance05LuckyResultRejected(t *testing.T) {
 }
 
 func TestAcceptance06aMaximizeScoreTieShorterWins(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	obj, err := LookupObjective("maximize-score")
 	if err != nil || obj == nil {
 		t.Errorf("LookupObjective(maximize-score) = %v, %v; want an objective", obj, err)
@@ -140,7 +132,6 @@ func TestAcceptance06aMaximizeScoreTieShorterWins(t *testing.T) {
 }
 
 func TestAcceptance06bLengthCapRejectsWithoutJudging(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	if !OverLengthCap(100, 171) || OverLengthCap(100, 170) {
 		t.Errorf("OverLengthCap(100, 171) = %v, OverLengthCap(100, 170) = %v; want true, false", OverLengthCap(100, 171), OverLengthCap(100, 170))
 	}
@@ -160,7 +151,6 @@ func TestAcceptance06bLengthCapRejectsWithoutJudging(t *testing.T) {
 }
 
 func TestAcceptance09HoldoutOverfitBlocksAccept(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("winner\n")}}
 	j := &fakeJudge{
@@ -213,7 +203,6 @@ func TestAcceptance09HoldoutOverfitBlocksAccept(t *testing.T) {
 }
 
 func TestAcceptance11QuotaCeilingEndsNight(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 5 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n")}}
 	j := &fakeJudge{scores: []float64{50}}
@@ -242,7 +231,6 @@ func TestAcceptance11QuotaCeilingEndsNight(t *testing.T) {
 }
 
 func TestAcceptance12NoGainThreeNightsSwitchesOff(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n"), appendBytes("three\n")}}
 	j := &fakeJudge{scores: []float64{50}}

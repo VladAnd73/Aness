@@ -342,3 +342,48 @@ func TestRunJudgeWiresFakeServicesAndGradesTheirCalls(t *testing.T) {
 		t.Error("report does not carry the calls log path")
 	}
 }
+
+func TestFixtureFilesCannotOverwriteCandidate(t *testing.T) {
+	set := writeSet(t, "pass a")
+	fixture := filepath.Join(set, "s0", "files", ".claude", "skills", "demo")
+	if err := os.MkdirAll(fixture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture, "SKILL.md"), []byte("FIXTURE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var seen string
+	sp := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		b, _ := os.ReadFile(filepath.Join(req.WorkDir, ".claude", "skills", "demo", "SKILL.md"))
+		seen = string(b)
+		return replyOK(ctx, req)
+	}}
+	if _, err := RunJudge(context.Background(), judgeOpts(t, set, sp)); err != nil {
+		t.Fatalf("RunJudge: %v", err)
+	}
+	if !strings.Contains(seen, "candidate") {
+		t.Errorf("agent under test saw SKILL.md %q, want the candidate (fixture files must not win)", seen)
+	}
+}
+
+func TestRunJudgeFakeServiceFailureIsCrash(t *testing.T) {
+	starter := func(ctx context.Context, svcs []fakemcp.Tool, callsLog string) ([]byte, func() error, error) {
+		line, _ := json.Marshal(fakemcp.Call{Server: "claude_ai_Notion", Tool: "notion-create-pages", Args: map[string]any{"title": "Nightly"}})
+		if err := os.WriteFile(callsLog, append(line, '\n'), 0o600); err != nil {
+			return nil, nil, err
+		}
+		return []byte(`{"mcpServers":{}}`), func() error { return fmt.Errorf("serve broke") }, nil
+	}
+	sp := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{Stdout: resultLine("done", 0)}, nil
+	}}
+	o := judgeOpts(t, "testdata/notion-set/main", sp)
+	o.Repeats, o.Services = 1, starter
+	rep, err := RunJudge(context.Background(), o)
+	if err != nil {
+		t.Fatalf("RunJudge: %v", err)
+	}
+	if run := firstRun(t, rep); run.Pass || !run.Crashed {
+		t.Errorf("fake services failed mid-run: run = %+v, want a crash", run)
+	}
+}
