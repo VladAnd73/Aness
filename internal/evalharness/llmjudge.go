@@ -47,6 +47,9 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 	if err != nil {
 		return false, err
 	}
+	if res.ExitCode != 0 {
+		return false, fmt.Errorf("exit %d", res.ExitCode)
+	}
 	verdict := ""
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		if line = strings.TrimSpace(line); strings.HasPrefix(line, "VERDICT:") {
