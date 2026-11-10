@@ -138,7 +138,9 @@ and is refused while any night holds the lock.
 
 Everything lives in `$XDG_STATE_HOME/spore/research/<campaign>/`
 (fallback `~/.local/state/spore/research/<campaign>/`), directories
-0700 and files 0600, never inside the spore repo:
+0700 and files 0600, never inside the spore repo. `SPORE_RESEARCH_DIR`
+moves the store (for a trial run) without moving the coordinator inbox,
+which a throwaway `XDG_STATE_HOME` would also move:
 
 ```
 campaign.toml        settings and progress (flat key = value)
