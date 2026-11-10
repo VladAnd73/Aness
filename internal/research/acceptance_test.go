@@ -78,7 +78,6 @@ func TestAcceptance03NightRefusesOnJudgeHashMismatch(t *testing.T) {
 }
 
 func TestAcceptance04WorseEditIsReset(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("worse\n")}}
 	j := &fakeJudge{scores: []float64{60, 60, 40}}
@@ -100,7 +99,6 @@ func TestAcceptance04WorseEditIsReset(t *testing.T) {
 }
 
 func TestAcceptance05LuckyResultRejected(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("lucky\n")}}
 	j := &fakeJudge{scores: []float64{50, 50, 80, 40}}
@@ -136,7 +134,6 @@ func TestAcceptance06aMaximizeScoreTieShorterWins(t *testing.T) {
 }
 
 func TestAcceptance06bLengthCapRejectsWithoutJudging(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	if !OverLengthCap(100, 171) || OverLengthCap(100, 170) {
 		t.Errorf("OverLengthCap(100, 171) = %v, OverLengthCap(100, 170) = %v; want true, false", OverLengthCap(100, 171), OverLengthCap(100, 170))
 	}
@@ -209,7 +206,6 @@ func TestAcceptance09HoldoutOverfitBlocksAccept(t *testing.T) {
 }
 
 func TestAcceptance11QuotaCeilingEndsNight(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 5 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n")}}
 	j := &fakeJudge{scores: []float64{50}}
@@ -238,7 +234,6 @@ func TestAcceptance11QuotaCeilingEndsNight(t *testing.T) {
 }
 
 func TestAcceptance12NoGainThreeNightsSwitchesOff(t *testing.T) {
-	acceptpending.Skip(t, "D")
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n"), appendBytes("three\n")}}
 	j := &fakeJudge{scores: []float64{50}}
