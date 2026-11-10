@@ -4,7 +4,6 @@
 package fakemcp
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,14 +24,6 @@ type Call struct {
 	Args   map[string]any `json:"args"`
 	Error  string         `json:"error,omitempty"`
 	At     time.Time      `json:"at"`
-}
-
-type Server struct{ URL string }
-
-// Start serves tools, one URL per distinct Server name, and returns
-// server name -> URL plus a function that stops them all.
-func Start(ctx context.Context, tools []Tool, callsLog string) (map[string]string, func() error, error) {
-	return nil, func() error { return nil }, nil
 }
 
 // ReadCalls reads a calls log, one JSON Call per line. A log that does

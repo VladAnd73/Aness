@@ -65,7 +65,7 @@ func TestBwrapHidesOutsidePaths(t *testing.T) {
 func TestBwrapBlocksOutsideHosts(t *testing.T) {
 	requireBwrap(t)
 	out, err := run(t, liveSpec(t), "getent", "ahosts", "api.notion.com")
-	if err != nil || strings.Fields(out+" x")[0] != "0.0.0.0" {
+	if err != nil || strings.Fields(out + " x")[0] != "0.0.0.0" {
 		t.Errorf("getent ahosts api.notion.com = %q, %v; want 0.0.0.0 first", out, err)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
