@@ -1,0 +1,5 @@
+{
+  "name": "h1",
+  "prompt": "Follow the demo skill.",
+  "checks": [{"kind": "file-exists", "path": "out.txt"}]
+}

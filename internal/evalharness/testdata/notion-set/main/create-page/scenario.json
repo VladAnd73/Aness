@@ -1,0 +1,14 @@
+{
+  "name": "create-page",
+  "prompt": "Record the nightly run. Use the notion-demo skill.",
+  "services": [
+    {
+      "server": "claude_ai_Notion",
+      "name": "notion-create-pages",
+      "response": {"pages": [{"id": "page-1", "url": "https://www.notion.so/page-1"}]}
+    }
+  ],
+  "checks": [
+    {"kind": "service-call", "tool": "notion-create-pages", "fields": {"title": "Nightly"}}
+  ]
+}
