@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `spore gh config|token|exec` acts on GitHub as the project's GitHub
+  App: it mints and caches installation tokens from a host-side
+  `github.toml`, and `exec` runs a command with `GH_TOKEN` and a git
+  credential helper so `gh` and `git push` over https act as the app.
+  Ported from the upstream team branch. See `docs/github-app.md` and
+  `spore recipes show github`.
+
 ## 1.0.2 - 2026-11-09
 
 - `spore budget daily` records once a day how much of the weekly

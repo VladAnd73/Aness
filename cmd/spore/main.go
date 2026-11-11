@@ -50,6 +50,7 @@ Commands:
              (digest/runs/revert/rewind).
   eval       Run a real, sandboxed Claude Code agent against a named
              eval scenario and grade the result (list/run).
+  gh         Act on GitHub as the project's GitHub App (config, token, exec).
 `
 
 const lintUsage = `spore lint - run portable lints over the working tree
@@ -177,6 +178,8 @@ func main() {
 		os.Exit(runDream(args))
 	case "eval":
 		os.Exit(runEval(args))
+	case "gh":
+		os.Exit(runGH(args))
 	default:
 		fmt.Fprintf(os.Stderr, "spore: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

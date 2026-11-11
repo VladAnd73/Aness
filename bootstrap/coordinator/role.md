@@ -140,3 +140,7 @@ Check the list before composing a new external-API call from
 scratch. Recipes encode the operator's preferred auth path, the
 gotchas, and the working URL pattern; using them keeps coordinators
 across hosts in sync.
+
+GitHub actions can also run as the project's GitHub App via
+`spore gh` (`spore recipes show github`). Run `spore gh config`
+before saying no App exists; config is per project.
