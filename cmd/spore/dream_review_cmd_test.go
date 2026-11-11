@@ -77,6 +77,7 @@ func TestDreamWriteRecordsRefusalsAndWritesConfirmedSurvivors(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(f.root, "memory", "prefer-small-commits.md")
+	dreamWrite(t, filepath.Join(runDir, dream.MemoryDirFile), filepath.Join(f.root, "memory")+"\n")
 	dreamWrite(t, filepath.Join(runDir, "packets", "1.json"), `{
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
@@ -199,8 +200,11 @@ func TestDreamFullPipelineDigestGateWriteReports(t *testing.T) {
 	runDir := f.statePath(t, runID)
 
 	stateFile := filepath.Join(f.root, "state.md")
-	correctionTarget := filepath.Join(f.root, "memory", "fetch-origin-before-push.md")
-	staleTarget := filepath.Join(f.root, "memory", "stale.md")
+	// digest recorded the project's memory directory; write only lands
+	// memory entries there.
+	memDir := dream.MemoryDir(f.transcripts, f.root)
+	correctionTarget := filepath.Join(memDir, "fetch-origin-before-push.md")
+	staleTarget := filepath.Join(memDir, "stale.md")
 
 	// Packet 1: the repeated operator correction, proposed as an
 	// operator-preference memory entry.
@@ -257,7 +261,7 @@ func TestDreamFullPipelineDigestGateWriteReports(t *testing.T) {
 	if !strings.Contains(body, "Always run git fetch origin first.") {
 		t.Fatalf("memory entry missing its body:\n%s", body)
 	}
-	index := dreamRead(t, filepath.Join(f.root, "memory", "MEMORY.md"))
+	index := dreamRead(t, filepath.Join(memDir, "MEMORY.md"))
 	if !strings.Contains(index, "Fetch Origin Before Push") {
 		t.Fatalf("MEMORY.md must index the new entry:\n%s", index)
 	}

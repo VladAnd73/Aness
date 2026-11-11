@@ -104,9 +104,10 @@ type Report struct {
 // and put back: nothing in this arc notices that a judging worker died,
 // so the position it skipped past has to stay reachable. History holds
 // the values Last held before each of the last maxWatermarkHistory
-// runs replaced it, newest first, because a single Previous value only
-// survives one missed night: a second consecutive night whose task also
-// goes unjudged used to push the first one out of reach for good.
+// runs replaced it, newest first ("" is the first run's unset start),
+// because a single Previous value only survives one missed night: a
+// second consecutive night whose task also goes unjudged used to push
+// the first one out of reach for good.
 type watermark struct {
 	Last    string   `json:"last"`
 	History []string `json:"history,omitempty"`
@@ -185,7 +186,7 @@ func Run(opts Options) (Report, error) {
 		return rep, err
 	}
 	wm := loadWatermark(wmPath)
-	since, _ := time.Parse(time.RFC3339, wm.Last)
+	since, _ := time.Parse(time.RFC3339Nano, wm.Last)
 	rep.Since = wm.Last
 
 	// A projects root that does not resolve is a configuration fault,
@@ -266,6 +267,13 @@ func Run(opts Options) (Report, error) {
 	if err := writeRunFile(runDir, KnownClaimsFile, claimsBody); err != nil {
 		return rep, err
 	}
+	projectRoot, err := filepath.Abs(filepath.Dir(opts.TasksDir))
+	if err != nil {
+		return rep, err
+	}
+	if err := writeRunFile(runDir, MemoryDirFile, MemoryDir(opts.ProjectsRoot, projectRoot)+"\n"); err != nil {
+		return rep, err
+	}
 
 	slug, err := MintTask(opts.TasksDir, opts.Project, opts.RunID, runDir, deep)
 	if err != nil {
@@ -279,11 +287,10 @@ func Run(opts Options) (Report, error) {
 	if newest.IsZero() {
 		newest = opts.Now
 	}
-	rep.Previous, rep.Watermark = wm.Last, newest.UTC().Format(time.RFC3339)
-	history := wm.History
-	if wm.Last != "" {
-		history = append([]string{wm.Last}, history...)
-	}
+	rep.Previous, rep.Watermark = wm.Last, newest.UTC().Format(time.RFC3339Nano)
+	// An empty Last is the first night's start, "from the beginning",
+	// and is pushed like any other position so rewind can reach it.
+	history := append([]string{wm.Last}, wm.History...)
 	if len(history) > maxWatermarkHistory {
 		history = history[:maxWatermarkHistory]
 	}
@@ -519,7 +526,7 @@ func formatKnownClaims(project string, l *Ledger) (string, int) {
 // the directory only goes if it is then empty, so a run directory that
 // held anything else survives untouched.
 func discardRunDir(runDir string) {
-	for _, name := range []string{DigestFile, KnownClaimsFile} {
+	for _, name := range []string{DigestFile, KnownClaimsFile, MemoryDirFile} {
 		_ = os.Remove(filepath.Join(runDir, name))
 	}
 	_ = os.Remove(runDir)

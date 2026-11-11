@@ -95,10 +95,12 @@ Only when an action is operator-bound or genuinely ambiguous:
 
 1. `ssh-keygen -R <ip>` to clear stale host keys.
 2. Launch infect in a tmux window so the operator can watch:
-   `tmux new-window -d -n infect "go run ./cmd/spore infect <ip>
+   `tmux new-window -d -n infect "nix run . -- infect <ip>
    --ssh-key ~/.ssh/id_ed25519 --repo <src> --coordinator-agent
    claude --coordinator-model sonnet | tee /tmp/spore-infect.log"`.
    Wait via `Monitor` until `=== EXIT ===` lands.
+   `nix run .` records the build commit; a plain `go run` or
+   `go build` does not, and infect refuses without one.
 3. `spore infect --repo` copies the current binary to
    `/usr/local/bin/spore` (via the bundled flake's nix activation),
    rsyncs `<src>` to `/home/spore/<basename>` with `.git/` included

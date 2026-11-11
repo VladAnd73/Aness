@@ -15,8 +15,8 @@ const evalUsage = `usage: spore eval <list|run> [flags]
   list
          List every registered eval scenario: its name, which dream
          brief it exercises, and what it checks.
-  run <scenario> [--brief-override PATH] [--sandbox-parent DIR]
-      run --all [--sandbox-parent DIR]
+  run <scenario> [--brief-override PATH] [--sandbox-parent DIR] [--agent-binary PATH]
+      run --all [--sandbox-parent DIR] [--agent-binary PATH]
          Spawn a real, sandboxed Claude Code agent against one
          scenario (or every registered scenario with --all) and grade
          the result. Exits non-zero if any scenario fails or errors.
@@ -25,6 +25,9 @@ const evalUsage = `usage: spore eval <list|run> [flags]
 one the scenario's own Kind uses) with the file's contents, for
 comparing a baseline brief against a candidate. Not valid with --all,
 since a single override file cannot target scenarios of both kinds.
+
+--agent-binary runs that executable instead of claude on PATH; it gets
+the same headless claude arguments.
 
 --sandbox-parent overrides where each scenario's throwaway sandbox
 directory is created (default: the OS temp directory). Every run is
@@ -69,6 +72,7 @@ func evalRun(out, errOut io.Writer, args []string, spawner evalharness.AgentSpaw
 	all := fs.Bool("all", false, "run every registered scenario")
 	briefOverride := fs.String("brief-override", "", "path to a brief file that replaces the scenario's embedded brief")
 	sandboxParent := fs.String("sandbox-parent", "", "directory each scenario's sandbox is created under (default: OS temp dir)")
+	agentBinary := fs.String("agent-binary", "", "agent executable to spawn (default: claude on PATH)")
 	if err := fs.Parse(reorderFlagsFirst(fs, args)); err != nil {
 		return 2
 	}
@@ -103,6 +107,9 @@ func evalRun(out, errOut io.Writer, args []string, spawner evalharness.AgentSpaw
 		overrideText = string(b)
 	}
 
+	if spawner == nil && *agentBinary != "" {
+		spawner = evalharness.ClaudeSpawner{Binary: *agentBinary}
+	}
 	allPass := true
 	for _, sc := range scenarios {
 		opts := evalharness.RunOptions{Spawner: spawner, SandboxParent: *sandboxParent}

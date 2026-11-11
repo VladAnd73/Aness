@@ -253,7 +253,9 @@ Each tier fixes what `target` and `text` mean, because the write stage
 is plain code and does not interpret either field:
 
 - `memory`: `target` is the full path the new memory file should get,
-  ending in `.md`, inside the project's memory directory. `text` is the
+  ending in `.md`, directly inside the memory directory named under
+  "This run" below. The write stage refuses the whole batch if any
+  memory target lies anywhere else. `text` is the
   whole file, frontmatter included (`name:`, `description:`,
   `metadata: {type: ...}`), exactly as a memory file is written by
   hand. The write stage reads `name` and `description` back out of your
@@ -345,6 +347,7 @@ each step in order.
    dream write <run-id>`. It records every verdict, writes the confirmed
    survivors (snapshotting every target first), and writes this run's
    `report.md`. Read that summary; it is what the next step is about.
+   Run `write` once: it refuses a run it already wrote.
 
 4. **Tell the coordinator and finish.** Run `spore task tell coordinator
    "<one-line summary of report.md>"`, then `spore task done

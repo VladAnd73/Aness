@@ -32,8 +32,13 @@ Workstation (runs `spore infect`):
 
 ```sh
 nix profile install github:VladAnd73/Aness
-go build -o ~/.local/bin/spore ./cmd/spore  # from a checkout, Go 1.25+
+# or from a checkout, Go 1.25+; the commit lets infect pin the host's spore
+go build -ldflags "-X=github.com/versality/spore.buildCommit=$(git rev-parse HEAD)" \
+  -o ~/.local/bin/spore ./cmd/spore
 ```
+
+A CLI built without the commit makes `spore infect` refuse, because the
+host would get the older spore pinned in the bundled `flake.lock`.
 
 Target host:
 

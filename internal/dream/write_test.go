@@ -87,6 +87,7 @@ func TestWriteRunWritesAConfirmedMemoryEntryAndSnapshotsFirst(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
 	memDir := filepath.Join(t.TempDir(), "memory")
+	setMemoryDir(t, runDir, memDir)
 	target := filepath.Join(memDir, "prefer-small-commits.md")
 
 	writePacketFile(t, runDir, 1, `{
@@ -147,6 +148,7 @@ func TestWriteRunCreatesMemoryDirAndIndexWhenMissing(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
 	memDir := filepath.Join(t.TempDir(), "memory")
+	setMemoryDir(t, runDir, memDir)
 	target := filepath.Join(memDir, "prefer-small-commits.md")
 
 	writePacketFile(t, runDir, 1, `{
@@ -191,6 +193,7 @@ func TestWriteRunNeverTouchesStateMd(t *testing.T) {
 	if err := os.WriteFile(stateFile, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setMemoryDir(t, runDir, filepath.Join(projectDir, "memory"))
 	target := filepath.Join(projectDir, "memory", "prefer-small-commits.md")
 
 	writePacketFile(t, runDir, 1, `{
@@ -282,6 +285,7 @@ func TestWriteRunEnforcesMaxWritesPerRun(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
 	dir := t.TempDir()
+	setMemoryDir(t, runDir, filepath.Join(dir, "mem"))
 
 	for i := 1; i <= 3; i++ {
 		target := filepath.Join(dir, "mem", "claim"+strconv.Itoa(i)+".md")
@@ -356,4 +360,252 @@ func readReportFile(t *testing.T, runDir string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// writeMemoryEntry appends an index line to MEMORY.md next to the
+// target, so revert has to put MEMORY.md back too, not just the entry.
+func TestRevertAfterWriteRestoresMemoryIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before *string
+	}{
+		{"existing index", strPtr("# project memory\n\n- [Old](old.md) -- kept\n")},
+		{"no index yet", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeTestEnv(t)
+			runDir, err := RunDir("proj", "run-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			memDir := filepath.Join(t.TempDir(), "memory")
+			if err := os.MkdirAll(memDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			setMemoryDir(t, runDir, memDir)
+			index := filepath.Join(memDir, "MEMORY.md")
+			if tc.before != nil {
+				if err := os.WriteFile(index, []byte(*tc.before), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			target := filepath.Join(memDir, "prefer-small-commits.md")
+			writePacketFile(t, runDir, 1, `{
+				"claim": "operator wants small commits",
+				"type": "operator-preference",
+				"tier": "memory",
+				"target": "`+jsonPath(target)+`",
+				"text": "---\nname: prefer-small-commits\ndescription: Split large diffs.\nmetadata:\n  type: feedback\n---\n\nSplit.\n"
+			}`)
+			writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"said so","proof":"session"}`)
+			if _, err := GateRun("proj", "run-1", runDir, 1); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := RevertWithReport("proj", "run-1"); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := os.ReadFile(index)
+			if tc.before == nil {
+				if !os.IsNotExist(err) {
+					t.Fatalf("MEMORY.md must be gone after revert, got %q (err %v)", got, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != *tc.before {
+				t.Fatalf("MEMORY.md not restored:\n got %q\nwant %q", got, *tc.before)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+// A second write over a sealed run would re-snapshot the files the first
+// write already changed, so revert could only reach the first write's
+// output, never the pre-run state.
+func TestWriteRunRefusesARunItAlreadySealed(t *testing.T) {
+	writeTestEnv(t)
+	runDir, err := RunDir("proj", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memDir := filepath.Join(t.TempDir(), "memory")
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	setMemoryDir(t, runDir, memDir)
+	index := filepath.Join(memDir, "MEMORY.md")
+	before := "# project memory\n\n- [Old](old.md) -- kept\n"
+	if err := os.WriteFile(index, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(memDir, "prefer-small-commits.md")
+	writePacketFile(t, runDir, 1, memoryPacket(target))
+	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"said so","proof":"session"}`)
+	if _, err := GateRun("proj", "run-1", runDir, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(manifestPath(runDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = WriteRun("proj", "run-1", runDir, 10)
+	if err == nil || !strings.Contains(err.Error(), "revert") {
+		t.Fatalf("second write = %v, want a refusal that names revert", err)
+	}
+	if again, _ := os.ReadFile(manifestPath(runDir)); string(again) != string(manifest) {
+		t.Fatal("a refused second write changed manifest.json")
+	}
+
+	if _, err := RevertWithReport("proj", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(index); string(got) != before {
+		t.Fatalf("MEMORY.md after revert = %q, want the pre-run %q", got, before)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("revert left the written entry behind: %v", err)
+	}
+}
+
+// A later night may rewrite an entry it wrote before. The index keeps
+// one line per file, carrying the newest hook.
+func TestWriteMemoryEntryOverwriteKeepsOneIndexLine(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "fetch-first.md")
+	entry := func(desc string) string {
+		return "---\nname: fetch-first\ndescription: " + desc + "\nmetadata:\n  type: feedback\n---\n\nBody.\n"
+	}
+	if err := writeMemoryEntry(target, entry("old hook")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMemoryEntry(target, entry("new hook")); err != nil {
+		t.Fatal(err)
+	}
+
+	index, err := os.ReadFile(filepath.Join(dir, "MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(index), "](fetch-first.md)"); n != 1 {
+		t.Fatalf("index lines for fetch-first.md = %d, want 1:\n%s", n, index)
+	}
+	if !strings.Contains(string(index), "new hook") || strings.Contains(string(index), "old hook") {
+		t.Fatalf("index line is not the newest one:\n%s", index)
+	}
+}
+
+// Only the overwritten file's own index line goes; another entry that
+// merely links to it stays.
+func TestWriteMemoryEntryOverwriteKeepsLinesThatOnlyCrossLink(t *testing.T) {
+	dir := t.TempDir()
+	cross := "- [Cross ref](project_other.md) - related: see [no sudo](feedback_no_sudo.md)"
+	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"),
+		[]byte("# project memory\n\n- [No sudo](feedback_no_sudo.md) -- old\n"+cross+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := writeMemoryEntry(filepath.Join(dir, "feedback_no_sudo.md"),
+		"---\nname: no-sudo\ndescription: new hook\nmetadata:\n  type: feedback\n---\n\nBody.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	index, err := os.ReadFile(filepath.Join(dir, "MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), cross) {
+		t.Fatalf("the cross-linking entry was deleted:\n%s", index)
+	}
+	if strings.Contains(string(index), "-- old") || !strings.Contains(string(index), "new hook") {
+		t.Fatalf("the overwritten entry's own line was not replaced:\n%s", index)
+	}
+}
+
+// "Revert it first" must be advice that works: after a revert, the run
+// can be written again, and a second revert still reaches the pre-run
+// state.
+func TestWriteRunAfterRevertWritesAgainAndRevertsAgain(t *testing.T) {
+	writeTestEnv(t)
+	runDir, err := RunDir("proj", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memDir := filepath.Join(t.TempDir(), "memory")
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	setMemoryDir(t, runDir, memDir)
+	index := filepath.Join(memDir, "MEMORY.md")
+	before := "# project memory\n\n- [Old](old.md) -- kept\n"
+	if err := os.WriteFile(index, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(memDir, "prefer-small-commits.md")
+	writePacketFile(t, runDir, 1, memoryPacket(target))
+	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"said so","proof":"session"}`)
+	if _, err := GateRun("proj", "run-1", runDir, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RevertWithReport("proj", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+		t.Fatalf("write after revert: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("the second write did not land: %v", err)
+	}
+	if _, err := RevertWithReport("proj", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(index); string(got) != before {
+		t.Fatalf("MEMORY.md after the second revert = %q, want %q", got, before)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("the second revert left the entry behind: %v", err)
+	}
+}
+
+func TestRevertTwiceSaysTheRunWasAlreadyReverted(t *testing.T) {
+	writeTestEnv(t)
+	runDir, err := RunDir("proj", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memDir := filepath.Join(t.TempDir(), "memory")
+	setMemoryDir(t, runDir, memDir)
+	writePacketFile(t, runDir, 1, memoryPacket(filepath.Join(memDir, "x.md")))
+	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"said so","proof":"session"}`)
+	if _, err := GateRun("proj", "run-1", runDir, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RevertWithReport("proj", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = RevertWithReport("proj", "run-1")
+	if err == nil || !strings.Contains(err.Error(), "already reverted") {
+		t.Fatalf("second revert = %v, want it to say the run was already reverted", err)
+	}
 }

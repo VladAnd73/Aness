@@ -32,14 +32,14 @@
       # GO-2026-6090 (crypto/tls), GO-2026-5972 (encoding/asn1) and
       # GO-2026-5026 (net/http); 1.26.9 for the net/http, net/textproto
       # and crypto/tls batch (GO-2026-6603, 6605, 6607-6613, 6617); 1.26.10 for
-      # GO-2026-6809 (crypto/x509). Keep the spore-toolchain check's
-      # `min` in step with this version.
+      # GO-2026-6809 (crypto/x509); 1.26.11 for GO-2026-6859 (net/http).
+      # Keep the spore-toolchain check's `min` in step with this version.
       goToolchainOverlay = final: prev: {
         go = prev.go.overrideAttrs (_old: {
-          version = "1.26.10";
+          version = "1.26.11";
           src = prev.fetchurl {
-            url = "https://go.dev/dl/go1.26.10.src.tar.gz";
-            hash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
+            url = "https://go.dev/dl/go1.26.11.src.tar.gz";
+            hash = "sha256-1EEBsP8n7SpMda1GwXucdDWSCeLrLKfJ32y0/baOGWk=";
           };
         });
       };
@@ -245,16 +245,15 @@
             # not pkgs.go, so overlaying the toolchain only reaches the
             # devshell unless buildGoModule is told to use it too. Read the
             # Go version embedded in the SHIPPED binary and fail if it is
-            # older than the vuln-clear floor (currently 1.26.6, the first
-            # release clear of GO-2026-6218 / 6090 / 5972 / 5026; see the
-            # goToolchainOverlay comment). A source-only or devshell-only
-            # check misses this, which is how PR #8 went green with a
-            # still-vulnerable artifact.
+            # older than the vuln-clear floor (the overlay's version; see
+            # the goToolchainOverlay comment). A source-only or
+            # devshell-only check misses this, which is how PR #8 went
+            # green with a still-vulnerable artifact.
             spore-toolchain = pkgs.runCommand "spore-toolchain"
               {
                 nativeBuildInputs = [ pkgs.go ];
               } ''
-              min="1.26.10"
+              min="1.26.11"
               ver="$(go version ${spore}/bin/spore \
                 | grep -oE 'go[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^go//')"
               echo "artifact go toolchain: $ver (require >= $min)"

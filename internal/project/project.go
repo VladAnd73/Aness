@@ -113,7 +113,8 @@ write the agent instructions (CLAUDE.md, AGENTS.md):
 
 Register the project with the host so its coordinator starts on boot.
 As root on the host:
-  1. In the host flake's spore-projects.nix (/etc/nixos after spore infect), add:
+  1. In the host flake's spore-projects.nix (/etc/nixos after spore infect),
+     add this line inside the { }:
        "%[1]s".path = "%[2]s";
   2. Apply it:
        nixos-rebuild switch --flake /etc/nixos

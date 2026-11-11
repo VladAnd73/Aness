@@ -52,7 +52,7 @@ type ClaudeSpawner struct {
 	// Binary is the executable to run. Empty means "claude", the same
 	// default internal/fleet and internal/task fall back to.
 	Binary     string
-	runCommand func(ctx context.Context, dir string, env []string, args []string) (stdout string, exitCode int, err error)
+	runCommand func(ctx context.Context, bin, dir string, env []string, args []string) (stdout string, exitCode int, err error)
 }
 
 func (s ClaudeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
@@ -89,15 +89,15 @@ func (s ClaudeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult
 	if run == nil {
 		run = execCommand
 	}
-	stdout, code, err := run(ctx, req.WorkDir, req.Env, args)
+	stdout, code, err := run(ctx, bin, req.WorkDir, req.Env, args)
 	if err != nil {
 		return SpawnResult{Stdout: stdout, ExitCode: code}, fmt.Errorf("evalharness: spawn %s: %w", bin, err)
 	}
 	return SpawnResult{Stdout: stdout, ExitCode: code}, nil
 }
 
-func execCommand(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
-	cmd := exec.CommandContext(ctx, "claude", args...)
+func execCommand(ctx context.Context, bin, dir string, env []string, args []string) (string, int, error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	// Separate buffers, not one shared writer: os/exec copies a

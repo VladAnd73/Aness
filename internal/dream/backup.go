@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -283,6 +284,9 @@ func RevertWithReport(project, runID string) (RevertReport, error) {
 	}
 	b, err := os.ReadFile(manifestPath(dir))
 	if err != nil {
+		if _, rerr := os.Stat(filepath.Join(dir, revertedManifestFile)); rerr == nil {
+			return report, fmt.Errorf("run %s: %w; nothing left to put back", runID, ErrAlreadyReverted)
+		}
 		return report, fmt.Errorf("no manifest for run %s: %w", runID, err)
 	}
 	var m runManifest
@@ -300,8 +304,21 @@ func RevertWithReport(project, runID string) (RevertReport, error) {
 			"revert incomplete: %d path(s) failed, %d skipped, %d restored, %d removed",
 			len(report.Failed), len(report.Skipped), len(report.Restored), len(report.Removed))
 	}
+	// A fully reverted run is back at its pre-run state: retire the
+	// manifest so `write` may run again, and a second revert cannot
+	// replay these backups over whatever that write produces.
+	if err := os.Rename(manifestPath(dir), filepath.Join(dir, revertedManifestFile)); err != nil {
+		return report, err
+	}
 	return report, nil
 }
+
+// revertedManifestFile keeps a reverted run's manifest for the record.
+const revertedManifestFile = "manifest.reverted.json"
+
+// ErrAlreadyReverted is a revert of a run whose manifest a full revert
+// already retired.
+var ErrAlreadyReverted = errors.New("already reverted")
 
 func revertFiles(runDir string, sealed bool, files []fileEntry, handled map[string]bool, report *RevertReport) {
 	for _, f := range files {

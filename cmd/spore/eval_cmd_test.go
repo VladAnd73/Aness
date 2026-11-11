@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,4 +90,27 @@ type capturingSpawner struct {
 func (c *capturingSpawner) Spawn(ctx context.Context, req evalharness.SpawnRequest) (evalharness.SpawnResult, error) {
 	c.lastPrompt = req.Prompt
 	return evalharness.SpawnResult{Stdout: "ok", ExitCode: 0}, nil
+}
+
+func TestEvalRunUsesTheAgentBinaryFlag(t *testing.T) {
+	// A decoy claude first on PATH: if the flag were ignored, the decoy
+	// runs and no real agent spends tokens.
+	decoyDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(decoyDir, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", decoyDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	marker := filepath.Join(t.TempDir(), "ran")
+	bin := filepath.Join(t.TempDir(), "fake-agent")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n: > "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	evalMain(&out, &errOut, []string{"run", evalharness.Scenarios[0].Name,
+		"--agent-binary", bin, "--sandbox-parent", t.TempDir()}, nil)
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("--agent-binary was not run (%v)\nstdout: %s\nstderr: %s", err, out.String(), errOut.String())
+	}
 }

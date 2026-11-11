@@ -11,10 +11,11 @@ import (
 	"github.com/versality/spore/internal/task/frontmatter"
 )
 
-// The two files the proposer brief promises the agent will find in the
-// run directory. MintTask refuses until both are on disk, which makes
-// the appearance of the task file the signal that the run directory is
-// finished: the fleet spawns a worker within seconds of the write.
+// Two of the files the proposer brief promises the agent will find in the
+// run directory. MintTask refuses until both, and MemoryDirFile, are on
+// disk, which makes the appearance of the task file the signal that the
+// run directory is finished: the fleet spawns a worker within seconds
+// of the write.
 const (
 	DigestFile      = "digest.md"
 	KnownClaimsFile = "known-claims.md"
@@ -59,7 +60,11 @@ func MintTask(tasksDir, project, runID, runDir string, deepRead []DeepRead) (str
 		Created: time.Now().UTC().Format(time.RFC3339),
 		Project: project,
 	}
-	body := "\n" + ProposerBrief + runSection(runID, runDir, deepRead)
+	memDir, err := readMemoryDir(runDir)
+	if err != nil {
+		return "", fmt.Errorf("dream: mint: run dir %s: %w", runDir, err)
+	}
+	body := "\n" + ProposerBrief + runSection(runID, runDir, memDir, deepRead)
 	path := filepath.Join(tasksDir, slug+".md")
 	if err := os.WriteFile(path, frontmatter.Write(m, []byte(body)), 0o644); err != nil {
 		return "", err
@@ -102,7 +107,7 @@ func checkMintArgs(tasksDir, project, runID, runDir string, deepRead []DeepRead)
 	if !info.IsDir() {
 		return fmt.Errorf("dream: mint: run dir %s is not a directory", runDir)
 	}
-	for _, name := range []string{DigestFile, KnownClaimsFile} {
+	for _, name := range []string{DigestFile, KnownClaimsFile, MemoryDirFile} {
 		if _, err := os.Stat(filepath.Join(runDir, name)); err != nil {
 			return fmt.Errorf("dream: mint: run dir %s: the brief promises %s: %w", runDir, name, err)
 		}
@@ -131,13 +136,14 @@ func checkDeepRead(dr DeepRead) error {
 	return nil
 }
 
-func runSection(runID, runDir string, deepRead []DeepRead) string {
+func runSection(runID, runDir, memDir string, deepRead []DeepRead) string {
 	var b strings.Builder
 	b.WriteString("\n## This run\n\n")
 	fmt.Fprintf(&b, "- run id: %s\n", runID)
 	fmt.Fprintf(&b, "- run directory: %s\n", runDir)
 	fmt.Fprintf(&b, "- digest: %s\n", filepath.Join(runDir, DigestFile))
 	fmt.Fprintf(&b, "- known claims: %s\n", filepath.Join(runDir, KnownClaimsFile))
+	fmt.Fprintf(&b, "- memory directory: %s\n", memDir)
 	b.WriteString("\n### Deep-read sessions\n\n")
 	if len(deepRead) == 0 {
 		b.WriteString("None were flagged. Work from the digest alone.\n")

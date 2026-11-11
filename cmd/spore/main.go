@@ -47,7 +47,7 @@ Commands:
   watch      Monitor GitHub PRs/checks, releases, and a Slack channel (prs|releases|slack subcommands).
   dream      Nightly dreaming: digest this machine's own session
              transcripts into proposed harness changes
-             (digest/runs/revert/rewind).
+             (digest/gate/reviewer-brief/write/runs/revert/rewind).
   eval       Run a real, sandboxed Claude Code agent against a named
              eval scenario and grade the result (list/run).
   gh         Act on GitHub as the project's GitHub App (config, token, exec).
@@ -90,7 +90,7 @@ const infectUsage = `spore infect - bootstrap a fresh server with NixOS via nixo
 Usage:
   spore infect <ip> --ssh-key <path> [--repo <local-path>] [--flake <path-or-attr>] [--hostname <name>] [--user <user>]
                                       [--coordinator-agent claude|codex] [--coordinator-model <model>]
-                                      [--coordinator-effort <effort>]
+                                      [--coordinator-effort <effort>] [--allow-unpinned-spore]
 
 Flags:
   --ssh-key   Path to the private SSH key to install with (required).
@@ -108,6 +108,10 @@ Flags:
               Model passed to the coordinator agent. Empty uses that CLI's default.
   --coordinator-effort
               Codex reasoning effort for the coordinator. Default "high".
+  --allow-unpinned-spore
+              Proceed when this CLI has no build commit. Without it, infect
+              with the bundled flake refuses: the host would get the older
+              spore pinned in the flake's static lock.
 
 WARNING: the target host is wiped during install. Only point this at a
 freshly provisioned VM that has no data worth keeping.
@@ -291,6 +295,7 @@ func runInfect(args []string) int {
 	coordinatorAgent := fs.String("coordinator-agent", infect.DefaultCoordinatorAgent, "coordinator agent provider: claude or codex")
 	coordinatorModel := fs.String("coordinator-model", "", "model passed to the coordinator agent")
 	coordinatorEffort := fs.String("coordinator-effort", infect.DefaultCoordinatorEffort, "codex reasoning effort for the coordinator")
+	allowUnpinned := fs.Bool("allow-unpinned-spore", false, "accept the bundled flake's static spore pin when this CLI has no build commit")
 	help := fs.Bool("h", false, "show help")
 	helpLong := fs.Bool("help", false, "show help")
 	fs.SetOutput(io.Discard)
@@ -323,6 +328,8 @@ func runInfect(args []string) int {
 		CoordinatorModel:  *coordinatorModel,
 		CoordinatorEffort: *coordinatorEffort,
 		SporeCommit:       resolveSporeCommit(),
+
+		AllowUnpinnedSpore: *allowUnpinned,
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
