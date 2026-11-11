@@ -69,7 +69,6 @@ type oauthBlock struct {
 
 type credentialsFile struct {
 	path  string
-	raw   map[string]json.RawMessage
 	oauth oauthBlock
 }
 
@@ -98,51 +97,13 @@ func loadCredentials(path string) (*credentialsFile, error) {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	cf := &credentialsFile{path: path, raw: raw}
+	cf := &credentialsFile{path: path}
 	if v, ok := raw["claudeAiOauth"]; ok {
 		if err := json.Unmarshal(v, &cf.oauth); err != nil {
 			return nil, fmt.Errorf("parse claudeAiOauth: %w", err)
 		}
 	}
 	return cf, nil
-}
-
-// writeBack serialises cf back to disk via mktemp + rename, preserving
-// every other top-level key (mcpOAuth, ...) verbatim. 0600.
-func (cf *credentialsFile) writeBack() error {
-	enc, err := json.Marshal(cf.oauth)
-	if err != nil {
-		return err
-	}
-	cf.raw["claudeAiOauth"] = enc
-	out, err := json.MarshalIndent(cf.raw, "", "  ")
-	if err != nil {
-		return err
-	}
-	out = append(out, '\n')
-
-	dir := filepath.Dir(cf.path)
-	tmp, err := os.CreateTemp(dir, ".credentials.*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	return os.Rename(tmpName, cf.path)
 }
 
 type usageWindow struct {
@@ -254,10 +215,12 @@ func ActiveTier() error {
 	return nil
 }
 
-// fetchUsage hits /usage, refreshing the access token once on a 401 if
-// a refresh token is available. Returns (nil, err) for any non-2xx
-// outcome the caller cannot recover from; that's the signal to fall
-// back to transcripts.
+// fetchUsage hits /usage with the access token in the credentials file.
+// It never refreshes the token or writes the file: that login belongs
+// to Claude Code, and a rotated refresh token here invalidates the one
+// every running session holds. Returns (nil, err) for any non-2xx
+// outcome, including a 401; that's the signal to fall back to
+// transcripts.
 func fetchUsage(ctx context.Context, now time.Time) (*usageResponse, error) {
 	body, err := fetchUsageBody(ctx, now)
 	if err != nil {
@@ -287,14 +250,8 @@ func fetchUsageBody(ctx context.Context, now time.Time) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if code == http.StatusUnauthorized && cf.oauth.RefreshToken != "" {
-		if rerr := refreshOAuthToken(ctx, cf, now); rerr != nil {
-			return nil, fmt.Errorf("oauth refresh after 401: %w", rerr)
-		}
-		body, code, err = callUsage(ctx, cf.oauth.AccessToken)
-		if err != nil {
-			return nil, err
-		}
+	if code == http.StatusUnauthorized {
+		return nil, errors.New("usage: HTTP 401: access token expired; Claude Code refreshes its own login")
 	}
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("usage: HTTP %d", code)
@@ -367,25 +324,6 @@ func callTokenRefresh(ctx context.Context, refreshToken string) (*tokenRefreshRe
 		return nil, errors.New("oauth refresh: empty access_token or expires_in")
 	}
 	return &out, nil
-}
-
-func refreshOAuthToken(ctx context.Context, cf *credentialsFile, now time.Time) error {
-	if cf.oauth.RefreshToken == "" {
-		return errors.New("no refresh token")
-	}
-	out, err := callTokenRefresh(ctx, cf.oauth.RefreshToken)
-	if err != nil {
-		return err
-	}
-	cf.oauth.AccessToken = out.AccessToken
-	if out.RefreshToken != "" {
-		cf.oauth.RefreshToken = out.RefreshToken
-	}
-	cf.oauth.ExpiresAt = now.UnixMilli() + out.ExpiresIn*1000
-	if out.Scope != "" {
-		cf.oauth.Scopes = strings.Fields(out.Scope)
-	}
-	return cf.writeBack()
 }
 
 // usageWindowState materialises one /usage window into the on-disk
@@ -758,15 +696,6 @@ func DebugUsage() error {
 	body, code, err := callUsage(context.Background(), cf.oauth.AccessToken)
 	if err != nil {
 		return err
-	}
-	if code == http.StatusUnauthorized && cf.oauth.RefreshToken != "" {
-		if rerr := refreshOAuthToken(context.Background(), cf, now); rerr != nil {
-			return fmt.Errorf("oauth refresh after 401: %w", rerr)
-		}
-		body, code, err = callUsage(context.Background(), cf.oauth.AccessToken)
-		if err != nil {
-			return err
-		}
 	}
 	fmt.Printf("HTTP %d at %s\n", code, now.Format(time.RFC3339Nano))
 	fmt.Println("--- raw body ---")
