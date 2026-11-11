@@ -176,6 +176,13 @@ func runHooksWatchInbox(args []string) int {
 	}
 	args = rest
 
+	// Exit before claiming, acking or superseding anything: a session
+	// that merely inherited the agent's SPORE_TASK_INBOX must not touch
+	// the agent's tells.
+	if inbox := os.Getenv("SPORE_TASK_INBOX"); inbox != "" && hooks.ForeignSession(inbox) {
+		return 0
+	}
+
 	// A newer watcher of the same session sends SIGTERM. Exit 0 so
 	// claude-code does not treat the handover as a wake or an error,
 	// unless a batch is already claimed: then finish and exit 2.

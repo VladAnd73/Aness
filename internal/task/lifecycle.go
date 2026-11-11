@@ -14,6 +14,7 @@ import (
 	"github.com/versality/spore/codexpolicy"
 	"github.com/versality/spore/evidence"
 	"github.com/versality/spore/internal/agentenv"
+	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
@@ -533,10 +534,15 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+	if pane := SessionPaneID(session); pane != "" {
+		if err := hooks.RecordInboxOwner(inbox, pane); err != nil {
+			fmt.Fprintf(os.Stderr, "spore: record inbox owner for %s: %v\n", slug, err)
+		}
+	}
 	// tmux registers the session before its shell execs the agent, so
 	// new-session succeeds even for a binary that does not exist.
 	time.Sleep(SpawnSettleDelay)
-	if paneID(session) == "" {
+	if SessionPaneID(session) == "" {
 		return "", fmt.Errorf("worker session %s died on spawn (agent=%q): check %s and that the binary is on PATH", session, agent, AgentBinaryEnv)
 	}
 	return session, nil
@@ -546,10 +552,10 @@ func ensureSession(tasksDir, slug string) (string, error) {
 // that the agent is still running. Same window as the coordinator's.
 const SpawnSettleDelay = 300 * time.Millisecond
 
-// paneID returns the active pane of the exactly-named session, or "" when
+// SessionPaneID returns the active pane of the exactly-named session, or "" when
 // no such session exists. A bare -t name would also match a session that
 // merely starts with it.
-func paneID(session string) string {
+func SessionPaneID(session string) string {
 	out, err := exec.Command("tmux", "display-message", "-p", "-t", "="+session+":", "#{pane_id}").Output()
 	if err != nil {
 		return ""
