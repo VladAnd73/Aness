@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.3 - 2026-11-11
+
 - `spore gh config|token|exec` acts on GitHub as the project's GitHub
   App: it mints and caches installation tokens from a host-side
   `github.toml`, and `exec` runs a command with `GH_TOKEN` and a git
