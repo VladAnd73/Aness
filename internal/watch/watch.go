@@ -58,20 +58,20 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 			continue
 		}
 		evaluated++
+		// Keys live as long as their PR is open at the same head SHA. A CI
+		// rerun puts a failed check back to pending, and pruning on "failing
+		// right now" made its next failure on the same commit alert again.
+		// A new push changes the SHA, so its failures still alert.
+		prefix := fmt.Sprintf("%d:%s:", pr.Number, pr.HeadSHA)
+		for k := range st.Seen {
+			if strings.HasPrefix(k, prefix) {
+				live[k] = true
+			}
+		}
 		checks, err := FailingChecks(projectRoot, pr.Number)
 		if err != nil {
 			perPRErrors++
 			lastPRErr = err
-			// Keep this PR's already-seen dedup keys alive so Prune does not drop
-			// them; otherwise the same failing check re-alerts once the query
-			// recovers. We cannot re-list its checks, but PR number + head SHA
-			// identify all of its keys.
-			prefix := fmt.Sprintf("%d:%s:", pr.Number, pr.HeadSHA)
-			for k := range st.Seen {
-				if strings.HasPrefix(k, prefix) {
-					live[k] = true
-				}
-			}
 			continue
 		}
 		var newKeys []string
