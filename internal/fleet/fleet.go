@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task"
@@ -60,6 +61,12 @@ type Result struct {
 	Reaped  []string
 	Kept    []string
 	Skipped []string
+
+	// BackedOff lists active tasks whose worker died on or soon after
+	// its last spawn and is waiting out the respawn backoff. Failed
+	// lists the spawns this pass that did not come up.
+	BackedOff []string
+	Failed    []string
 
 	// InboxWatchdog is the lost-wakeup watchdog's outcome for this
 	// pass. Zero-valued when the kill switch is off, since the
@@ -228,6 +235,18 @@ func Reconcile(cfg Config) (Result, error) {
 		}
 	}
 
+	// A failed spawn backs off and the pass moves on to the next task;
+	// the first failure is still returned to the caller.
+	var spawnErr error
+	now := time.Now()
+	backoff := loadSpawnBackoff(cfg.ProjectRoot)
+	backoff.prune(runningSet, activeSet, now)
+	defer func() {
+		if err := backoff.save(); err != nil {
+			fmt.Fprintln(os.Stderr, "fleet: spawn backoff:", err)
+		}
+	}()
+
 	for _, slug := range actives {
 		if runningSet[slug] {
 			continue
@@ -236,13 +255,25 @@ func Reconcile(cfg Config) (Result, error) {
 			res.Skipped = append(res.Skipped, slug)
 			continue
 		}
+		if d := backoff.wait(slug, now); d > 0 {
+			res.BackedOff = append(res.BackedOff, slug)
+			fmt.Fprintf(os.Stderr, "fleet: %s died soon after its last spawn; next try in %s\n", slug, d.Round(time.Second))
+			continue
+		}
 		picked, err := assignAgent(cfg.TasksDir, slug, workersCfg, agentCounts)
 		if err != nil {
 			return res, fmt.Errorf("assign agent %s: %w", slug, err)
 		}
 		if _, err := task.Ensure(cfg.TasksDir, slug); err != nil {
-			return res, fmt.Errorf("ensure %s: %w", slug, err)
+			backoff.failed(slug, now)
+			res.Failed = append(res.Failed, slug)
+			fmt.Fprintf(os.Stderr, "fleet: spawn %s: %v\n", slug, err)
+			if spawnErr == nil {
+				spawnErr = fmt.Errorf("ensure %s: %w", slug, err)
+			}
+			continue
 		}
+		backoff.spawned(slug, now)
 		// Fire OnSpawn now that the session is up: this is the
 		// rover-claim signal matter adapters bind their upstream
 		// "in progress" mirror to (e.g. Linear's Ready -> In
@@ -260,7 +291,9 @@ func Reconcile(cfg Config) (Result, error) {
 	sort.Strings(res.Reaped)
 	sort.Strings(res.Kept)
 	sort.Strings(res.Skipped)
-	return res, coordinatorErr
+	sort.Strings(res.BackedOff)
+	sort.Strings(res.Failed)
+	return res, errors.Join(coordinatorErr, spawnErr)
 }
 
 // reconcileInboxWatchdog runs one lost-wakeup watchdog pass. A failure

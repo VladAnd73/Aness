@@ -132,6 +132,12 @@ func runFleetReconcile(args []string) error {
 	if len(res.Skipped) > 0 {
 		fmt.Printf("  skipped: %s (max-workers=%d)\n", strings.Join(res.Skipped, ", "), resolved)
 	}
+	if len(res.Failed) > 0 {
+		fmt.Printf("  failed: %s\n", strings.Join(res.Failed, ", "))
+	}
+	if len(res.BackedOff) > 0 {
+		fmt.Printf("  backoff: %s\n", strings.Join(res.BackedOff, ", "))
+	}
 	for _, m := range res.Matter {
 		if m.Err != nil {
 			fmt.Fprintf(os.Stderr, "  matter %s: %v\n", m.Name, m.Err)
