@@ -157,3 +157,15 @@ func TestNewHostStepQuotesAnOddPath(t *testing.T) {
 		t.Fatalf("host step has %d cd lines and %d nix lines:\n%s", cds, nixLines, res.HostStep)
 	}
 }
+
+// spore-projects.nix is an attrset; a line appended after its closing
+// brace is a Nix syntax error, and the switch fails.
+func TestNewHostStepSaysTheLineGoesInsideTheBraces(t *testing.T) {
+	res, err := New(filepath.Join(t.TempDir(), "demo"), spore.BundledSkills, spore.BundledCoordinatorRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.HostStep, "inside the { }") {
+		t.Errorf("HostStep does not say where in spore-projects.nix the line goes:\n%s", res.HostStep)
+	}
+}

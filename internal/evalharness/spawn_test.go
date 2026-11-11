@@ -2,6 +2,8 @@ package evalharness
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -9,7 +11,7 @@ import (
 func TestClaudeSpawnerBuildsAHeadlessBypassPermissionsCommand(t *testing.T) {
 	var captured []string
 	s := ClaudeSpawner{
-		runCommand: func(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
+		runCommand: func(ctx context.Context, bin, dir string, env []string, args []string) (string, int, error) {
 			captured = args
 			return "ok", 0, nil
 		},
@@ -50,7 +52,7 @@ func TestClaudeSpawnerBuildsAHeadlessBypassPermissionsCommand(t *testing.T) {
 func TestClaudeSpawnerAlwaysSkipsUserSettingsEvenWithNoExtraArgs(t *testing.T) {
 	var captured []string
 	s := ClaudeSpawner{
-		runCommand: func(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
+		runCommand: func(ctx context.Context, bin, dir string, env []string, args []string) (string, int, error) {
 			captured = args
 			return "ok", 0, nil
 		},
@@ -73,7 +75,7 @@ func TestClaudeSpawnerAlwaysSkipsUserSettingsEvenWithNoExtraArgs(t *testing.T) {
 func TestClaudeSpawnerIncludesExtraArgsBeforeThePrompt(t *testing.T) {
 	var captured []string
 	s := ClaudeSpawner{
-		runCommand: func(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
+		runCommand: func(ctx context.Context, bin, dir string, env []string, args []string) (string, int, error) {
 			captured = args
 			return "ok", 0, nil
 		},
@@ -106,7 +108,7 @@ func TestClaudeSpawnerIncludesExtraArgsBeforeThePrompt(t *testing.T) {
 func TestClaudeSpawnerSeparatesThePromptWithDashDash(t *testing.T) {
 	var captured []string
 	s := ClaudeSpawner{
-		runCommand: func(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
+		runCommand: func(ctx context.Context, bin, dir string, env []string, args []string) (string, int, error) {
 			captured = args
 			return "ok", 0, nil
 		},
@@ -123,5 +125,25 @@ func TestClaudeSpawnerSeparatesThePromptWithDashDash(t *testing.T) {
 	}
 	if captured[len(captured)-1] != req.Prompt {
 		t.Fatalf("expected the prompt as the last arg, got %v", captured)
+	}
+}
+
+// Binary must reach the real exec, not only the error message: a caller
+// pointing at a wrapper or a pinned build otherwise silently runs
+// whatever `claude` PATH resolves to.
+func TestClaudeSpawnerRunsTheConfiguredBinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	bin := filepath.Join(t.TempDir(), "fake-agent")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"fake-agent ran: $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ClaudeSpawner{Binary: bin}.Spawn(context.Background(),
+		SpawnRequest{Prompt: "hello", WorkDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(res.Stdout, "fake-agent ran: -p ") || !strings.Contains(res.Stdout, "-- hello") {
+		t.Fatalf("configured binary did not run with the spawn args: %q", res.Stdout)
 	}
 }

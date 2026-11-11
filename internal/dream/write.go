@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// WrittenItem is one packet that actually landed in the harness.
+// WrittenItem is one packet that actually landed in the harness. Target
+// is the path written: a skill's proposal, not its install path.
 type WrittenItem struct {
 	N      int
 	Claim  string
@@ -58,6 +59,17 @@ type WriteReport struct {
 // without re-earning the two-tier bar.
 func WriteRun(project, runID, runDir string, maxWrites int) (WriteReport, error) {
 	var report WriteReport
+	// Snapshot replaces the manifest's file list, so a second write would
+	// back up the first write's output and revert could never reach the
+	// pre-run state again. A full revert retires the manifest, which
+	// lifts this.
+	m, err := loadManifest(runDir)
+	if err != nil {
+		return report, err
+	}
+	if m.Sealed {
+		return report, fmt.Errorf("dream: write: run %s was already written; revert it first (spore dream revert %s)", runID, runID)
+	}
 	packets, err := LoadPackets(runDir)
 	if err != nil {
 		return report, err
@@ -110,18 +122,22 @@ func WriteRun(project, runID, runDir string, maxWrites int) (WriteReport, error)
 		}
 	}
 
+	if err := checkMemoryTargets(runDir, toWrite); err != nil {
+		return report, err
+	}
 	targets, err := snapshotTargets(runDir, toWrite)
 	if err != nil {
 		return report, err
 	}
 
 	for _, pf := range toWrite {
-		if err := writeOne(runDir, pf, &report); err != nil {
+		path, err := writeOne(runDir, pf, &report)
+		if err != nil {
 			return report, err
 		}
 		fp := Fingerprint(pf.Packet.Type, pf.Packet.Claim)
 		l.Record(fp, StatusWritten, "", runID)
-		report.Written = append(report.Written, WrittenItem{pf.N, pf.Packet.Claim, pf.Packet.Tier, pf.Packet.Target})
+		report.Written = append(report.Written, WrittenItem{pf.N, pf.Packet.Claim, pf.Packet.Tier, path})
 	}
 
 	if len(targets) > 0 {
@@ -139,7 +155,7 @@ func WriteRun(project, runID, runDir string, maxWrites int) (WriteReport, error)
 }
 
 // snapshotTargets backs up every distinct non-skill target this batch
-// will write, in one call: Snapshot replaces its manifest's file list
+// will write, plus each memory target's MEMORY.md, in one call: Snapshot replaces its manifest's file list
 // on every call, so calling it once per packet would silently drop the
 // backup of every packet but the last.
 func snapshotTargets(runDir string, toWrite []PacketFile) ([]string, error) {
@@ -153,9 +169,16 @@ func snapshotTargets(runDir string, toWrite []PacketFile) ([]string, error) {
 			return nil, fmt.Errorf("dream: write: packet %d: target %q must be an absolute path",
 				pf.N, pf.Packet.Target)
 		}
-		if !seen[pf.Packet.Target] {
-			seen[pf.Packet.Target] = true
-			targets = append(targets, pf.Packet.Target)
+		paths := []string{pf.Packet.Target}
+		if pf.Packet.Tier == "memory" {
+			// writeMemoryEntry also appends to the index beside the entry.
+			paths = append(paths, filepath.Join(filepath.Dir(pf.Packet.Target), "MEMORY.md"))
+		}
+		for _, p := range paths {
+			if !seen[p] {
+				seen[p] = true
+				targets = append(targets, p)
+			}
 		}
 	}
 	if len(targets) == 0 {
@@ -167,19 +190,21 @@ func snapshotTargets(runDir string, toWrite []PacketFile) ([]string, error) {
 	return targets, nil
 }
 
-func writeOne(runDir string, pf PacketFile, report *WriteReport) error {
+// writeOne returns the path it actually wrote, which for a skill is the
+// proposal under the run directory, never the install path in Target.
+func writeOne(runDir string, pf PacketFile, report *WriteReport) (string, error) {
 	switch pf.Packet.Tier {
 	case "memory":
-		return writeMemoryEntry(pf.Packet.Target, pf.Packet.Text)
+		return pf.Packet.Target, writeMemoryEntry(pf.Packet.Target, pf.Packet.Text)
 	case "skill":
 		path, err := writeSkillProposal(runDir, pf.Packet.Target, pf.Packet.Text)
 		if err != nil {
-			return err
+			return "", err
 		}
 		report.SkillProposals = append(report.SkillProposals, path)
-		return nil
+		return path, nil
 	default:
-		return fmt.Errorf("dream: write: packet %d: unknown tier %q", pf.N, pf.Packet.Tier)
+		return "", fmt.Errorf("dream: write: packet %d: unknown tier %q", pf.N, pf.Packet.Tier)
 	}
 }
 
@@ -226,7 +251,17 @@ func appendMemoryIndex(dir, filename, text string) error {
 		}
 		return os.WriteFile(indexPath, []byte("# project memory\n\n"+line), 0o644)
 	}
-	body := strings.TrimRight(string(existing), "\n") + "\n" + line
+	// Overwriting an entry replaces its own index line, the one whose
+	// first link is the file, rather than adding a second one. Other
+	// entries may link to it in their hook and stay.
+	own := regexp.MustCompile(`^- \[[^\]]*\]\(` + regexp.QuoteMeta(filename) + `\)`)
+	var kept []string
+	for _, l := range strings.Split(strings.TrimRight(string(existing), "\n"), "\n") {
+		if !own.MatchString(l) {
+			kept = append(kept, l)
+		}
+	}
+	body := strings.Join(kept, "\n") + "\n" + line
 	return os.WriteFile(indexPath, []byte(body), 0o644)
 }
 

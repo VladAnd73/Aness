@@ -201,3 +201,21 @@ func TestDreamRunsSaysSoWhenThereAreNone(t *testing.T) {
 		t.Errorf("an empty history must say so rather than print nothing:\nstdout=%q\nstderr=%q", out, errOut)
 	}
 }
+
+func TestDreamRewindAfterTheFirstDigestRewindsToTheBeginning(t *testing.T) {
+	f := newDreamFixture(t)
+	f.enable(t)
+	f.correction(t, "fix-a", "2026-09-02")
+	if code, out, errOut := f.digest(t); code != 0 {
+		t.Fatalf("digest exit = %d\n%s%s", code, out, errOut)
+	}
+
+	code, out, errOut := f.run(t, "rewind", "--project", f.project)
+
+	if code != 0 {
+		t.Fatalf("rewind after the first digest exit = %d\n%s%s", code, out, errOut)
+	}
+	if !strings.Contains(out, "-> the beginning") {
+		t.Errorf("rewind must say it went back to the start:\n%s", out)
+	}
+}

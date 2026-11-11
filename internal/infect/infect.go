@@ -77,9 +77,12 @@ type Config struct {
 	// commit hash at infect time. The caller (cmd/spore/main.go)
 	// fills this from spore.BuildCommit() so the freshly-installed
 	// system runs the same spore the operator built locally. Empty
-	// skips the pin and falls back to the static lock entry in
-	// bootstrap/flake/flake.lock (only useful for tests).
+	// skips the pin; run refuses that unless AllowUnpinnedSpore is set.
 	SporeCommit string
+
+	// AllowUnpinnedSpore accepts an empty SporeCommit with the bundled
+	// flake, so the host gets the static lock's spore.
+	AllowUnpinnedSpore bool
 }
 
 // Validate checks required fields and that the SSH key file exists.
@@ -367,6 +370,12 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 	}
 	c.applyDefaults()
 
+	if c.Flake == "" && c.SporeCommit == "" && !c.AllowUnpinnedSpore {
+		return errors.New("this spore CLI has no recorded commit, so the bundled flake would install " +
+			"the older spore pinned in its static flake.lock; rebuild the CLI with " +
+			"`go build -ldflags \"-X=github.com/versality/spore.buildCommit=$(git rev-parse HEAD)\" ./cmd/spore` " +
+			"(or install it with nix), or pass --allow-unpinned-spore to accept the static pin")
+	}
 	if c.Flake == "" && c.SporeCommit != "" {
 		if err := RequireSporeCommitOnOrigin(ctx, c.SporeCommit); err != nil {
 			return err

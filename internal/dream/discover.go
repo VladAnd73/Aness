@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -24,6 +25,12 @@ const (
 // It is the only reliable way to tell a coordinator from an ad-hoc
 // session, because both run with the project root as cwd.
 const coordinatorMarker = "# Coordinator role"
+
+// mintedDreamSlugRE is what task.Allocate makes of MintTask's
+// "dream <run-id>" title for a CLI run id (YYYYMMDD-<4 hex>), including
+// its -2..-99 collision suffix. An ordinary task that merely starts with
+// "dream-" does not match.
+var mintedDreamSlugRE = regexp.MustCompile(`^dream-[0-9]{8}-[0-9a-f]{4}(-[0-9]{1,2})?$`)
 
 type Session struct {
 	Project string
@@ -126,6 +133,11 @@ func classify(path, home string) (Session, bool, error) {
 	}
 
 	if project, slug, ok := workerPath(cwd, home); ok {
+		// A dream worker's own session is new every night; digesting it
+		// would mint a proposer on an otherwise quiet project forever.
+		if mintedDreamSlugRE.MatchString(slug) {
+			return Session{}, false, nil
+		}
 		s.Kind, s.Project, s.Slug = KindWorker, project, slug
 		return s, true, nil
 	}

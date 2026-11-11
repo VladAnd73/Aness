@@ -158,6 +158,7 @@ func TestMintTaskRefusesAnIncompleteRunDirectory(t *testing.T) {
 	}
 
 	writeFile(t, filepath.Join(bare, KnownClaimsFile), "claims\n")
+	writeFile(t, filepath.Join(bare, MemoryDirFile), "/srv/claude/projects/-srv-p/memory\n")
 	if _, err := MintTask(tasksDir, "p", "run-1", bare, nil); err != nil {
 		t.Errorf("a complete run directory must mint: %v", err)
 	}
@@ -290,6 +291,7 @@ func completeRunDir(t *testing.T) string {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, DigestFile), "# digest\n")
 	writeFile(t, filepath.Join(dir, KnownClaimsFile), "# known claims\n")
+	writeFile(t, filepath.Join(dir, MemoryDirFile), "/srv/claude/projects/-srv-p/memory\n")
 	return dir
 }
 

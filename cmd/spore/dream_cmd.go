@@ -404,7 +404,7 @@ func dreamRevert(out, errOut io.Writer, args []string) int {
 		// An all-zero summary would read as a successful no-op, so the
 		// only thing printed here is the failure.
 		code := dreamFail(errOut, "revert", revertErr)
-		if _, err := os.Stat(filepath.Join(dir, "manifest.json")); os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(dir, "manifest.json")); os.IsNotExist(err) && !errors.Is(revertErr, dream.ErrAlreadyReverted) {
 			fmt.Fprintln(errOut, "nothing was put back. A digest run snapshots nothing,"+
 				" so it records nothing to undo; the stage that writes into the harness is what will.")
 		}
@@ -466,8 +466,12 @@ func dreamRewind(out, errOut io.Writer, args []string) int {
 	if err != nil {
 		return dreamFail(errOut, "rewind", err)
 	}
+	prev := res.Previous
+	if prev == "" {
+		prev = "the beginning"
+	}
 	fmt.Fprintf(out, "dream rewind %s: last %s -> %s; the sessions run %s consumed are in scope again\n",
-		project, res.Last, res.Previous, orNone(res.RunID))
+		project, res.Last, prev, orNone(res.RunID))
 	return 0
 }
 
