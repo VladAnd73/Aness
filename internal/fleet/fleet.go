@@ -218,11 +218,21 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
+	// Only active workers count toward the cap. The coordinator pauses a
+	// task right after its worker reports DONE; that session is kept for
+	// the operator but is idle, and counting it starved the queue.
+	activeRunning := 0
+	for slug := range runningSet {
+		if activeSet[slug] {
+			activeRunning++
+		}
+	}
+
 	for _, slug := range actives {
 		if runningSet[slug] {
 			continue
 		}
-		if len(runningSet) >= cfg.MaxWorkers {
+		if activeRunning >= cfg.MaxWorkers {
 			res.Skipped = append(res.Skipped, slug)
 			continue
 		}
@@ -242,6 +252,7 @@ func Reconcile(cfg Config) (Result, error) {
 		task.NotifyMatterSpawn(cfg.ProjectRoot, cfg.TasksDir, slug, os.Stderr)
 		res.Spawned = append(res.Spawned, slug)
 		runningSet[slug] = true
+		activeRunning++
 		agentCounts[picked]++
 	}
 
