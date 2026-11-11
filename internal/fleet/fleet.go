@@ -27,6 +27,10 @@ import (
 	"github.com/versality/spore/internal/task/frontmatter"
 )
 
+// statusUnparseable marks a task file that exists but does not parse.
+// It is never a frontmatter value: Parse rejects the file first.
+const statusUnparseable = "?unparseable"
+
 // DefaultMaxWorkers is the fallback concurrency cap when no override
 // is set via flag, env, or spore.toml.
 const DefaultMaxWorkers = 3
@@ -121,7 +125,15 @@ func Reconcile(cfg Config) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	unparseable, err := task.ListUnparseable(cfg.TasksDir)
+	if err != nil {
+		return Result{}, err
+	}
 	statusBySlug := map[string]string{}
+	for _, u := range unparseable {
+		statusBySlug[u.Slug] = statusUnparseable
+		fmt.Fprintf(os.Stderr, "fleet: tasks/%s.md does not parse, keeping its session: %v\n", u.Slug, u.Err)
+	}
 	activeSet := map[string]bool{}
 	sortOrderBySlug := map[string]float64{}
 	for _, m := range metas {
@@ -158,11 +170,12 @@ func Reconcile(cfg Config) (Result, error) {
 	// Reap first so freed slots count toward the cap on spawn.
 	// Sessions for tasks the operator paused or blocked are kept
 	// alive deliberately (the per-status semantics of pause/block).
-	// Sessions whose task is done, missing, or in an unknown state
-	// are reaped.
+	// So is a session whose task file exists but does not parse: one
+	// bad edit must not kill a live worker. Sessions whose task is
+	// done, missing, or in an unknown state are reaped.
 	for _, slug := range workerSlugs {
 		switch statusBySlug[slug] {
-		case "active", "paused", "blocked":
+		case "active", "paused", "blocked", statusUnparseable:
 			res.Kept = append(res.Kept, slug)
 			continue
 		}
