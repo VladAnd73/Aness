@@ -285,8 +285,8 @@ type tokenRefreshResponse struct {
 }
 
 // callTokenRefresh exchanges a refresh token for a new access token.
-// Shared by refreshOAuthToken (credentials file path) and
-// fetchUsageForFile (account store path).
+// Only fetchUsageForFile (spore's own account store) uses it; Claude
+// Code's credentials file is never refreshed from here.
 func callTokenRefresh(ctx context.Context, refreshToken string) (*tokenRefreshResponse, error) {
 	payload, err := json.Marshal(map[string]string{
 		"grant_type":    "refresh_token",
