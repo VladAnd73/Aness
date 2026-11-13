@@ -79,3 +79,11 @@ func TestWriteJSONAtomicOverwritesExisting(t *testing.T) {
 		t.Fatalf("expected only the final file, got %d entries", len(entries))
 	}
 }
+
+func TestPathUnderIgnoresProcessEnv(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/sentinel")
+	got := PathUnder("/base", "proj", "dreams/x")
+	if got != filepath.Join("/base", "spore", "proj", "dreams", "x") {
+		t.Errorf("PathUnder = %q", got)
+	}
+}

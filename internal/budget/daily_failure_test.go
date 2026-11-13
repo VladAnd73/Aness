@@ -33,7 +33,7 @@ func TestBadConfigReplacesYesterdaysRoomWithUnknown(t *testing.T) {
 	if _, err := runDaily(context.Background(), now, []ReadingSource{endpointReading}); err == nil {
 		t.Fatal("want config error")
 	}
-	if code, line := roomVerdict(now.Add(time.Minute)); code != 2 {
+	if code, line := RoomCode(now.Add(time.Minute)); code != 2 {
 		t.Errorf("room after a bad-config daily run: got %d (%q) want 2", code, line)
 	}
 	if rec := readDailyJSON(t, stateDir); rec.Margin != defaultDailyMargin || rec.Error == "" {
@@ -50,7 +50,7 @@ func TestUnsavableUnknownRemovesYesterdaysRoom(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error")
 	}
-	if code, line := roomVerdict(now.Add(time.Minute)); code != 2 {
+	if code, line := RoomCode(now.Add(time.Minute)); code != 2 {
 		t.Errorf("room after an unsavable failed run: got %d (%q) want 2", code, line)
 	}
 }
@@ -133,7 +133,7 @@ func TestRoomFutureTakenAtIsUnknown(t *testing.T) {
 				TakenAt: now.Add(c.ahead), Source: "endpoint", Verdict: VerdictRoom,
 				WeeklyUsed: 10, WeeklyResetsAt: acceptResetsAt, Pace: 40, Headroom: 30, Margin: 10,
 			})
-			if code, line := roomVerdict(now); code != c.code {
+			if code, line := RoomCode(now); code != c.code {
 				t.Errorf("got %d (%q) want %d", code, line, c.code)
 			}
 		})
@@ -288,7 +288,7 @@ func TestCancelledWhileWaitingForLockRecordsUnknown(t *testing.T) {
 	if _, err := runDaily(ctx, now, []ReadingSource{failingSource("never reached")}); err == nil {
 		t.Fatal("want error")
 	}
-	if code, line := roomVerdict(now.Add(time.Minute)); code != 2 {
+	if code, line := RoomCode(now.Add(time.Minute)); code != 2 {
 		t.Errorf("room after a run cancelled at the lock: got %d (%q) want 2", code, line)
 	}
 }

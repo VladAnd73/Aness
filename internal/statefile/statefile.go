@@ -21,7 +21,13 @@ func Path(project, name string) (string, error) {
 		}
 		base = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(base, "spore", project, name), nil
+	return PathUnder(base, project, name), nil
+}
+
+// PathUnder is Path with the state base given rather than read from the
+// process environment, for a caller that must not depend on it.
+func PathUnder(base, project, name string) string {
+	return filepath.Join(base, "spore", project, name)
 }
 
 // WriteJSONAtomic marshals v and renames it into place, so a crashed or

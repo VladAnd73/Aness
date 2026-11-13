@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `spore research` improves one skill overnight: an editing agent
+  proposes one edit per try, a locked and sandboxed judge scores it,
+  and only edits confirmed better on two judgings are kept. Nights are
+  started by hand, capped by tries, hours and live weekly quota, and
+  need `spore budget room`. `stop` runs a sealed holdout set and tells
+  the coordinator; `accept` lands the winner (a `research/<campaign>`
+  branch for a skill in the spore repo). See `docs/autoresearch.md`.
+- `spore eval judge` scores a candidate `SKILL.md` on a folder of data
+  scenarios (JSON prompts, fixture files, fake MCP services, check
+  kinds), with repeats, bubblewrap isolation and a JSON score.
+
 ## 1.0.3 - 2026-11-11
 
 - `spore gh config|token|exec` acts on GitHub as the project's GitHub
