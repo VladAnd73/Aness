@@ -81,10 +81,10 @@ func TestBwrapMountsCredentialsCopyNotHostFile(t *testing.T) {
 	if err := os.WriteFile(host, []byte(`{"claudeAiOauth":{"accessToken":"at-1","refreshToken":"rt-1","expiresAt":9}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	refreshed := ""
-	old := RefreshCredentials
-	RefreshCredentials = func(ctx context.Context, path string) error { refreshed = path; return nil }
-	t.Cleanup(func() { RefreshCredentials = old })
+	checked := ""
+	old := CheckCredentials
+	CheckCredentials = func(path string) error { checked = path; return nil }
+	t.Cleanup(func() { CheckCredentials = old })
 
 	s := liveSpec(t)
 	s.Credentials = host
@@ -93,8 +93,8 @@ func TestBwrapMountsCredentialsCopyNotHostFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v: %s", err, out)
 	}
-	if refreshed != host {
-		t.Errorf("credentials not refreshed on the host before the spawn (refreshed %q)", refreshed)
+	if checked != host {
+		t.Errorf("host credentials not checked before the spawn (checked %q)", checked)
 	}
 	if !strings.Contains(out, "at-1") || strings.Contains(out, "rt-1") {
 		t.Errorf("copy inside = %q; want the access token and no refresh token", out)

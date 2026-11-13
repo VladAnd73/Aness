@@ -26,7 +26,7 @@ type Bind struct {
 
 // Spec is one sandbox. Work is bound read-write at its own path and is
 // the cwd; Home is the sandbox HOME, bound read-write. Credentials names
-// the host credentials file: a copy of it, refreshed and stripped, is
+// the host credentials file: a copy of it, checked for life left and stripped, is
 // mounted read-only at <Home>/.claude/.credentials.json. Env is the
 // whole environment of the sandboxed process.
 type Spec struct {
@@ -43,10 +43,10 @@ var BlockedHosts = []string{"api.notion.com", "mcp.notion.com", "api.linear.app"
 // The copy has no refresh token, so a run outliving it is logged out.
 var MinCredentialLife = 30 * time.Minute
 
-// RefreshCredentials is swapped by tests; the default may write the
-// host credentials file, exactly as claude's own refresh does.
-var RefreshCredentials = func(ctx context.Context, path string) error {
-	return budget.EnsureFresh(ctx, path, MinCredentialLife)
+// CheckCredentials is swapped by tests. It never writes the host
+// credentials file.
+var CheckCredentials = func(path string) error {
+	return budget.RequireFresh(path, MinCredentialLife)
 }
 
 const (
@@ -140,8 +140,8 @@ func Command(ctx context.Context, s Spec, argv []string) (*exec.Cmd, error) {
 }
 
 func credentialsFile(ctx context.Context, s Spec) (*os.File, error) {
-	if err := RefreshCredentials(ctx, s.Credentials); err != nil {
-		return nil, fmt.Errorf("isolate: refresh login: %w", err)
+	if err := CheckCredentials(s.Credentials); err != nil {
+		return nil, fmt.Errorf("isolate: %w", err)
 	}
 	raw, err := os.ReadFile(s.Credentials)
 	if err != nil {

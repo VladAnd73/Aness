@@ -1,27 +1,22 @@
 package budget
 
 import (
-	"context"
-	"sync"
+	"fmt"
 	"time"
 )
 
-var freshMu sync.Mutex
-
-// EnsureFresh refreshes the login in path when its access token expires
-// within minLife, writing the new tokens back. The mutex keeps parallel
-// spawns from spending one rotating refresh token twice; the loser of
-// that race would be logged out.
-func EnsureFresh(ctx context.Context, path string, minLife time.Duration) error {
-	freshMu.Lock()
-	defer freshMu.Unlock()
+// RequireFresh fails when the access token in path expires within
+// minLife. It never refreshes: rotating the refresh token would log out
+// every running session that holds it, so the login stays Claude Code's
+// to renew.
+func RequireFresh(path string, minLife time.Duration) error {
 	cf, err := loadCredentials(path)
 	if err != nil {
 		return err
 	}
-	now := time.Now()
-	if time.UnixMilli(cf.oauth.ExpiresAt).Sub(now) >= minLife {
-		return nil
+	left := time.Until(time.UnixMilli(cf.oauth.ExpiresAt))
+	if left < minLife {
+		return fmt.Errorf("claude login expires in %s, need %s; let Claude Code refresh it and retry", left.Round(time.Second), minLife)
 	}
-	return refreshOAuthToken(ctx, cf, now)
+	return nil
 }
