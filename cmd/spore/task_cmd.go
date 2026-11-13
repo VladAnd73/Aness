@@ -343,6 +343,13 @@ func runTaskLs(args []string) error {
 		}
 		fmt.Printf("%s\t%s\t%s\n", m.Slug, m.Status, m.Title)
 	}
+	bad, err := task.ListUnparseable("tasks")
+	if err != nil {
+		return err
+	}
+	for _, u := range bad {
+		fmt.Printf("%s\tunparseable\t%v\n", u.Slug, u.Err)
+	}
 	return nil
 }
 

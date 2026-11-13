@@ -21,11 +21,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
+
+// statusUnparseable marks a task file that exists but does not parse.
+// It is never a frontmatter value: Parse rejects the file first.
+const statusUnparseable = "?unparseable"
 
 // DefaultMaxWorkers is the fallback concurrency cap when no override
 // is set via flag, env, or spore.toml.
@@ -56,6 +61,12 @@ type Result struct {
 	Reaped  []string
 	Kept    []string
 	Skipped []string
+
+	// BackedOff lists active tasks whose worker died on or soon after
+	// its last spawn and is waiting out the respawn backoff. Failed
+	// lists the spawns this pass that did not come up.
+	BackedOff []string
+	Failed    []string
 
 	// InboxWatchdog is the lost-wakeup watchdog's outcome for this
 	// pass. Zero-valued when the kill switch is off, since the
@@ -121,7 +132,15 @@ func Reconcile(cfg Config) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	unparseable, err := task.ListUnparseable(cfg.TasksDir)
+	if err != nil {
+		return Result{}, err
+	}
 	statusBySlug := map[string]string{}
+	for _, u := range unparseable {
+		statusBySlug[u.Slug] = statusUnparseable
+		fmt.Fprintf(os.Stderr, "fleet: tasks/%s.md does not parse, keeping its session: %v\n", u.Slug, u.Err)
+	}
 	activeSet := map[string]bool{}
 	sortOrderBySlug := map[string]float64{}
 	for _, m := range metas {
@@ -158,11 +177,12 @@ func Reconcile(cfg Config) (Result, error) {
 	// Reap first so freed slots count toward the cap on spawn.
 	// Sessions for tasks the operator paused or blocked are kept
 	// alive deliberately (the per-status semantics of pause/block).
-	// Sessions whose task is done, missing, or in an unknown state
-	// are reaped.
+	// So is a session whose task file exists but does not parse: one
+	// bad edit must not kill a live worker. Sessions whose task is
+	// done, missing, or in an unknown state are reaped.
 	for _, slug := range workerSlugs {
 		switch statusBySlug[slug] {
-		case "active", "paused", "blocked":
+		case "active", "paused", "blocked", statusUnparseable:
 			res.Kept = append(res.Kept, slug)
 			continue
 		}
@@ -205,12 +225,39 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
+	// Only active workers count toward the cap. The coordinator pauses a
+	// task right after its worker reports DONE; that session is kept for
+	// the operator but is idle, and counting it starved the queue.
+	activeRunning := 0
+	for slug := range runningSet {
+		if activeSet[slug] {
+			activeRunning++
+		}
+	}
+
+	// A failed spawn backs off and the pass moves on to the next task;
+	// the first failure is still returned to the caller.
+	var spawnErr error
+	now := time.Now()
+	backoff := loadSpawnBackoff(cfg.ProjectRoot)
+	backoff.prune(runningSet, activeSet, now)
+	defer func() {
+		if err := backoff.save(); err != nil {
+			fmt.Fprintln(os.Stderr, "fleet: spawn backoff:", err)
+		}
+	}()
+
 	for _, slug := range actives {
 		if runningSet[slug] {
 			continue
 		}
-		if len(runningSet) >= cfg.MaxWorkers {
+		if activeRunning >= cfg.MaxWorkers {
 			res.Skipped = append(res.Skipped, slug)
+			continue
+		}
+		if d := backoff.wait(slug, now); d > 0 {
+			res.BackedOff = append(res.BackedOff, slug)
+			fmt.Fprintf(os.Stderr, "fleet: %s died soon after its last spawn; next try in %s\n", slug, d.Round(time.Second))
 			continue
 		}
 		picked, err := assignAgent(cfg.TasksDir, slug, workersCfg, agentCounts)
@@ -218,8 +265,15 @@ func Reconcile(cfg Config) (Result, error) {
 			return res, fmt.Errorf("assign agent %s: %w", slug, err)
 		}
 		if _, err := task.Ensure(cfg.TasksDir, slug); err != nil {
-			return res, fmt.Errorf("ensure %s: %w", slug, err)
+			backoff.failed(slug, now)
+			res.Failed = append(res.Failed, slug)
+			fmt.Fprintf(os.Stderr, "fleet: spawn %s: %v\n", slug, err)
+			if spawnErr == nil {
+				spawnErr = fmt.Errorf("ensure %s: %w", slug, err)
+			}
+			continue
 		}
+		backoff.spawned(slug, now)
 		// Fire OnSpawn now that the session is up: this is the
 		// rover-claim signal matter adapters bind their upstream
 		// "in progress" mirror to (e.g. Linear's Ready -> In
@@ -229,6 +283,7 @@ func Reconcile(cfg Config) (Result, error) {
 		task.NotifyMatterSpawn(cfg.ProjectRoot, cfg.TasksDir, slug, os.Stderr)
 		res.Spawned = append(res.Spawned, slug)
 		runningSet[slug] = true
+		activeRunning++
 		agentCounts[picked]++
 	}
 
@@ -236,7 +291,9 @@ func Reconcile(cfg Config) (Result, error) {
 	sort.Strings(res.Reaped)
 	sort.Strings(res.Kept)
 	sort.Strings(res.Skipped)
-	return res, coordinatorErr
+	sort.Strings(res.BackedOff)
+	sort.Strings(res.Failed)
+	return res, errors.Join(coordinatorErr, spawnErr)
 }
 
 // reconcileInboxWatchdog runs one lost-wakeup watchdog pass. A failure

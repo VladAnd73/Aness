@@ -39,6 +39,9 @@ func findImplCommit(root, slug, mainBranch string) string {
 	if c := findByMergeCommit(root, slug, mainBranch); c != "" {
 		return c
 	}
+	if c := findByPRMerge(root, slug, mainBranch); c != "" {
+		return c
+	}
 	if c := findByReflog(root, slug, mainBranch); c != "" {
 		return c
 	}
@@ -65,6 +68,35 @@ func findByMergeCommit(root, slug, mainBranch string) string {
 		return ""
 	}
 	return firstLine(string(out))
+}
+
+// findByPRMerge finds a GitHub PR merge of wt/<slug> ("Merge pull request
+// #N from <owner>/wt/<slug>") on mainBranch or, when local main was not
+// pulled since the merge, on origin/<mainBranch>. Such a merge reaches a
+// clone by fetch, so the reflog never records it.
+func findByPRMerge(root, slug, mainBranch string) string {
+	pattern := "^Merge pull request #[0-9]+ from [^/ ]+/wt/" + regexp.QuoteMeta(slug) + "$"
+	for _, ref := range []string{mainBranch, "origin/" + mainBranch} {
+		out, err := gitCmd(root, "log", "--merges", "--format=%h", "-E",
+			"--grep="+pattern, ref, "--").Output()
+		if err != nil {
+			continue
+		}
+		mergeSHA := firstLine(string(out))
+		if mergeSHA == "" {
+			continue
+		}
+		out, err = gitCmd(root, "log", "--no-merges", "--format=%h %s",
+			mergeSHA+"^1.."+mergeSHA+"^2",
+			"--", ":(exclude)tasks/"+slug+".md").Output()
+		if err != nil {
+			continue
+		}
+		if c := firstLine(string(out)); c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 func findByReflog(root, slug, mainBranch string) string {

@@ -113,79 +113,43 @@ func TestFetchUsageHappyPath(t *testing.T) {
 	}
 }
 
-func TestFetchUsageRefreshOn401(t *testing.T) {
+// The credentials file is Claude Code's live login. A 401 means its
+// token expired; refreshing here would rotate the refresh token every
+// running session holds, so fetchUsage reports the failure instead.
+func TestFetchUsageDoesNotRefreshOn401(t *testing.T) {
 	dir := t.TempDir()
 	creds := filepath.Join(dir, ".credentials.json")
 	expired := time.Now().Add(-1 * time.Hour).UnixMilli()
 	writeCredentials(t, creds, "at-stale", "rt-good", expired)
-
-	var usageCalls int32
-	usage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&usageCalls, 1)
-		auth := r.Header.Get("Authorization")
-		if n == 1 {
-			if auth != "Bearer at-stale" {
-				t.Errorf("first call auth: %q", auth)
-			}
-			http.Error(w, "expired", http.StatusUnauthorized)
-			return
-		}
-		if auth != "Bearer at-refreshed" {
-			t.Errorf("second call auth: %q", auth)
-		}
-		_, _ = fmt.Fprintln(w, `{"five_hour":{"utilization":11,"resets_at":"2026-04-26T17:00:00.000000+00:00"},"seven_day":{"utilization":33,"resets_at":"2026-04-26T20:00:00.000000+00:00"}}`)
-	}))
-	defer usage.Close()
-
-	var tokenCalls int32
-	token := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&tokenCalls, 1)
-		var req map[string]string
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req["grant_type"] != "refresh_token" || req["refresh_token"] != "rt-good" {
-			t.Errorf("unexpected refresh body: %v", req)
-		}
-		_, _ = fmt.Fprintln(w, `{"access_token":"at-refreshed","refresh_token":"rt-rolled","expires_in":3600,"scope":"user:profile user:inference"}`)
-	}))
-	defer token.Close()
-
-	swapURLs(t, usage.URL, token.URL)
-	t.Setenv("AGENT_BUDGET_CREDS", creds)
-
-	ur, err := fetchUsage(context.Background(), time.Now())
-	if err != nil {
-		t.Fatalf("fetchUsage: %v", err)
-	}
-	if math.Abs(ur.FiveHour.Utilization-11) > 1e-9 {
-		t.Errorf("five_hour.utilization: %v", ur.FiveHour.Utilization)
-	}
-	if got := atomic.LoadInt32(&usageCalls); got != 2 {
-		t.Errorf("usage call count: got %d want 2", got)
-	}
-	if got := atomic.LoadInt32(&tokenCalls); got != 1 {
-		t.Errorf("token call count: got %d want 1", got)
-	}
-
-	cf, err := loadCredentials(creds)
-	if err != nil {
-		t.Fatalf("reload creds: %v", err)
-	}
-	if cf.oauth.AccessToken != "at-refreshed" {
-		t.Errorf("access token not persisted: %q", cf.oauth.AccessToken)
-	}
-	if cf.oauth.RefreshToken != "rt-rolled" {
-		t.Errorf("refresh token not persisted: %q", cf.oauth.RefreshToken)
-	}
-	if _, ok := cf.raw["mcpOAuth"]; !ok {
-		t.Error("write-back lost mcpOAuth")
-	}
-
-	fi, err := os.Stat(creds)
+	before, err := os.ReadFile(creds)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("creds mode: got %o want 600", fi.Mode().Perm())
+
+	usage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "expired", http.StatusUnauthorized)
+	}))
+	defer usage.Close()
+	var tokenCalls int32
+	token := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&tokenCalls, 1)
+	}))
+	defer token.Close()
+	swapURLs(t, usage.URL, token.URL)
+	t.Setenv("AGENT_BUDGET_CREDS", creds)
+
+	if _, err := fetchUsage(context.Background(), time.Now()); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("fetchUsage on 401: err = %v, want a 401 error", err)
+	}
+	if got := atomic.LoadInt32(&tokenCalls); got != 0 {
+		t.Errorf("token endpoint called %d time(s), want 0", got)
+	}
+	after, err := os.ReadFile(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("credentials file changed:\n%s", after)
 	}
 }
 

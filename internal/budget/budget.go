@@ -84,6 +84,9 @@ type state struct {
 	Cache            map[string]*fileEntry     `json:"cache"`
 	UsageSnapshot    *usageSnapshot            `json:"usage_snapshot,omitempty"`
 	AccountSnapshots map[string]*usageSnapshot `json:"account_snapshots,omitempty"`
+	// UsageAttemptAt is the last /usage read, failed or not. The gate on
+	// it keeps a failing endpoint from being hit on every Stop hook.
+	UsageAttemptAt time.Time `json:"usage_attempt_at"`
 }
 
 func projectsDir() (string, error) {
@@ -247,6 +250,16 @@ func refreshUsageSnapshot(s *state, now time.Time) {
 	if mode != "subscription" {
 		return
 	}
+	minInterval := usageMinInterval
+	if v := os.Getenv("AGENT_BUDGET_USAGE_MIN_INTERVAL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			minInterval = time.Duration(n) * time.Second
+		}
+	}
+	if now.Sub(s.UsageAttemptAt) < minInterval {
+		return
+	}
+	s.UsageAttemptAt = now
 
 	storeDir, serr := accountsStoreDir()
 	if serr == nil && hasAccountFiles(storeDir) {
@@ -255,12 +268,6 @@ func refreshUsageSnapshot(s *state, now time.Time) {
 	}
 
 	if s.UsageSnapshot != nil && !s.UsageSnapshot.Stale {
-		minInterval := usageMinInterval
-		if v := os.Getenv("AGENT_BUDGET_USAGE_MIN_INTERVAL_SEC"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-				minInterval = time.Duration(n) * time.Second
-			}
-		}
 		if now.Sub(s.UsageSnapshot.FetchedAt) < minInterval {
 			return
 		}

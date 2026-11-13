@@ -11,6 +11,7 @@ import (
 
 	spore "github.com/versality/spore"
 	"github.com/versality/spore/internal/agentenv"
+	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/task"
 )
 
@@ -183,6 +184,11 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	out, err := task.TmuxNewSession(args, cmd).CombinedOutput()
 	if err != nil {
 		return "", false, fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if pane := task.SessionPaneID(session); pane != "" {
+		if err := hooks.RecordInboxOwner(inbox, pane); err != nil {
+			fmt.Fprintf(os.Stderr, "spore: record coordinator inbox owner: %v\n", err)
+		}
 	}
 	// tmux registers the session before the inner shell execs the
 	// agent. Wait briefly, then confirm the session survived; an

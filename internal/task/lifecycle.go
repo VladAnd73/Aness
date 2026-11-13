@@ -14,6 +14,7 @@ import (
 	"github.com/versality/spore/codexpolicy"
 	"github.com/versality/spore/evidence"
 	"github.com/versality/spore/internal/agentenv"
+	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
@@ -28,7 +29,7 @@ const EvidenceWarnOnlyEnv = "SPORE_EVIDENCE_WARN_ONLY"
 // the per-task tmux session. Defaults to defaultAgentBinary when unset.
 const AgentBinaryEnv = "SPORE_AGENT_BINARY"
 
-const defaultAgentBinary = "claude-code"
+const defaultAgentBinary = "claude"
 
 // CodexModelEnv optionally pins the model for `agent: codex` task
 // launches. Empty lets the codex CLI use its own default.
@@ -37,7 +38,7 @@ const CodexModelEnv = "SPORE_CODEX_MODEL"
 // Start flips status to active and (when starting from draft) creates
 // the worktree and wt/<slug> branch under <projectRoot>/.worktrees/.
 // In every case it spawns a detached tmux session named
-// "spore/<project>/<slug>" running ${SPORE_AGENT_BINARY:-claude-code}
+// "spore/<project>/<slug>" running ${SPORE_AGENT_BINARY:-claude}
 // in the worktree, with SPORE_TASK_SLUG=<slug> in the session env.
 // Returns the tmux session name on success.
 func Start(tasksDir, slug string) (string, error) {
@@ -533,7 +534,33 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+	if pane := SessionPaneID(session); pane != "" {
+		if err := hooks.RecordInboxOwner(inbox, pane); err != nil {
+			fmt.Fprintf(os.Stderr, "spore: record inbox owner for %s: %v\n", slug, err)
+		}
+	}
+	// tmux registers the session before its shell execs the agent, so
+	// new-session succeeds even for a binary that does not exist.
+	time.Sleep(SpawnSettleDelay)
+	if SessionPaneID(session) == "" {
+		return "", fmt.Errorf("worker session %s died on spawn (agent=%q): check %s and that the binary is on PATH", session, agent, AgentBinaryEnv)
+	}
 	return session, nil
+}
+
+// SpawnSettleDelay is the wait between tmux new-session and the check
+// that the agent is still running. Same window as the coordinator's.
+const SpawnSettleDelay = 300 * time.Millisecond
+
+// SessionPaneID returns the active pane of the exactly-named session, or "" when
+// no such session exists. A bare -t name would also match a session that
+// merely starts with it.
+func SessionPaneID(session string) string {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", "="+session+":", "#{pane_id}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func readTaskMeta(tasksDir, slug string) (frontmatter.Meta, error) {

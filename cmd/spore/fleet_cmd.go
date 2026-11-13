@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -131,6 +132,12 @@ func runFleetReconcile(args []string) error {
 	if len(res.Skipped) > 0 {
 		fmt.Printf("  skipped: %s (max-workers=%d)\n", strings.Join(res.Skipped, ", "), resolved)
 	}
+	if len(res.Failed) > 0 {
+		fmt.Printf("  failed: %s\n", strings.Join(res.Failed, ", "))
+	}
+	if len(res.BackedOff) > 0 {
+		fmt.Printf("  backoff: %s\n", strings.Join(res.BackedOff, ", "))
+	}
 	for _, m := range res.Matter {
 		if m.Err != nil {
 			fmt.Fprintf(os.Stderr, "  matter %s: %v\n", m.Name, m.Err)
@@ -233,8 +240,8 @@ func resolveMaxWorkers(flagVal int, projectRoot string) (int, error) {
 //     hook
 //
 // $WT_PROJECT and $WT_FLEET_FLOOR are read by the helpers above
-// (resolveMaxWorkers honours $WT_FLEET_FLOOR; project root is the
-// firing session's cwd, which is the per-project coordinator's tree).
+// (resolveMaxWorkers honours $WT_FLEET_FLOOR). The project root comes
+// from replenishHookRoot, not the cwd.
 func runFleetReplenishHook(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: spore fleet replenish-hook (no args; reads env)")
@@ -250,7 +257,7 @@ func runFleetReplenishHook(args []string) error {
 		return nil
 	}
 
-	root, err := os.Getwd()
+	root, err := replenishHookRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "replenish-hook:", err)
 		return nil
@@ -262,7 +269,7 @@ func runFleetReplenishHook(args []string) error {
 	}
 
 	res, err := fleet.Reconcile(fleet.Config{
-		TasksDir:    "tasks",
+		TasksDir:    filepath.Join(root, "tasks"),
 		ProjectRoot: root,
 		MaxWorkers:  resolved,
 	})
@@ -276,6 +283,14 @@ func runFleetReplenishHook(args []string) error {
 	fmt.Printf("replenish-hook: active=%d spawned=%d kept=%d reaped=%d skipped=%d\n",
 		len(res.Active), len(res.Spawned), len(res.Kept), len(res.Reaped), len(res.Skipped))
 	return nil
+}
+
+// replenishHookRoot is the main repo root of the coordinator's project.
+// The hook runs in the session's current cwd, which may be a worktree:
+// its tasks/ holds frozen brief copies that still say active after the
+// real task was paused, so reconcile must never read them.
+func replenishHookRoot() (string, error) {
+	return task.MainRepoRoot(os.Getenv("SPORE_PROJECT_ROOT"))
 }
 
 // isCoordinatorSession reports whether $SPORE_TASK_INBOX points under the
