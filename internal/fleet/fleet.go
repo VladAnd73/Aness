@@ -68,6 +68,10 @@ type Result struct {
 	BackedOff []string
 	Failed    []string
 
+	// Warnings are non-fatal problems found in task frontmatter or loop
+	// files, also logged to stderr.
+	Warnings []string
+
 	// InboxWatchdog is the lost-wakeup watchdog's outcome for this
 	// pass. Zero-valued when the kill switch is off, since the
 	// watchdog never runs then.

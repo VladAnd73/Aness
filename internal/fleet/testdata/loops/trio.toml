@@ -1,0 +1,27 @@
+# Acceptance fixture (scenario 4): agent, agent, action.
+# A step's output file is its implied `file` done condition.
+name = "trio"
+
+[[steps]]
+name = "a"
+kind = "agent"
+role = "alpha"
+session = "a"
+output = "a/round-{round}.json"
+shape = "json"
+required = ["result"]
+
+[[steps]]
+name = "b"
+kind = "agent"
+role = "beta"
+session = "b"
+output = "b/round-{round}.json"
+shape = "json"
+required = ["result"]
+
+[[steps]]
+name = "c"
+kind = "action"
+action = "notify-coordinator"
+message = "trio reached c"

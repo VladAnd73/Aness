@@ -1,0 +1,14 @@
+# Acceptance fixture (scenario 8): a `next` target that names no step.
+name = "broken"
+
+[[steps]]
+name = "a"
+kind = "agent"
+role = "alpha"
+session = "a"
+output = "a/round-{round}.json"
+shape = "verdict"
+
+[[steps.next]]
+on = "request_changes"
+to = "nowhere"

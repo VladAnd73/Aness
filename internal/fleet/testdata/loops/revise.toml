@@ -1,0 +1,31 @@
+# Acceptance fixture (scenario 6): a verdict step that sends work back
+# to its author and returns to itself, capped at two rounds.
+name = "revise"
+
+[[steps]]
+name = "author"
+kind = "agent"
+role = "author"
+session = "author"
+persist = true
+output = "author/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "review"
+kind = "agent"
+role = "reviewer"
+session = "review"
+output = "review/round-{round}.json"
+shape = "verdict"
+max_rounds = 2
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+return = true
+
+[[steps.next]]
+on = "approve"
+to = "done"

@@ -1,0 +1,64 @@
+# Acceptance fixture (scenario 10): the shape of a QA loop without any
+# QA wording. request_changes goes back to author without `return`, so
+# the fix passes open-pr again (push only) before the next review.
+name = "qa-standin"
+
+[[steps]]
+name = "intake"
+kind = "agent"
+role = "analyst"
+session = "intake"
+output = "intake/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "author"
+kind = "agent"
+role = "author"
+session = "author"
+persist = true
+output = "author/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "open-pr"
+kind = "action"
+action = "push-and-open-pr"
+label = "QA"
+
+[[steps]]
+name = "review"
+kind = "agent"
+role = "reviewer"
+session = "review"
+output = "review/round-{round}.json"
+shape = "verdict"
+max_rounds = 3
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+
+[[steps]]
+name = "completeness"
+kind = "agent"
+role = "completeness"
+session = "completeness"
+output = "completeness/round-{round}.json"
+shape = "verdict"
+max_rounds = 3
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+
+[[steps]]
+name = "report"
+kind = "agent"
+role = "reporter"
+session = "report"
+output = "report/round-{round}.json"
+shape = "json"
+required = ["notes"]

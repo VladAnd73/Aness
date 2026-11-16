@@ -1,0 +1,6 @@
+# Acceptance fixture (scenario 8): a step kind spore does not know.
+name = "broken"
+
+[[steps]]
+name = "a"
+kind = "robot"
