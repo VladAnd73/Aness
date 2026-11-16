@@ -114,3 +114,23 @@ func TestFinishedLoopLeavesNoBackoff(t *testing.T) {
 	}
 }
 
+// Given a verdict step that sends work back to a live persisted pane,
+// when that pane is woken for the revision, then the wake names the
+// exact round-2 path to write, as a fresh pane's note does.
+func TestRevisionWakeNamesTheRoundToWrite(t *testing.T) {
+	f := newLoopFixture(t, "revise", "revise.toml", "author", "reviewer")
+	author := f.session("author")
+	f.tick(t)
+	f.write(t, "author/round-1.json", `{"notes":"r1"}`)
+	f.tick(t)
+	f.write(t, "review/round-1.json", verdictJSON("review", "request_changes"))
+	f.tick(t)
+
+	wakes := f.panes.wakesTo(author)
+	if len(wakes) != 1 {
+		t.Fatalf("wakes to author = %v, want one revision wake", wakes)
+	}
+	if want := "Write round 2 now: " + f.path("author/round-2.json"); !strings.Contains(wakes[0], want) {
+		t.Errorf("revision wake lacks %q:\n%s", want, wakes[0])
+	}
+}

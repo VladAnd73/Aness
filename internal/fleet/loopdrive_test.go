@@ -224,8 +224,8 @@ func TestDriveLoopWakesOnBackwardJump(t *testing.T) {
 	f.tick(t)
 	f.write(t, "c/round-1.json", verdictJSON("c", task.VerdictRequestChanges))
 	f.tick(t)
-	wantA := fmt.Sprintf("Checker requested changes at round 1. Read %s and start the revision. Use skills: tdd, lint.",
-		f.path("c/round-1.json"))
+	wantA := fmt.Sprintf("Checker requested changes at round 1. Read %s and start the revision. Write round 2 now: %s. Use skills: tdd, lint.",
+		f.path("c/round-1.json"), f.path("a/round-2.json"))
 	if w := f.panes.wakesTo(sa); !equalSlices(w, []string{wantA}) {
 		t.Errorf("wakes to a = %q, want %q", w, wantA)
 	}
@@ -235,7 +235,7 @@ func TestDriveLoopWakesOnBackwardJump(t *testing.T) {
 
 	f.write(t, "a/round-2.json", `{"result":"y"}`)
 	f.tick(t)
-	wantC := fmt.Sprintf("Alpha responded to your round 1 verdict. Read %s and review round 2.", f.path("a/round-2.json"))
+	wantC := fmt.Sprintf("Alpha responded to your round 1 verdict. Read %s and review round 2. Write round 2 now: %s.", f.path("a/round-2.json"), f.path("c/round-2.json"))
 	if w := f.panes.wakesTo(sc); !equalSlices(w, []string{wantC}) {
 		t.Errorf("wakes to c = %q, want %q", w, wantC)
 	}

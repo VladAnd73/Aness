@@ -129,3 +129,87 @@ func TestStepNoteNamesPathShapeAndAuthor(t *testing.T) {
 		}
 	}
 }
+
+// loopRoundFakeAgent writes only where its first prompt or a wake says
+// to write now, and judges round 1 as request_changes, round 2 as
+// approve. It keeps no round of its own, so a pane spawned fresh at
+// round 2 can only succeed if its prompt names round 2. It draws the
+// TUI's input prompt glyph so verified wakes reach it.
+const loopRoundFakeAgent = `#!/bin/sh
+act() {
+  line=$(printf '%s\n' "$1" | grep -o 'Write round [0-9]* now: [^ ]*' | head -n1)
+  n=$(printf '%s\n' "$line" | awk '{print $3}')
+  out=$(printf '%s\n' "$line" | awk '{print $5}' | sed 's/\.$//')
+  if [ -z "$out" ]; then
+    printf '%s: no round to write in prompt\n' "$SPORE_STEP" >> "$SPORE_PROJECT_ROOT/agent.log"
+    return
+  fi
+  mkdir -p "$(dirname "$out")"
+  case "$SPORE_STEP" in
+    comp)
+      v=approve; [ "$n" = 1 ] && v=request_changes
+      printf '{"author":"%s","verdict":"%s","summary":"r%s","comments":[]}' "$author" "$v" "$n" > "$out" ;;
+    *)
+      printf '{"notes":"r%s"}' "$n" > "$out" ;;
+  esac
+  printf '%s %s\n' "$SPORE_STEP" "$n" >> "$SPORE_PROJECT_ROOT/writes.log"
+}
+author=$(printf '%s\n' "$*" | grep -o '"author": "[^"]*"' | head -n1 | sed 's/.*: "//; s/"$//')
+act "$*"
+printf '\n\342\235\257 '
+while IFS= read -r wake; do
+  act "$wake"
+  printf '\n\342\235\257 '
+done
+exec sleep 60
+`
+
+// TestLoopReentersReapedStepsAtTheRightRound: given a loop whose steps
+// are reaped on forward exit and re-entered after a send-back, with the
+// real spawn gate and agents that learn their round only from their
+// first prompt, when Reconcile ticks, then every re-entered pane spawns
+// on time and writes round 2, and the loop reaches done.
+func TestLoopReentersReapedStepsAtTheRightRound(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	mustEnable(t)
+	t.Setenv("SPORE_AGENT_BINARY", "sleep 30")
+	t.Setenv("SPORE_COORDINATOR_STATE_DIR", t.TempDir())
+	agent := filepath.Join(t.TempDir(), "fake-agent")
+	if err := os.WriteFile(agent, []byte(loopRoundFakeAgent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyLoopFixture(t, "reenter-fresh.toml", filepath.Join(dirs.project, "bootstrap", "loops", "reenter-fresh.toml"))
+	fm := "---\nstatus: active\nslug: rf\nagent: " + agent + "\nloop: reenter-fresh\n---\nbrief\n"
+	if err := os.WriteFile(filepath.Join(dirs.tasks, "rf.md"), []byte(fm), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		killSporeSessions(dirs.project)
+		killRoleSessions(dirs.project)
+	})
+
+	ready := filepath.Join(task.RoleTaskDir(dirs.project, "rf"), "state", "ready")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := Reconcile(Config{TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3}); err != nil {
+			t.Fatalf("Reconcile: %v", err)
+		}
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if b, err := os.ReadFile(filepath.Join(dirs.project, "agent.log")); err == nil {
+		t.Errorf("fake agent found no round to write:\n%s", b)
+	}
+	b, _ := os.ReadFile(filepath.Join(dirs.project, "writes.log"))
+	if got, want := string(b), "author 1\nreview 1\ncomp 1\nauthor 2\nreview 2\ncomp 2\n"; got != want {
+		t.Errorf("writes = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(ready); err != nil {
+		t.Errorf("loop never reached done: %v", err)
+	}
+}

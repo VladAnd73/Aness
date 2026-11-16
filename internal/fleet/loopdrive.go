@@ -309,7 +309,7 @@ func wakeLoopPanes(projectRoot, slug string, def LoopDef, st LoopState, outs map
 		x := def.Steps[def.StepIndex(from)]
 		path := task.StepOutputPath(projectRoot, slug, x.Output, fromRound)
 		msg := fmt.Sprintf("%s requested changes at round %d. Read %s and start the revision.", x.Title, fromRound, path)
-		if _, err := wakeRole(spec, fmt.Sprintf("woken-%s-%d", labelOrName(x), fromRound), msg+skillsHint(s)); err != nil {
+		if _, err := wakeRole(spec, fmt.Sprintf("woken-%s-%d", labelOrName(x), fromRound), msg+writeNowHint(projectRoot, slug, def, s, st)+skillsHint(s)); err != nil {
 			return err
 		}
 	}
@@ -329,8 +329,18 @@ func wakeLoopPanes(projectRoot, slug string, def LoopDef, st LoopState, outs map
 	resp := outs[target.Name][n-1]
 	msg := fmt.Sprintf("%s responded to your round %d verdict. Read %s and review round %d.",
 		target.Title, st.Round, resp.Path, st.Round+1)
-	_, err := wakeRole(spec, fmt.Sprintf("woken-%s-%d", s.Session, resp.Round), msg+skillsHint(s))
+	_, err := wakeRole(spec, fmt.Sprintf("woken-%s-%d", s.Session, resp.Round), msg+writeNowHint(projectRoot, slug, def, s, st)+skillsHint(s))
 	return err
+}
+
+// writeNowHint names the exact file a woken step writes next. The dev
+// loop keeps upstream's wake text: its role bodies name these paths.
+func writeNowHint(projectRoot, slug string, def LoopDef, s Step, st LoopState) string {
+	if s.Output == "" || def.Name == "dev" {
+		return ""
+	}
+	n := st.Rounds[s.Name] + 1
+	return fmt.Sprintf(" Write round %d now: %s.", n, task.StepOutputPath(projectRoot, slug, s.Output, n))
 }
 
 func labelOrName(s Step) string {
