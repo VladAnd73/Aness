@@ -2,7 +2,9 @@ package fleet
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"syscall"
 
 	"github.com/versality/spore/internal/task"
 )
@@ -13,7 +15,16 @@ import (
 // check and action.
 var ErrLoopBusy = errors.New("another drive of this loop is running")
 
-// lockLoopDrive takes the slug's non-blocking drive lock.
-func lockLoopDrive(projectRoot, slug string) (func(), bool) {
-	return flockBeside(filepath.Join(task.RoleTaskDir(projectRoot, slug), "state", "drive"))
+// lockLoopDrive takes the slug's non-blocking drive lock. Only a lock
+// held by another drive is ErrLoopBusy; any other failure is returned
+// as is, since Reconcile does not print ErrLoopBusy.
+func lockLoopDrive(projectRoot, slug string) (func(), error) {
+	unlock, err := tryFlock(filepath.Join(task.RoleTaskDir(projectRoot, slug), "state", "drive.lock"))
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return nil, ErrLoopBusy
+	}
+	if err != nil {
+		return nil, fmt.Errorf("drive lock: %w", err)
+	}
+	return unlock, nil
 }

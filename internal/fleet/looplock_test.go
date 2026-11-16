@@ -2,7 +2,11 @@ package fleet
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/versality/spore/internal/task"
 )
 
 // Given another drive holds a slug's loop, when a second drive of the
@@ -17,9 +21,9 @@ func TestConcurrentLoopDriveSkipsTheBusySlug(t *testing.T) {
 	f.write(t, "b/round-1.json", `{"result":"y"}`)
 	spawns := len(f.panes.spawns)
 
-	unlock, ok := lockLoopDrive(f.root, f.slug)
-	if !ok {
-		t.Fatal("could not take the drive lock")
+	unlock, err := lockLoopDrive(f.root, f.slug)
+	if err != nil {
+		t.Fatalf("could not take the drive lock: %v", err)
 	}
 	if _, err := DriveLoop(f.root, f.tasks, f.slug); !errors.Is(err, ErrLoopBusy) {
 		t.Errorf("drive under a held lock: err = %v, want ErrLoopBusy", err)
@@ -36,5 +40,25 @@ func TestConcurrentLoopDriveSkipsTheBusySlug(t *testing.T) {
 	f.tick(t)
 	if n := countContaining(inboxBodies(t, f.inbox), "trio reached c"); n != 1 {
 		t.Errorf("action ran %d times after the lock was released, want 1", n)
+	}
+}
+
+// Given the drive lock cannot be opened at all (here the state
+// directory is a plain file), when a drive runs, then it reports that
+// error. ErrLoopBusy is not it: Reconcile hides ErrLoopBusy, so the
+// loop would stall every tick with nothing on stderr.
+func TestDriveLockFailureIsNotReportedAsBusy(t *testing.T) {
+	f := newLoopFixture(t, "trio", "trio.toml", "alpha", "beta")
+	f.tick(t)
+	state := filepath.Join(task.RoleTaskDir(f.root, f.slug), "state")
+	if err := os.RemoveAll(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DriveLoop(f.root, f.tasks, f.slug)
+	if err == nil || errors.Is(err, ErrLoopBusy) {
+		t.Errorf("drive with an unopenable lock: err = %v, want a non-busy error", err)
 	}
 }

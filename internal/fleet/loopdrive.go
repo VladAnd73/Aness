@@ -45,9 +45,9 @@ func DriveLoop(projectRoot, tasksDir, slug string) (LoopState, error) {
 }
 
 func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, map[string][]StepOutput, error) {
-	unlock, ok := lockLoopDrive(projectRoot, slug)
-	if !ok {
-		return LoopState{Slug: slug, Loop: def.Name}, nil, fmt.Errorf("drive %s: %w", slug, ErrLoopBusy)
+	unlock, err := lockLoopDrive(projectRoot, slug)
+	if err != nil {
+		return LoopState{Slug: slug, Loop: def.Name}, nil, fmt.Errorf("drive %s: %w", slug, err)
 	}
 	defer unlock()
 	if err := task.CacheSpecFromTaskFile(projectRoot, tasksDir, slug); err != nil {

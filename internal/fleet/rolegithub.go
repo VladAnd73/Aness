@@ -218,23 +218,30 @@ func mirrorErrorKey(err error) string {
 
 // flockBeside takes a non-blocking flock on path+".lock". The GitHub
 // mirror holds one beside its state file so two drives never post the
-// same event twice; the loop drive holds one per slug.
+// same event twice.
 func flockBeside(statePath string) (func(), bool) {
-	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
-		return nil, false
+	unlock, err := tryFlock(statePath + ".lock")
+	return unlock, err == nil
+}
+
+// tryFlock takes a non-blocking exclusive flock on path, creating it.
+// A lock held elsewhere fails with syscall.EWOULDBLOCK.
+func tryFlock(path string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
 	}
-	f, err := os.OpenFile(statePath+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		return nil, false
+		return nil, err
 	}
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		_ = f.Close()
-	}, true
+	}, nil
 }
 
 func (m *githubMirror) save() {
