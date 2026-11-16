@@ -225,6 +225,12 @@ worker (which starts with no prompt), get that line alone as the
 prompt. Unset or empty leaves the spawn argv byte-identical to
 before.
 
+With `[worker] isolate_network = true` the whole launch script, hook
+then agent, runs inside one pasta network namespace, so services the
+hook starts on loopback are the ones the agent reaches (pasta runs
+with port forwarding off, so a hook run on the host would be out of
+the agent's reach). Only the agent gets `IS_SANDBOX=1`.
+
 Engineer (`spore-role/<project>/<slug>/engineer`): reads the spec and
 the latest verdict, commits on the task branch, and ends each round
 by writing `responses/engineer-round-N.json`:
@@ -412,13 +418,53 @@ table per step, in order:
 verdict: `on`, `to` (a step or `done`), and `return = true` to come
 back to this step once the target answers. Without a matching `next`,
 the loop moves to the following step; past the last step it is done.
+A verdict condition and a `next` on a different verdict cannot share a
+step (that verdict could never route); loading such a file fails.
+
+A step whose output exists but whose conditions do not hold is held.
+A held round followed by a newer output of the same step is
+superseded: the loop judges the newer round, and superseded rounds do
+not count toward `max_rounds`. A step held by a file or verdict
+condition is reported to the coordinator once per step and round
+(`state/held-<step>-<round>`).
+
+#### Command checks
+
+A `command` condition runs `run` under `sh -c` in the task worktree
+with `SPORE_TASK_SLUG` and `SPORE_STEP_OUTPUT` (this round's output
+path) added to the environment, bounded by `timeout` (seconds or a Go
+duration such as `"30s"`; default 600s). A result is cached in
+`state/check-<step>-r<round>-<fp>.json`, keyed by a fingerprint of the
+round's output bytes, the worktree HEAD and the command, so a check
+reruns only when the output file or the task branch changes, never on
+every tick. Once a round passes it stays passed. On failure the step
+is held, its pane is woken once per fingerprint with the command
+output and "Write round N+1 now: <path>", and the coordinator is told
+once per fingerprint. A failed check does not count toward
+`max_rounds`: it only means the step's work is not done yet. A
+command condition needs the step to have an `output`.
+
+#### Actions
 
 Actions run once per visit: a visit is recorded as
 `state/action-<step>-v<n>` after the action succeeds, and a failing
-action parks the loop on its step until a later tick succeeds. The
-built-in actions are `notify-coordinator` (`message`) and
-`push-and-open-pr` (`label`). No action and no driver path ever
-merges a PR.
+action parks the loop on its step until a later tick succeeds. Action
+parameters sit flat on the step (`message`, `label`) or in a
+`[steps.params]` table, which wins on a clash. The built-in actions:
+
+- `notify-coordinator` (`message`, default "reached <step>") tells the
+  coordinator "<slug>: <message>".
+- `push-and-open-pr` (`label`, `draft = "true"` or `"false"`, default
+  false) pushes the task branch as the project's GitHub App and, on the
+  first visit that finds no PR in `github.json`, opens one (or adopts
+  the PR already open for the branch); later visits only push. It
+  needs `github.toml` with `operator_login` set.
+
+No action and no driver path ever merges a PR.
+
+Two reconcile passes never drive one slug at the same time: the drive
+holds a non-blocking flock on `state/drive.lock`, and a pass that finds
+it held skips the slug.
 
 ### Panes and wakes
 
@@ -430,12 +476,31 @@ re-check. Done reaps every pane; escalated touches none.
 A step that is sent work, with or without `return`, is woken with
 "`<title>` requested changes at round `<n>`" and the verdict path.
 When the sender's turn comes back, it is woken with "`<title>`
-responded to your round `<n>` verdict" and the new output's path. Each
-pane gets each wake once (marker `state/woken-...`).
+responded to your round `<n>` verdict" and the new output's path.
+Outside the dev loop (whose wake text is upstream's) both wakes end
+with "Write round N now: <path>". Each pane gets each wake once
+(marker `state/woken-...`). A pane the driver reaps on purpose does
+not count as a quick death, so re-entering its step never waits
+behind spawn backoff.
 
 The loop exports `SPORE_LOOP`, `SPORE_STEP`, `SPORE_STEP_OUTPUT` (the
 absolute output path, `{round}` unexpanded) and `SPORE_STEP_SKILLS` to
 its panes, next to the role-loop variables above.
+
+#### The step note
+
+Role bodies are shared between loops and name the role loop's own
+paths, so each agent step with an `output` also gets
+`SPORE_STEP_NOTE`, put ahead of its role body in the first prompt
+(after the pre-start failure line, when there is one). The note names
+the step and loop, the absolute output template, the shape's exact
+keys and the `author` a verdict must carry, and says these replace any
+path or format the role body names. A pane spawned at the cursor is
+told "Write round N now: <path>"; a persisted pane idling behind the
+cursor is told its next round and to wait for its wake. A pane
+spawned at round 2 or later (a re-entered step, a crash or token-wrap
+respawn) has no other way to learn its round. Custom role bodies need
+not know about loops.
 
 ### The example loop
 
