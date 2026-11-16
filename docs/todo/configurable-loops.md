@@ -1,4 +1,4 @@
-**Status**: design approved by the operator 2026-11-16; next: implementation plan
+**Status**: implemented on `wt/configurable-loops` 2026-11-16 (all 10 scenarios green, live smoke of the example loop passed); next: fork PR, then the real `qa-e2e` loop in marketer-frontend
 
 # Configurable task loops
 
@@ -250,6 +250,15 @@ These are already in the skill; the QA role bodies inherit them.
    (`label`, `operator_login`), so upstream is not forced to use our
    `QA` label. A fake GitHub covering PR create, label and assignee
    calls is in scope for scenario 10.
+8. **The step note wins over the role body** (found in the live smoke,
+   operator, 2026-11-16). Role bodies are shared between loops and name
+   the role loop's own paths, so a pane given only `SPORE_STEP_OUTPUT`
+   wrote where the loop never looks and the loop stalled. Each agent
+   step with an `output` now gets a note ahead of its role body in the
+   first prompt (env `SPORE_STEP_NOTE`): the absolute output template,
+   the shape's exact keys, the `author` a verdict must carry, and that
+   these replace any path or format the role body names. Custom role
+   bodies do not have to know about loops.
 
 ## Left to the builder
 

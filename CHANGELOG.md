@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Configurable task loops. A task with `loop: <name>` in its
+  frontmatter is driven through the steps of
+  `bootstrap/loops/<name>.toml` on every fleet reconcile: each `agent`
+  step runs in its own pane with its own role body, `action` steps run
+  kernel actions (`notify-coordinator`, `push-and-open-pr`), and `next`
+  entries route on the step's verdict, including back to an earlier
+  step with `return = true` and a `max_rounds` cap that escalates.
+  Done conditions can be a file, a verdict or a `command` check run in
+  the task worktree. Two loops ship: `dev` (the upstream engineer,
+  reviewer A, reviewer B loop; `loop: role` still means it) and a
+  small `example`. A project file of the same name overrides a bundled
+  one. Ported from upstream's role loop. See
+  `docs/todo/configurable-loops.md`.
+
 ## 1.0.6 - 2026-11-16
 
 - `spore gh exec -- gh pr create ...` assigns the PR to
