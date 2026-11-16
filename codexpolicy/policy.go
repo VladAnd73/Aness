@@ -39,6 +39,12 @@ func EffortForTask(effort, complexity string) (string, error) {
 	}
 }
 
+// ProjectDocFallbackConfig makes Codex read CLAUDE.md in any directory
+// without an AGENTS.md, so consumer repos need no AGENTS.md mirrors.
+// Passed with -c on every launch because ~/.codex/config.toml is
+// Codex-owned and left unmanaged.
+const ProjectDocFallbackConfig = `project_doc_fallback_filenames=["CLAUDE.md"]`
+
 func ReasoningConfig(effort string) string {
 	return fmt.Sprintf("model_reasoning_effort=\"%s\"", effort)
 }

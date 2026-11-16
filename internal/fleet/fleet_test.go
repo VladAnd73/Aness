@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/versality/spore/internal/matter"
+	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
 
@@ -479,4 +480,12 @@ func equalSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func writeRoleLoopTask(t *testing.T, tasksDir, slug, status string) {
+	t.Helper()
+	m := frontmatter.Meta{Status: status, Slug: slug, Title: slug, Loop: task.LoopRole}
+	if err := os.WriteFile(filepath.Join(tasksDir, slug+".md"), frontmatter.Write(m, nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

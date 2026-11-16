@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestParseReviewStrict(t *testing.T) {
@@ -104,15 +106,15 @@ func TestEnsureLegacyMarkerGrandfathersExistingFilesOnly(t *testing.T) {
 
 func TestQuarantinePathIncrements(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "round-1.json")
-	dest, prior := QuarantinePath(p)
-	if dest != p+".invalid" || prior != 0 {
+	dest, prior, err := QuarantinePath(p)
+	if err != nil || dest != p+".invalid" || prior != 0 {
 		t.Fatalf("first = %s, %d", dest, prior)
 	}
 	if err := os.WriteFile(dest, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dest, prior = QuarantinePath(p)
-	if dest != p+".invalid.2" || prior != 1 {
+	dest, prior, err = QuarantinePath(p)
+	if err != nil || dest != p+".invalid.2" || prior != 1 {
 		t.Fatalf("second = %s, %d", dest, prior)
 	}
 }
@@ -142,5 +144,31 @@ func TestListRoleFilesExpectedAuthors(t *testing.T) {
 		if err := ValidateRoleFile(root, "demo", f); err != nil {
 			t.Errorf("%s: %v", f.Rel, err)
 		}
+	}
+}
+
+// An Lstat error other than not-exist (here ENOTDIR: a path segment
+// is a regular file) must surface instead of probing names forever.
+func TestQuarantinePathReturnsLstatError(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(parent, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		dest string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		dest, _, err := QuarantinePath(filepath.Join(parent, "round-1.json"))
+		done <- result{dest, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err == nil || !errors.Is(r.err, syscall.ENOTDIR) {
+			t.Fatalf("QuarantinePath = %q, %v; want an ENOTDIR error", r.dest, r.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("QuarantinePath did not return on a non-not-exist Lstat error")
 	}
 }

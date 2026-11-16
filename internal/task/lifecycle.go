@@ -35,6 +35,10 @@ const defaultAgentBinary = "claude"
 // launches. Empty lets the codex CLI use its own default.
 const CodexModelEnv = "SPORE_CODEX_MODEL"
 
+// CodexBinEnv replaces the codex executable in worker and role-pane
+// launches.
+const CodexBinEnv = "SPORE_CODEX_BIN"
+
 // Start flips status to active and (when starting from draft) creates
 // the worktree and wt/<slug> branch under <projectRoot>/.worktrees/.
 // In every case it spawns a detached tmux session named
@@ -643,7 +647,11 @@ func CodexAgentCommand(m frontmatter.Meta) (string, error) {
 	if model == "" {
 		model = os.Getenv(CodexModelEnv)
 	}
-	return shellJoin(codexpolicy.InteractiveArgs(model, effort)), nil
+	args := codexpolicy.InteractiveArgs(model, effort)
+	if bin := os.Getenv(CodexBinEnv); bin != "" {
+		args[0] = bin
+	}
+	return shellJoin(args), nil
 }
 
 func shellJoin(args []string) string {

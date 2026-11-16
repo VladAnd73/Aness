@@ -146,7 +146,7 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 		t.Fatalf("escalated %d time(s) across the run, want exactly 1 (last skip: %q)",
 			nudged, res.InboxWatchdog.Skipped)
 	}
-	if pane := capturePane(t, session); !strings.Contains(pane, "requeued") {
+	if pane := captureTestPane(t, session); !strings.Contains(pane, "requeued") {
 		t.Errorf("the nudge never reached the pane: %q", pane)
 	}
 
@@ -159,7 +159,7 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 	}
 }
 
-func capturePane(t *testing.T, session string) string {
+func captureTestPane(t *testing.T, session string) string {
 	t.Helper()
 	out, err := exec.Command("tmux", "-L", testTmuxSocket, "capture-pane", "-p", "-t", session).Output()
 	if err != nil {
@@ -242,12 +242,12 @@ func startIdleSession(t *testing.T, home, session string) {
 	}
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-session", "-t", session).Run() })
 	for range 40 {
-		if strings.Contains(capturePane(t, session), "❯") {
+		if strings.Contains(captureTestPane(t, session), "❯") {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("pane never showed a prompt: %q", capturePane(t, session))
+	t.Fatalf("pane never showed a prompt: %q", captureTestPane(t, session))
 }
 
 // writeStaleTranscript gives the project an agent transcript whose last

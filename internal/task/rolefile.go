@@ -178,14 +178,18 @@ func invalid(path, reason string) error {
 // QuarantinePath returns the first free move-aside name for path:
 // `<path>.invalid`, then `<path>.invalid.2`, and so on. The second
 // return is the number of earlier quarantines of the same path.
-func QuarantinePath(path string) (string, int) {
+func QuarantinePath(path string) (string, int, error) {
 	for n := 1; ; n++ {
 		dest := path + InvalidSuffix
 		if n > 1 {
 			dest = fmt.Sprintf("%s.%d", dest, n)
 		}
-		if _, err := os.Lstat(dest); errors.Is(err, fs.ErrNotExist) {
-			return dest, n - 1
+		_, err := os.Lstat(dest)
+		if errors.Is(err, fs.ErrNotExist) {
+			return dest, n - 1, nil
+		}
+		if err != nil {
+			return "", 0, fmt.Errorf("quarantine %s: %w", path, err)
 		}
 	}
 }
