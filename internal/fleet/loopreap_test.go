@@ -33,13 +33,13 @@ func TestReconcileReapsLoopPanesOfFinishedTasks(t *testing.T) {
 		fmt.Sprintf("spore-role/%s/finished/draft", other):   true,
 	}
 	for s := range sessions {
-		if out, err := exec.Command("tmux", "new-session", "-d", "-s", s, "sleep 60").CombinedOutput(); err != nil {
+		if out, err := exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", s, "sleep 60").CombinedOutput(); err != nil {
 			t.Fatalf("tmux new-session %s: %v: %s", s, err, out)
 		}
 	}
 	t.Cleanup(func() {
 		for s := range sessions {
-			_ = exec.Command("tmux", "kill-session", "-t", "="+s).Run()
+			_ = exec.Command("tmux", "-L", testTmuxSocket, "kill-session", "-t", "="+s).Run()
 		}
 		killSporeSessions(dirs.project)
 	})
