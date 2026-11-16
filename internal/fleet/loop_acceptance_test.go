@@ -25,6 +25,7 @@ type loopPaneFake struct {
 	gen        map[string]int
 	delivered  map[string]bool
 	spawns     []string
+	notes      map[string][]string
 	kills      []string
 	wakes      []loopWake
 	now        time.Time
@@ -41,6 +42,7 @@ func installLoopPanes(t *testing.T) *loopPaneFake {
 		panes:     map[string]*paneProbe{},
 		gen:       map[string]int{},
 		delivered: map[string]bool{},
+		notes:     map[string][]string{},
 		now:       time.Unix(1_800_000_000, 0),
 	}
 	prevSpawn, prevProbe, prevKill, prevNow, prevWake := spawnRole, probeRolePane, killRoleSession, nowFunc, wakeRole
@@ -53,6 +55,7 @@ func installLoopPanes(t *testing.T) *loopPaneFake {
 			return s, false, nil
 		}
 		f.spawns = append(f.spawns, s)
+		f.notes[s] = append(f.notes[s], spec.Note)
 		f.gen[s]++
 		f.panes[s] = &paneProbe{Exists: true, Command: "claude", Created: f.now, Content: "booting"}
 		if f.afterSpawn != nil {

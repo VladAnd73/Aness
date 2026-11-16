@@ -164,15 +164,18 @@ func StepSpec(projectRoot, slug string, def LoopDef, s Step) RoleSpawnSpec {
 	}
 	if s.Output != "" {
 		spec.OutputTemplate = filepath.Join(task.RoleTaskDir(projectRoot, slug), filepath.FromSlash(s.Output))
-		spec.Note = stepNote(def, s, spec.OutputTemplate)
+		spec.Note = stepNote(def, s, spec.OutputTemplate, 0, false)
 	}
 	return spec
 }
 
 // stepNote tells a step's pane where its output goes and what it must
 // hold. Role bodies are shared across loops and name the role loop's
-// own paths, so the note has to win over them.
-func stepNote(def LoopDef, s Step, output string) string {
+// own paths, so the note has to win over them. next > 0 names the
+// round the pane writes next: a pane spawned at round 2 or later has
+// no other way to learn it. now says whether the cursor stands on the
+// step; an idle persisted pane must wait for its wake.
+func stepNote(def LoopDef, s Step, output string, next int, now bool) string {
 	var format string
 	switch s.Shape {
 	case "engineer-response":
@@ -199,8 +202,17 @@ func stepNote(def LoopDef, s Step, output string) string {
 			format += `, and "verdict" set to one of ` + strings.Join(ons, ", ")
 		}
 	}
-	return fmt.Sprintf("You are step %q of loop %q. Write each round's output to %s with {round} replaced by the round number: 1 on your first round, one more each time the work comes back to you. Format: %s. This path and format replace any output path or file format your role instructions below name; follow the rest of them as written.",
-		s.Name, def.Name, output, format)
+	round := ""
+	if next > 0 {
+		path := strings.ReplaceAll(output, "{round}", strconv.Itoa(next))
+		if now {
+			round = fmt.Sprintf(" Write round %d now: %s.", next, path)
+		} else {
+			round = fmt.Sprintf(" Your next output is round %d: %s; wait until you are woken before writing it.", next, path)
+		}
+	}
+	return fmt.Sprintf("You are step %q of loop %q. Write each round's output to %s with {round} replaced by the round number.%s Each time the work comes back to you, write the next round. Format: %s. This path and format replace any output path or file format your role instructions below name; follow the rest of them as written.",
+		s.Name, def.Name, output, round, format)
 }
 
 // classifyLoop resolves a task's `loop:` key to a loop name: "" for a
@@ -245,6 +257,9 @@ func keepLoopPanes(projectRoot, tasksDir, slug string, def LoopDef, st LoopState
 	for _, s := range ensure {
 		spec := StepSpec(projectRoot, slug, def, s)
 		spec.TasksDir = tasksDir
+		if spec.OutputTemplate != "" {
+			spec.Note = stepNote(def, s, spec.OutputTemplate, st.Rounds[s.Name]+1, s.Name == st.Step)
+		}
 		if err := ensureRolePane(spec, st.Rounds[s.Name]); err != nil {
 			return fmt.Errorf("ensure %s: %w", s.Name, err)
 		}

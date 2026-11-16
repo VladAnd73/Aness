@@ -1,0 +1,38 @@
+# Fixture: review is reaped when comp starts, then re-entered fresh at
+# round 2 after comp sends the work back to author without a return.
+name = "reenter"
+
+[[steps]]
+name = "author"
+kind = "agent"
+role = "author"
+session = "author"
+persist = true
+output = "author/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "review"
+kind = "agent"
+role = "reviewer"
+session = "review"
+output = "review/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "comp"
+kind = "agent"
+role = "reviewer"
+session = "comp"
+output = "comp/round-{round}.json"
+shape = "verdict"
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+
+[[steps.next]]
+on = "approve"
+to = "done"
