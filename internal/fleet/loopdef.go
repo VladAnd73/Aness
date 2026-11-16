@@ -3,9 +3,13 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/versality/spore/internal/task"
 )
 
 // LoopDef is one parsed loop file (bootstrap/loops/<name>.toml).
@@ -58,7 +62,6 @@ const defaultCommandTimeoutSeconds = 600
 var (
 	loopStepKinds      = map[string]bool{"agent": true, "action": true}
 	loopShapes         = map[string]bool{"engineer-response": true, "verdict": true, "json": true}
-	loopActions        = map[string]bool{"notify-coordinator": true, "push-and-open-pr": true}
 	loopConditionKinds = map[string]bool{"file": true, "verdict": true, "command": true}
 )
 
@@ -337,18 +340,33 @@ func (d LoopDef) validateStep(i int, s Step) error {
 			return fmt.Errorf("step %q: required applies to shape \"json\" only", s.Name)
 		}
 	case "action":
-		if !loopActions[s.Action] {
+		if _, ok := loopActions[s.Action]; !ok {
 			return fmt.Errorf("step %q: unknown action %q", s.Name, s.Action)
 		}
 	}
 	if s.MaxRounds < 0 {
 		return fmt.Errorf("step %q: max_rounds must not be negative", s.Name)
 	}
+	if escapesTaskDir(s.Output) {
+		return fmt.Errorf("step %q: output %q escapes the task directory", s.Name, s.Output)
+	}
+	switch {
+	case s.Slot != "" && s.Slot != string(task.ReviewerA) && s.Slot != string(task.ReviewerB):
+		return fmt.Errorf("step %q: slot %q: want %q or %q", s.Name, s.Slot, task.ReviewerA, task.ReviewerB)
+	case s.Mode != "" && s.Mode != ReviewerModeFleet && s.Mode != ReviewerModeCodeReview:
+		return fmt.Errorf("step %q: mode %q: want %q or %q", s.Name, s.Mode, ReviewerModeFleet, ReviewerModeCodeReview)
+	case s.Effort != "" && !slices.Contains(reviewEfforts, s.Effort):
+		return fmt.Errorf("step %q: effort %q: want one of %v", s.Name, s.Effort, reviewEfforts)
+	}
 	for _, c := range s.Done {
 		if !loopConditionKinds[c.Kind] {
 			return fmt.Errorf("step %q: unknown condition kind %q", s.Name, c.Kind)
 		}
 		switch {
+		case c.Kind == "file" && escapesTaskDir(c.Path):
+			return fmt.Errorf("step %q: file condition path %q escapes the task directory", s.Name, c.Path)
+		case c.Kind == "verdict" && c.Field != "verdict":
+			return fmt.Errorf("step %q: verdict condition field %q: only \"verdict\" is supported", s.Name, c.Field)
 		case c.Kind == "command" && strings.TrimSpace(c.Run) == "":
 			return fmt.Errorf("step %q: command condition needs run", s.Name)
 		case c.Kind == "file" && c.Path == "":
@@ -373,6 +391,19 @@ func (d LoopDef) validateStep(i int, s Step) error {
 		}
 	}
 	return nil
+}
+
+// escapesTaskDir reports whether a path relative to .spore/<slug>/
+// would land outside it.
+func escapesTaskDir(p string) bool {
+	if p == "" {
+		return false
+	}
+	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") {
+		return true
+	}
+	c := filepath.Clean(filepath.FromSlash(p))
+	return c == ".." || strings.HasPrefix(c, ".."+string(filepath.Separator))
 }
 
 // StepIndex returns the index of the step called name, or -1.

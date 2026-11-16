@@ -343,7 +343,7 @@ under `pasta`; a missing `pasta` refuses the spawn instead of running
 the pane unisolated. A pane that dies within ten minutes of its spawn
 waits out a backoff (1 minute, doubling to 30) before the next spawn.
 The backoff is kept per pane, as `<slug>/<role>` (for example
-`demo/engineer`), in `role-spawns.json` in the project state dir,
+`demo/engineer`; a loop step uses its session name), in `role-spawns.json` in the project state dir,
 separate from the generic fleet's `fleet-spawns.json`. A pane that
 stays healthy past ten minutes clears its record. The backoff applies
 to both the silent respawn of a missing session and the counted
@@ -358,3 +358,118 @@ its step's output under `$SPORE_TASK_DIR` only if complete, and end
 its own session (named by `SPORE_ROLE_SESSION`). If a token wrap or
 anything else kills a role session, the driver respawns it silently
 on the next tick.
+
+## Loop files
+
+The role loop is one loop file among others. A task opts into a loop
+with `loop: <name>` in its frontmatter; `loop: role` stays valid and
+means the `dev` loop, which reproduces the engineer and two-reviewer
+flow above. Spore ships two loops in `bootstrap/loops/`: `dev` and
+`example`, a minimal drafter and checker to copy from.
+
+A project file `bootstrap/loops/<name>.toml` overrides the bundled
+loop of the same name, by the same rule as `bootstrap/roles/<role>.md`.
+A broken override (a dangling symlink, a directory) is an error, never
+a silent fallback to the bundled loop.
+
+The reconciler classifies every active task with a `loop:` key:
+
+| `loop:` value | Reconcile does |
+|---|---|
+| empty | spawns the usual single worker |
+| a name with a loop file | drives the loop, no generic worker |
+| a name no loop file carries | warns and spawns a generic worker |
+| a loop file that fails to load | warns with the file and line, starts nothing |
+
+### Schema
+
+Top-level keys: `name` (must match the file name), `summary` (write
+`summary.md` on done, as the role loop does) and `github_mirror` (run
+the draft-PR mirror when `pr_flow = "draft"`). Then one `[[steps]]`
+table per step, in order:
+
+| Key | Meaning |
+|---|---|
+| `name` | step name; `done` is reserved |
+| `kind` | `agent` (a pane writes an output file) or `action` (spore runs a built-in) |
+| `role` | role body `bootstrap/roles/<role>.md` (agent) |
+| `session` | pane `spore-role/<project>/<slug>/<session>`; defaults to `name` |
+| `title`, `label` | wake text name; label also names markers and `SPORE_REVIEWER_INSTANCE` |
+| `phase` | phase name when the step is entered forward |
+| `persist` | keep the pane alive after the cursor moves past the step |
+| `output` | file under `.spore/<slug>/`, `{round}` expanded; may not leave that dir |
+| `shape` | `engineer-response`, `verdict` or `json` (with `required = [...]`) |
+| `skills` | skill names appended to wakes and exported as `SPORE_STEP_SKILLS` |
+| `slot`, `mode`, `agent`, `effort` | start from `[fleet.reviewers.<slot>]`, then override |
+| `max_rounds` | escalate instead of jumping back once the step has written this many outputs |
+| `action`, `message`, `label` | action name and its parameters (action) |
+
+`[[steps.done]]` adds conditions on top of the output: `kind = "file"`
+(`path`), `"verdict"` (`equals`; the field is always `verdict`) or
+`"command"` (`run`, `timeout`). `[[steps.next]]` picks the next step by
+verdict: `on`, `to` (a step or `done`), and `return = true` to come
+back to this step once the target answers. Without a matching `next`,
+the loop moves to the following step; past the last step it is done.
+
+Actions run once per visit: a visit is recorded as
+`state/action-<step>-v<n>` after the action succeeds, and a failing
+action parks the loop on its step until a later tick succeeds. The
+built-in actions are `notify-coordinator` (`message`) and
+`push-and-open-pr` (`label`). No action and no driver path ever
+merges a PR.
+
+### Panes and wakes
+
+The current step's pane and every `persist` pane at or before it stay
+alive. When the cursor reaches a step forward, earlier non-persist
+panes are reaped; a step that sent work back keeps its pane for the
+re-check. Done reaps every pane; escalated touches none.
+
+A step that is sent work, with or without `return`, is woken with
+"`<title>` requested changes at round `<n>`" and the verdict path.
+When the sender's turn comes back, it is woken with "`<title>`
+responded to your round `<n>` verdict" and the new output's path. Each
+pane gets each wake once (marker `state/woken-...`).
+
+The loop exports `SPORE_LOOP`, `SPORE_STEP`, `SPORE_STEP_OUTPUT` (the
+absolute output path, `{round}` unexpanded) and `SPORE_STEP_SKILLS` to
+its panes, next to the role-loop variables above.
+
+### The example loop
+
+    name = "example"
+
+    [[steps]]
+    name = "draft"
+    kind = "agent"
+    role = "engineer"
+    persist = true
+    output = "draft/round-{round}.json"
+    shape = "json"
+    required = ["summary"]
+
+    [[steps]]
+    name = "check"
+    kind = "agent"
+    role = "reviewer"
+    output = "check/round-{round}.json"
+    shape = "verdict"
+    max_rounds = 2
+
+    [[steps.next]]
+    on = "request_changes"
+    to = "draft"
+    return = true
+
+    [[steps.next]]
+    on = "approve"
+    to = "notify"
+
+    [[steps]]
+    name = "notify"
+    kind = "action"
+    action = "notify-coordinator"
+    message = "example loop finished: the draft passed its check"
+
+The drafter writes `draft/round-1.json`; the checker approves it or
+sends it back (at most two rounds); the coordinator is then told.

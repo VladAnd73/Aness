@@ -107,8 +107,12 @@ func isShellCommand(cmd string) bool {
 	return false
 }
 
-// roleKey names a role pane in state markers: "engineer", "reviewer-A".
+// roleKey names a role pane in state markers: "engineer", "reviewer-A",
+// or a loop step's session.
 func roleKey(spec RoleSpawnSpec) string {
+	if spec.Session != "" {
+		return spec.Session
+	}
 	if spec.Role == "reviewer" {
 		return "reviewer-" + string(spec.ReviewerInstance)
 	}

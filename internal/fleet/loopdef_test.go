@@ -171,6 +171,13 @@ func TestValidateRejects(t *testing.T) {
 		{"no steps", "name = \"x\"\n", `no steps`},
 		{"unknown key", "name = \"x\"\n" + agent("a", "colour = \"red\"\n"), `unknown key "colour"`},
 		{"wrong type", "name = \"x\"\nsummary = \"yes\"\n" + agent("a", ""), `summary`},
+		{"verdict field", "name = \"x\"\n" + agent("a", "[[steps.done]]\nkind = \"verdict\"\nfield = \"status\"\nequals = \"ok\"\n"), `verdict condition field "status"`},
+		{"output dotdot", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"agent\"\nrole = \"r\"\noutput = \"../a/{round}.json\"\nshape = \"json\"\n", `escapes the task directory`},
+		{"output absolute", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"agent\"\nrole = \"r\"\noutput = \"/tmp/a-{round}.json\"\nshape = \"json\"\n", `escapes the task directory`},
+		{"file path dotdot", "name = \"x\"\n" + agent("a", "[[steps.done]]\nkind = \"file\"\npath = \"x/../../y\"\n"), `escapes the task directory`},
+		{"unknown mode", "name = \"x\"\n" + agent("a", "mode = \"codereview\"\n"), `mode "codereview"`},
+		{"unknown slot", "name = \"x\"\n" + agent("a", "slot = \"C\"\n"), `slot "C"`},
+		{"unknown effort", "name = \"x\"\n" + agent("a", "effort = \"huge\"\n"), `effort "huge"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -29,7 +29,7 @@ type RoleSpawnSpec struct {
 	// RoleBodyPath is the absolute path to the role markdown that
 	// the agent should consume as its first user message.
 	// Defaults to ResolveRoleBody of <Role>.md, or of
-	// reviewer-code-review.md for a reviewer slot in code-review mode.
+	// <Role>-code-review.md in code-review mode.
 	RoleBodyPath string
 	// Cwd is the working directory for the pane. Defaults to the
 	// task worktree at <ProjectRoot>/.worktrees/<Slug>/ for both
@@ -47,6 +47,20 @@ type RoleSpawnSpec struct {
 	// <Session>", for any Role. Empty keeps the engineer and reviewer
 	// names below.
 	Session string
+
+	// The fields below are set by StepSpec for a loop step's pane.
+	// ReviewerInstance then names the step's reviewer slot, empty for
+	// a step without one.
+	Loop, Step string
+	// Label is exported as SPORE_REVIEWER_INSTANCE.
+	Label  string
+	Skills []string
+	// Mode, Effort and StepAgent override the reviewer slot's mode,
+	// effort and agent. StepAgent resolves like a slot agent, unlike
+	// Agent, which is a literal command.
+	Mode, Effort, StepAgent string
+	// OutputTemplate is the absolute output path, "{round}" unexpanded.
+	OutputTemplate string
 }
 
 // SessionName returns the tmux session name the spec spawns. For
@@ -101,7 +115,7 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if rolePath == "" {
 		body := s.Role + ".md"
 		if slot.Mode == ReviewerModeCodeReview {
-			body = "reviewer-code-review.md"
+			body = s.Role + "-code-review.md"
 		}
 		if rolePath, err = ResolveRoleBody(s.ProjectRoot, body); err != nil {
 			return nil, err
@@ -142,11 +156,25 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if tier := task.LoadAccountTier(s.ProjectRoot); tier != "" {
 		args = append(args, "-e", "SPORE_ACCOUNT_TIER="+tier)
 	}
-	if s.Role == "reviewer" {
+	switch {
+	case s.Label != "":
+		args = append(args, "-e", "SPORE_REVIEWER_INSTANCE="+s.Label)
+	case s.Loop == "" && s.Role == "reviewer":
 		args = append(args, "-e", "SPORE_REVIEWER_INSTANCE="+string(s.ReviewerInstance))
+	}
+	if s.slotted() {
 		args = append(args, "-e", "SPORE_REVIEWER_MODE="+slot.Mode)
 		if slot.Mode == ReviewerModeCodeReview {
 			args = append(args, "-e", "SPORE_REVIEW_EFFORT="+slot.Effort)
+		}
+	}
+	if s.Loop != "" {
+		args = append(args, "-e", "SPORE_LOOP="+s.Loop, "-e", "SPORE_STEP="+s.Step)
+		if s.OutputTemplate != "" {
+			args = append(args, "-e", "SPORE_STEP_OUTPUT="+s.OutputTemplate)
+		}
+		if len(s.Skills) > 0 {
+			args = append(args, "-e", "SPORE_STEP_SKILLS="+strings.Join(s.Skills, ","))
 		}
 	}
 	if s.Role == "engineer" {
@@ -190,12 +218,24 @@ func commitIdentityEnv(projectRoot string) []string {
 // spawn, so editing the agent config mid-task can switch A's protocol
 // between rounds (see docs/role-loop.md).
 func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agent string, err error) {
-	if s.Role == "reviewer" {
+	if s.ReviewerInstance != "" {
 		cfg, err := LoadReviewersConfig(s.ProjectRoot)
 		if err != nil {
 			return slot, meta, "", err
 		}
 		slot = cfg.Slot(s.ReviewerInstance)
+	}
+	if s.Mode != "" {
+		slot.Mode, slot.DefaultMode = s.Mode, false
+	}
+	if s.Effort != "" {
+		slot.Effort = s.Effort
+	}
+	if s.StepAgent != "" {
+		slot.Agent = s.StepAgent
+		if slot.Mode == ReviewerModeCodeReview && !slot.DefaultMode && !isClaudeAgent(slot.Agent) {
+			return slot, meta, "", fmt.Errorf("rolespawn: step %s: mode %q runs a Claude Code skill and needs agent claude, got %q", s.Step, ReviewerModeCodeReview, slot.Agent)
+		}
 	}
 	if s.Agent == "" {
 		tasksDir := s.TasksDir
@@ -218,7 +258,7 @@ func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agen
 			return slot, meta, "", err
 		}
 	}
-	if s.Role != "reviewer" {
+	if !s.slotted() {
 		return slot, meta, agent, nil
 	}
 	if slot.Mode == ReviewerModeCodeReview && slot.DefaultMode && !isClaudeAgent(agent) {
@@ -232,6 +272,12 @@ func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agen
 		slot.Effort = ""
 	}
 	return slot, meta, agent, nil
+}
+
+// slotted reports whether the pane runs as a reviewer slot: upstream's
+// reviewers, and loop steps that name a slot or a mode.
+func (s RoleSpawnSpec) slotted() bool {
+	return s.ReviewerInstance != "" || s.Mode != ""
 }
 
 // invocations returns the pane's agent command with and without a
