@@ -75,3 +75,13 @@ func workerSpawnCommand(projectRoot string, m frontmatter.Meta) (string, error) 
 	}
 	return wrapForIsolation(agent, cfg.IsolateNetwork)
 }
+
+// WrapAgentForIsolation applies the project's [worker] isolate_network
+// to an agent command spawned outside ensureSession (role panes).
+func WrapAgentForIsolation(projectRoot, agent string) (string, error) {
+	cfg, err := LoadWorkerConfig(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return wrapForIsolation(agent, cfg.IsolateNetwork)
+}

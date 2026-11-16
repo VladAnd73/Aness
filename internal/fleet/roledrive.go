@@ -476,9 +476,15 @@ func createMarkerExcl(marker string) (bool, error) {
 // project-path variant, not NotifyCoordinatorEnv: the envelope must
 // land even when the coordinator's own replenish hook drives the
 // transition (the marker guard upstream already prevents repeats).
+// The inbox comes from coordinatorInboxDirs, not the project basename
+// under $HOME: a worktree root or a set XDG_STATE_HOME would otherwise
+// land the notice where no watcher looks.
 func notifyRoleLoop(projectRoot, body string) {
-	project := filepath.Base(projectRoot)
-	if err := hooks.NotifyCoordinatorEvent(project, "role-loop", body); err != nil {
+	dirs, err := coordinatorInboxDirs(projectRoot)
+	if err == nil {
+		err = hooks.NotifyCoordinatorEventAt(dirs[0], "role-loop", body)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "role-loop notify coordinator: %v\n", err)
 	}
 }

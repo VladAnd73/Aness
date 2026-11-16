@@ -23,7 +23,8 @@ type fakePanes struct {
 func stubPanes(t *testing.T) *fakePanes {
 	t.Helper()
 	f := &fakePanes{panes: map[string]*paneProbe{}, now: time.Unix(1_800_000_000, 0)}
-	prevSpawn, prevProbe, prevKill, prevNow := spawnRole, probeRolePane, killRoleSession, nowFunc
+	prevSpawn, prevProbe, prevKill, prevNow, prevGate := spawnRole, probeRolePane, killRoleSession, nowFunc, roleSpawnGate
+	roleSpawnGate = func(string) roleGate { return noRoleGate{} }
 	spawnRole = func(spec RoleSpawnSpec) (string, bool, error) {
 		s, err := spec.SessionName()
 		if err != nil {
@@ -48,7 +49,7 @@ func stubPanes(t *testing.T) *fakePanes {
 	}
 	nowFunc = func() time.Time { return f.now }
 	t.Cleanup(func() {
-		spawnRole, probeRolePane, killRoleSession, nowFunc = prevSpawn, prevProbe, prevKill, prevNow
+		spawnRole, probeRolePane, killRoleSession, nowFunc, roleSpawnGate = prevSpawn, prevProbe, prevKill, prevNow, prevGate
 	})
 	return f
 }
