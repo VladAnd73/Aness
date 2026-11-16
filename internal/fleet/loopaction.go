@@ -1,8 +1,14 @@
 package fleet
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/versality/spore/internal/task"
 )
 
 // loopAction runs one visit of an action step. It must be safe to run
@@ -34,8 +40,25 @@ func actionNotifyCoordinator(ctx actionCtx) error {
 	return nil
 }
 
-// actionPushAndOpenPR is a placeholder until the push-and-open-pr task
-// lands: it parks the loop on the step.
-func actionPushAndOpenPR(actionCtx) error {
-	return errors.New("push-and-open-pr is not implemented yet")
+// errActionBusy is an action that found another drive mid-way through
+// the same work; the next tick retries it without a notice.
+var errActionBusy = errors.New("another drive holds the action's lock")
+
+// notifyActionError tells the coordinator about a failing action once
+// per step and error key (stderr detail cut, see mirrorErrorKey); the
+// driver retries the action every tick regardless.
+func notifyActionError(projectRoot, slug, step string, err error) {
+	if errors.Is(err, errActionBusy) {
+		return
+	}
+	sum := sha256.Sum256([]byte(mirrorErrorKey(err)))
+	stateDir := filepath.Join(task.RoleTaskDir(projectRoot, slug), "state")
+	if os.MkdirAll(stateDir, 0o755) != nil {
+		return
+	}
+	created, mErr := createMarkerExcl(filepath.Join(stateDir, fmt.Sprintf("action-error-%s-%s", step, hex.EncodeToString(sum[:6]))))
+	if mErr != nil || !created {
+		return
+	}
+	notifyRoleLoop(projectRoot, fmt.Sprintf("%s: loop step %s failed, retrying each tick: %v", slug, step, err))
 }

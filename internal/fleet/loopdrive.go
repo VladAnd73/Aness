@@ -119,6 +119,7 @@ func advanceLoop(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, ma
 		}
 		ctx := actionCtx{ProjectRoot: projectRoot, TasksDir: tasksDir, Slug: slug, Def: def, Step: s, Visit: visit, State: st}
 		if err := run(ctx); err != nil {
+			notifyActionError(projectRoot, slug, s.Name, err)
 			return st, outs, fmt.Errorf("action %s (%s) visit %d: %w", s.Name, s.Action, visit, err)
 		}
 		marker := actionMarker(projectRoot, slug, s.Name, visit)
