@@ -272,9 +272,19 @@ func fileGate(projectRoot, slug string, def LoopDef, gate func(string, int) bool
 // It only reads: a command condition holds when a cached result of it
 // passed, and is never run here.
 func DeriveLoopSnapshot(projectRoot, slug string, def LoopDef) (Snapshot, error) {
-	outs, actions, err := observeLoop(projectRoot, slug, def)
+	st, outs, err := readLoopState(projectRoot, slug, def)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	return snapshotFromLoopState(def, st, outs), nil
+}
+
+// readLoopState derives the state without running anything: a command
+// condition holds when a cached result of it passed.
+func readLoopState(projectRoot, slug string, def LoopDef) (LoopState, map[string][]StepOutput, error) {
+	outs, actions, err := observeLoop(projectRoot, slug, def)
+	if err != nil {
+		return LoopState{}, nil, err
 	}
 	cached := func(step string, round int) bool {
 		for _, c := range def.Steps[def.StepIndex(step)].Done {
@@ -286,7 +296,37 @@ func DeriveLoopSnapshot(projectRoot, slug string, def LoopDef) (Snapshot, error)
 	}
 	st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, cached))
 	st.Slug = slug
-	return snapshotFromLoopState(def, st, outs), nil
+	return st, outs, nil
+}
+
+// LoopStatus is a task's loop position for `spore task status`.
+// Snapshot is set for the dev loop only, in upstream's role-loop terms.
+type LoopStatus struct {
+	State    LoopState
+	Snapshot *Snapshot
+}
+
+// ReadLoopStatus reads the loop the task's own `loop:` key names. It
+// never spawns, wakes or runs a command check.
+func ReadLoopStatus(projectRoot, tasksDir, slug string) (LoopStatus, error) {
+	name, err := task.RequireLoop(tasksDir, slug)
+	if err != nil {
+		return LoopStatus{}, err
+	}
+	def, err := LoadLoop(projectRoot, name)
+	if err != nil {
+		return LoopStatus{}, err
+	}
+	st, outs, err := readLoopState(projectRoot, slug, def)
+	if err != nil {
+		return LoopStatus{}, err
+	}
+	ls := LoopStatus{State: st}
+	if def.Name == "dev" {
+		snap := snapshotFromLoopState(def, st, outs)
+		ls.Snapshot = &snap
+	}
+	return ls, nil
 }
 
 // snapshotFromLoopState maps a loop state onto upstream's Snapshot:

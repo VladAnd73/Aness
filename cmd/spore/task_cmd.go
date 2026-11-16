@@ -38,7 +38,7 @@ Subcommands:
   verify <slug>                Print the evidence verdict for slug.
   waybar                       Print JSON chip for waybar custom module.
   drift                        Auto-commit task file changes.
-  status <slug>                Print role-loop phase, round, last verdict.
+  status <slug>                Print the task's loop, step, round and state.
   role-drive <slug>            Advance the role-loop by one tick: cache spec,
                                spawn/reap role panes per phase, wake the
                                engineer on request_changes, write the summary
@@ -113,11 +113,36 @@ func runTaskStatus(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve main repo: %w", err)
 	}
-	snap, err := fleet.DeriveSnapshot(projectRoot, slug)
+	ls, err := fleet.ReadLoopStatus(projectRoot, resolveTasksDir(), slug)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("slug:     %s\n", snap.Slug)
+	st := ls.State
+	fmt.Printf("slug:     %s\n", slug)
+	fmt.Printf("loop:     %s\n", st.Loop)
+	fmt.Printf("step:     %s (round %d)\n", st.Step, st.Round)
+	switch {
+	case st.Terminal != "":
+		fmt.Printf("state:    %s\n", st.Terminal)
+	case st.Blocked != "":
+		fmt.Printf("state:    blocked: %s\n", st.Blocked)
+	default:
+		fmt.Printf("state:    running\n")
+	}
+	if ls.Snapshot != nil {
+		printSnapshot(*ls.Snapshot, false)
+	} else if st.LastVerdict != "" {
+		fmt.Printf("verdict:  %s\n", st.LastVerdict)
+	}
+	return nil
+}
+
+// printSnapshot prints a role-loop snapshot; withSlug leads with the
+// slug line for callers that have not printed one.
+func printSnapshot(snap fleet.Snapshot, withSlug bool) {
+	if withSlug {
+		fmt.Printf("slug:     %s\n", snap.Slug)
+	}
 	fmt.Printf("phase:    %s\n", snap.Phase)
 	fmt.Printf("engineer: round %d\n", snap.EngineerRound)
 	if snap.CurrentReviewer != "" {
@@ -128,7 +153,6 @@ func runTaskStatus(args []string) error {
 		fmt.Printf("reviewer: %s round %d, last verdict %s\n",
 			snap.CurrentReviewer, snap.ReviewerRound, verdict)
 	}
-	return nil
 }
 
 func runTaskRoleDrive(args []string) error {
@@ -145,17 +169,7 @@ func runTaskRoleDrive(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("slug:     %s\n", snap.Slug)
-	fmt.Printf("phase:    %s\n", snap.Phase)
-	fmt.Printf("engineer: round %d\n", snap.EngineerRound)
-	if snap.CurrentReviewer != "" {
-		verdict := snap.LastVerdict
-		if verdict == "" {
-			verdict = "(none)"
-		}
-		fmt.Printf("reviewer: %s round %d, last verdict %s\n",
-			snap.CurrentReviewer, snap.ReviewerRound, verdict)
-	}
+	printSnapshot(snap, true)
 	return nil
 }
 
