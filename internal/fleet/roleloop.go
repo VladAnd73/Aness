@@ -71,14 +71,15 @@ type Snapshot struct {
 }
 
 // DeriveSnapshot reads `<projectRoot>/.spore/<slug>/` and returns the
-// implied state: the bundled `dev` loop run by the loop interpreter. A
+// implied state: the `dev` loop (LoadLoop, so a project override
+// applies as it does for Reconcile) run by the loop interpreter. A
 // missing tree returns a PhaseEngineerInitial snapshot (no error), so
 // callers can drive the loop forward without first preparing the tree.
 // Files that fail validation are not counted: a bad file must neither
 // wedge the loop nor skew the round math. DriveRoleLoop bounces them
 // back to their author.
 func DeriveSnapshot(projectRoot, slug string) (Snapshot, error) {
-	def, err := bundledDevLoop()
+	def, err := LoadLoop(projectRoot, "dev")
 	if err != nil {
 		return Snapshot{}, err
 	}

@@ -55,7 +55,10 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 	if _, err := task.EnsureWorktree(tasksDir, slug); err != nil {
 		return LoopState{}, nil, fmt.Errorf("drive %s: ensure worktree: %w", slug, err)
 	}
-	st, outs, actionErr := advanceLoop(projectRoot, tasksDir, slug, def)
+	st, outs, gate, actionErr := advanceLoop(projectRoot, tasksDir, slug, def)
+	if actionErr == nil && gate.err != nil {
+		actionErr = fmt.Errorf("command check: %w", gate.err)
+	}
 	if st.Step == "" {
 		return st, outs, fmt.Errorf("drive %s: %w", slug, actionErr)
 	}
@@ -77,6 +80,11 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 		if err := wakeLoopPanes(projectRoot, slug, def, st, outs); err != nil {
 			return st, outs, fmt.Errorf("drive %s: wake: %w", slug, err)
 		}
+		if f := gate.failed; f != nil && st.Blocked != "" && f.Step == st.Step {
+			if err := reportCheckFailure(projectRoot, slug, def, *f); err != nil {
+				return st, outs, fmt.Errorf("drive %s: report check: %w", slug, err)
+			}
+		}
 	}
 
 	if prFlow {
@@ -94,40 +102,43 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 	return st, outs, nil
 }
 
-// advanceLoop derives the loop state. While the cursor stands on an
-// action step whose visit has no marker, it runs the action, records
-// the visit with an O_EXCL marker and derives again, at most
-// len(def.Steps) times per tick. A failing action leaves no marker, so
-// the next tick retries it.
-func advanceLoop(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, map[string][]StepOutput, error) {
+// advanceLoop derives the loop state, running command conditions
+// through a commandGate (returned so the caller can report the check
+// that blocks the step). While the cursor stands on an action step
+// whose visit has no marker, it runs the action, records the visit
+// with an O_EXCL marker and derives again, at most len(def.Steps)
+// times per tick. A failing action leaves no marker, so the next tick
+// retries it.
+func advanceLoop(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, map[string][]StepOutput, *commandGate, error) {
 	for n := 0; ; n++ {
+		gate := &commandGate{projectRoot: projectRoot, slug: slug, def: def}
 		outs, actions, err := observeLoop(projectRoot, slug, def)
 		if err != nil {
-			return LoopState{}, nil, err
+			return LoopState{}, nil, gate, err
 		}
-		st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, nil))
+		st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, gate.check))
 		st.Slug = slug
 		i := def.StepIndex(st.Step)
 		if st.Terminal != "" || i < 0 || def.Steps[i].Kind != "action" || n == len(def.Steps) {
-			return st, outs, nil
+			return st, outs, gate, nil
 		}
 		s := def.Steps[i]
 		visit := st.Round + 1
 		run, ok := loopActions[s.Action]
 		if !ok {
-			return st, outs, fmt.Errorf("step %s: unknown action %q", s.Name, s.Action)
+			return st, outs, gate, fmt.Errorf("step %s: unknown action %q", s.Name, s.Action)
 		}
 		ctx := actionCtx{ProjectRoot: projectRoot, TasksDir: tasksDir, Slug: slug, Def: def, Step: s, Visit: visit, State: st}
 		if err := run(ctx); err != nil {
 			notifyActionError(projectRoot, slug, s.Name, err)
-			return st, outs, fmt.Errorf("action %s (%s) visit %d: %w", s.Name, s.Action, visit, err)
+			return st, outs, gate, fmt.Errorf("action %s (%s) visit %d: %w", s.Name, s.Action, visit, err)
 		}
 		marker := actionMarker(projectRoot, slug, s.Name, visit)
 		if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-			return st, outs, err
+			return st, outs, gate, err
 		}
 		if _, err := createMarkerExcl(marker); err != nil {
-			return st, outs, err
+			return st, outs, gate, err
 		}
 	}
 }

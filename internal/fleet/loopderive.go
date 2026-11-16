@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/versality/spore"
 	"github.com/versality/spore/internal/task"
 )
 
@@ -270,12 +269,22 @@ func fileGate(projectRoot, slug string, def LoopDef, gate func(string, int) bool
 }
 
 // DeriveLoopSnapshot is DeriveLoopState in upstream's role-loop terms.
+// It only reads: a command condition holds when a cached result of it
+// passed, and is never run here.
 func DeriveLoopSnapshot(projectRoot, slug string, def LoopDef) (Snapshot, error) {
 	outs, actions, err := observeLoop(projectRoot, slug, def)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, nil))
+	cached := func(step string, round int) bool {
+		for _, c := range def.Steps[def.StepIndex(step)].Done {
+			if c.Kind == "command" && !cachedCommandPass(projectRoot, slug, step, round, c.Run) {
+				return false
+			}
+		}
+		return true
+	}
+	st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, cached))
 	st.Slug = slug
 	return snapshotFromLoopState(def, st, outs), nil
 }
@@ -304,15 +313,4 @@ func snapshotFromLoopState(def LoopDef, st LoopState, outs map[string][]StepOutp
 		snap.LastVerdict = outs[rev][n-1].Verdict
 	}
 	return snap
-}
-
-// bundledDevLoop parses the embedded dev loop. DeriveSnapshot uses it
-// rather than LoadLoop so a project override never changes what
-// upstream's role loop means.
-func bundledDevLoop() (LoopDef, error) {
-	b, err := fs.ReadFile(spore.BundledLoops, "bootstrap/loops/dev.toml")
-	if err != nil {
-		return LoopDef{}, err
-	}
-	return ParseLoopDef("embedded:dev", b)
 }
