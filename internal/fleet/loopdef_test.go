@@ -166,6 +166,7 @@ func TestValidateRejects(t *testing.T) {
 		{"unknown shape", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"agent\"\nrole = \"r\"\noutput = \"o\"\nshape = \"yaml\"\n", `unknown shape "yaml"`},
 		{"unknown action", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"action\"\naction = \"merge-pr\"\n", `unknown action "merge-pr"`},
 		{"unknown condition", "name = \"x\"\n" + agent("a", "[[steps.done]]\nkind = \"vibes\"\n"), `unknown condition kind "vibes"`},
+		{"command check on action", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"action\"\naction = \"notify-coordinator\"\n[[steps.done]]\nkind = \"command\"\nrun = \"true\"\n", `command condition needs an output`},
 		{"command needs run", "name = \"x\"\n" + agent("a", "[[steps.done]]\nkind = \"command\"\n"), `command condition needs run`},
 		{"return to later", "name = \"x\"\n" + agent("a", "[[steps.next]]\nto = \"b\"\nreturn = true\n") + agent("b", ""), `return to a later step`},
 		{"no steps", "name = \"x\"\n", `no steps`},

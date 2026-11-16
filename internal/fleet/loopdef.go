@@ -369,6 +369,8 @@ func (d LoopDef) validateStep(i int, s Step) error {
 			return fmt.Errorf("step %q: verdict condition field %q: only \"verdict\" is supported", s.Name, c.Field)
 		case c.Kind == "command" && strings.TrimSpace(c.Run) == "":
 			return fmt.Errorf("step %q: command condition needs run", s.Name)
+		case c.Kind == "command" && s.Output == "":
+			return fmt.Errorf("step %q: command condition needs an output to fingerprint; the step has none", s.Name)
 		case c.Kind == "file" && c.Path == "":
 			return fmt.Errorf("step %q: file condition needs path", s.Name)
 		case c.Kind == "verdict" && c.Equals == "":
