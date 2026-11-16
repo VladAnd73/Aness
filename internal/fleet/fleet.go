@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/versality/spore/internal/editor"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
@@ -229,6 +230,28 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
+	// A task with `loop: role` in its frontmatter is opted into the
+	// role-loop and owned solely by DriveRoleLoop. The homogeneous
+	// spawn below must skip it: otherwise Reconcile would mint a
+	// generic worker at spore/<project>/<slug> (invisible to
+	// runningSet, which only tracks the spore-role/<project>/ prefix)
+	// on top of the role panes that edit the same wt/<slug> branch.
+	// The key rides in the same file write that flips status to
+	// active, so the watcher-triggered pass already sees it. The key is
+	// the only opt-in: `.spore/<slug>/` presence is not, because
+	// coordinators stage briefs there for generic tasks too.
+	roleLooped := map[string]bool{}
+	for _, m := range metas {
+		switch {
+		case m.Loop == task.LoopRole:
+			roleLooped[m.Slug] = true
+		case m.Loop != "" && m.Status == "active":
+			w := fmt.Sprintf("task %s: unknown loop: %q (want %q or empty); treating as a generic worker task", m.Slug, m.Loop, task.LoopRole)
+			fmt.Fprintln(os.Stderr, w)
+			res.Warnings = append(res.Warnings, w)
+		}
+	}
+
 	// Only active workers count toward the cap. The coordinator pauses a
 	// task right after its worker reports DONE; that session is kept for
 	// the operator but is idle, and counting it starved the queue.
@@ -244,7 +267,15 @@ func Reconcile(cfg Config) (Result, error) {
 	var spawnErr error
 	now := time.Now()
 	backoff := loadSpawnBackoff(cfg.ProjectRoot)
-	backoff.prune(runningSet, activeSet, now)
+	// Role-looped slugs are left out so prune drops any record left
+	// from before the task opted into the loop.
+	genericActive := map[string]bool{}
+	for slug := range activeSet {
+		if !roleLooped[slug] {
+			genericActive[slug] = true
+		}
+	}
+	backoff.prune(runningSet, genericActive, now)
 	defer func() {
 		if err := backoff.save(); err != nil {
 			fmt.Fprintln(os.Stderr, "fleet: spawn backoff:", err)
@@ -252,6 +283,9 @@ func Reconcile(cfg Config) (Result, error) {
 	}()
 
 	for _, slug := range actives {
+		if roleLooped[slug] {
+			continue
+		}
 		if runningSet[slug] {
 			continue
 		}
@@ -289,6 +323,23 @@ func Reconcile(cfg Config) (Result, error) {
 		runningSet[slug] = true
 		activeRunning++
 		agentCounts[picked]++
+	}
+
+	// Advance any role-looped tasks. DriveRoleLoop owns the worktree
+	// precondition for these slugs (see the homogeneous-spawn skip
+	// above) and creates `.spore/<slug>/` itself on the first tick, so
+	// a task starts moving on the same pass that classified it.
+	for _, slug := range actives {
+		if !roleLooped[slug] {
+			continue
+		}
+		if _, err := DriveRoleLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil {
+			fmt.Fprintf(os.Stderr, "role-loop drive %s: %v\n", slug, err)
+		}
+	}
+
+	if _, err := editor.RefreshWorkspace(cfg.ProjectRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "code workspace refresh: %v\n", err)
 	}
 
 	sort.Strings(res.Spawned)
