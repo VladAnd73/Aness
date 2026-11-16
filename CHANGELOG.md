@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `spore gh exec -- gh pr create ...` assigns the PR to
+  `operator_login` from `github.toml` when the command names no
+  assignee. A failed assign only warns.
+
 ## 1.0.3 - 2026-11-11
 
 - `spore gh config|token|exec` acts on GitHub as the project's GitHub

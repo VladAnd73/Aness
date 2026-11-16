@@ -107,6 +107,9 @@ not a broken setup.
 - `pr_flow` is parsed but has no effect in this build: the draft-PR
   role loop it drives upstream is not part of it. `spore gh exec`
   and `spore gh token` work without it.
+- `operator_login` set: `spore gh exec -- gh pr create ...` (no
+  `--assignee`) assigns that login to the new PR. Call gh directly,
+  not through `sh -c`, and pass `--title`/`--body`.
 
 ### Policy caveat
 

@@ -10,6 +10,8 @@ This command is ported from the upstream team branch. Upstream also
 drives a draft-PR role loop from the same config (`pr_flow =
 "draft"`); that loop is not part of this build, so the keys that only
 feed it are accepted but inert here (see [Config](#config)).
+`operator_login` is the exception: `spore gh exec` uses it to assign
+the PRs it opens.
 
 ## One-time setup
 
@@ -92,7 +94,7 @@ so every worktree of a project shares one config.
 | `private_key` | path to the PEM; a leading `~/` expands |
 | `api_url` | optional REST root for the token mint; default `https://api.github.com`. Untested against GitHub Enterprise Server: `GH_ENTERPRISE_TOKEN` is set for gh, but no GHES run has verified it |
 | `pr_flow` | inert in this build. Upstream, `draft` turns on the draft-PR role loop. Setting `draft` here also makes the token mint require the three keys below |
-| `operator_login` | inert in this build (upstream: PR assignee for the role loop) |
+| `operator_login` | GitHub login assigned to every PR that `spore gh exec -- gh pr create` opens without its own `--assignee`/`-a` (see below) |
 | `commit_name`, `commit_email` | inert in this build (upstream: commit identity for role-loop engineer panes) |
 
 `spore gh config` prints the file; `--set key=` deletes a key.
@@ -119,3 +121,14 @@ the repo or the command (`git -c user.name=... commit`) sets.
   act as the app. It checks the `origin` of the repo in the current
   directory and refuses an ssh URL; a repo without an `origin` is not
   checked.
+- When `operator_login` is set and the command is `gh pr create` (or
+  `gh pr new`) with no `--assignee`/`-a`, spore reads the PR URL gh
+  prints and then runs `gh pr edit <url> --add-assignee
+  <operator_login>`. A failed assign only prints a warning; the exit
+  code is the create's. It is a second call on purpose: on github.com
+  `gh pr create --assignee` opens the PR first and assigns after, so an
+  assignee gh cannot set fails a create that already happened. While
+  this runs, gh's stdout is a pipe, so `gh pr create` does not prompt:
+  pass `--title`/`--body` or `--fill`. Only a direct `gh` argv is
+  seen; `sh -c "gh pr create ..."` is not assigned. GitHub may accept
+  an assignee without write access and assign nobody, with no error.
