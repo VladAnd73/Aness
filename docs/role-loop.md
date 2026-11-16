@@ -134,14 +134,8 @@ that lacks one body gets a stderr warning, once per process, when the
 bundled body fills the gap. See "Reviewer slots" for the code-review
 body.
 When `[fleet] account_tier` is set in spore.toml, panes also get
-`SPORE_ACCOUNT_TIER`, and `spore worker token-monitor` meters them
-with the same three bands as workers (soft warn, finish-unit, force)
-at the same tier-keyed caps. The wrap instructions are role-shaped:
-commit in-flight work to the task branch, write the phase artifact
-only if it is complete, then kill the pane session; the drive loop
-respawns the phase's pane on its next tick and it resumes from the
-branch plus artifacts. The soft warn fires once per session via a
-marker at `.spore/<slug>/state/token-monitor/<session_id>.soft`.
+`SPORE_ACCOUNT_TIER`. The token monitor does not read it: role panes
+are metered at the worker wrap cap (see the end of this file).
 
 ### Reviewer slots
 
