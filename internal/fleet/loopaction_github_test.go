@@ -168,7 +168,7 @@ func TestPushAndOpenPRWithoutAppEscalatesOnce(t *testing.T) {
 	}
 	def := mustLoopDef(t, prActionLoop)
 	for i := 0; i < 3; i++ {
-		st, _, err := advanceLoop(f.root, f.tasksDir, f.slug, def)
+		st, _, _, err := advanceLoop(f.root, f.tasksDir, f.slug, def)
 		if err == nil {
 			t.Fatalf("tick %d: no error from a push-and-open-pr without config", i)
 		}
