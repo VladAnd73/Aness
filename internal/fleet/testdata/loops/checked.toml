@@ -1,5 +1,7 @@
 # Acceptance fixture (scenario 5): a step whose done also needs a
-# command that always fails. COUNT_FILE counts the runs.
+# command that fails until PASS_FILE exists. COUNT_FILE counts the
+# runs. The backward next and max_rounds make "a failed check does not
+# count toward max_rounds" observable.
 name = "checked"
 
 [[steps]]
@@ -10,8 +12,13 @@ session = "a"
 output = "a/round-{round}.json"
 shape = "json"
 required = ["result"]
+max_rounds = 2
 
 [[steps.done]]
 kind = "command"
-run = "echo run >> \"$COUNT_FILE\"; echo boom; exit 1"
+run = "echo run >> \"$COUNT_FILE\"; [ -n \"$PASS_FILE\" ] && [ -e \"$PASS_FILE\" ] && exit 0; echo boom; exit 1"
 timeout = "30s"
+
+[[steps.next]]
+on = "again"
+to = "a"

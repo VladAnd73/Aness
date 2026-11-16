@@ -507,10 +507,28 @@ func TestAcceptanceS5FailingCommandBlocksAndNotifiesOnce(t *testing.T) {
 		t.Errorf("a failing check escalated (%v); it must not count toward max_rounds", m)
 	}
 
+	if want := "Write round 2 now: " + f.path("a/round-2.json"); len(wakes) == 1 && !strings.Contains(wakes[0], want) {
+		t.Errorf("check-failure wake lacks %q:\n%s", want, wakes[0])
+	}
+
 	f.write(t, "a/round-1.json", `{"result":"changed"}`)
 	f.tick(t)
 	if n := fileLines(t, count); n != 2 {
 		t.Errorf("after a's file changed the command ran %d times in total, want 2", n)
+	}
+
+	pass := filepath.Join(t.TempDir(), "pass")
+	if err := os.WriteFile(pass, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PASS_FILE", pass)
+	f.write(t, "a/round-2.json", `{"result":"fixed","verdict":"again"}`)
+	st := f.tick(t)
+	if st.Blocked != "" || st.Terminal != "" {
+		t.Errorf("round 2 passes its check and asks for another round: state = %+v, want a running round 3 (the blocked round 1 does not count toward max_rounds 2)", st)
+	}
+	if m := f.stateMarkers("escalated-"); len(m) != 0 {
+		t.Errorf("escalated (%v) at the first passing round: the failed round counted toward max_rounds", m)
 	}
 }
 

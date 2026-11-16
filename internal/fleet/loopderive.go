@@ -48,6 +48,7 @@ func deriveLoopState(def LoopDef, outs map[string][]StepOutput, actionsDone map[
 		round          int
 	}
 	var stack []frame
+	superseded := map[string]int{}
 	i, phase := 0, def.Steps[0].Phase
 	var from string
 	var fromRound int
@@ -81,6 +82,13 @@ func deriveLoopState(def LoopDef, outs map[string][]StepOutput, actionsDone map[
 		st.Rounds[s.Name]++
 		st.Round++
 		if s.Kind == "agent" && (!verdictConditionsHold(s, verdict) || (gate != nil && !gate(s.Name, fileRound))) {
+			// A newer round replaces the held one, which never counts
+			// toward max_rounds.
+			if st.Round < len(outs[s.Name]) {
+				superseded[s.Name]++
+				from, fromRound = st.From, st.FromRound
+				continue
+			}
 			st.Blocked = fmt.Sprintf("step %s round %d: done conditions do not hold", s.Name, fileRound)
 			return st
 		}
@@ -111,7 +119,7 @@ func deriveLoopState(def LoopDef, outs map[string][]StepOutput, actionsDone map[
 		if j < 0 {
 			return st
 		}
-		if j <= i && s.MaxRounds > 0 && st.Round >= s.MaxRounds {
+		if j <= i && s.MaxRounds > 0 && st.Round-superseded[s.Name] >= s.MaxRounds {
 			st.Terminal, st.Phase = "escalated", "escalated"
 			return st
 		}
