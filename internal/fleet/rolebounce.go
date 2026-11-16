@@ -33,8 +33,8 @@ const (
 //   - When the authoring pane is not running (a file written out of
 //     turn, e.g. under a reviewer whose phase is not active), the file
 //     is moved aside at once; the coordinator notice carries the error.
-func bounceInvalidRoleFiles(projectRoot, slug string) error {
-	files, err := task.ListRoleFiles(projectRoot, slug)
+func bounceInvalidRoleFiles(projectRoot, slug string, steps ...task.StepFiles) error {
+	files, err := task.ListRoleFiles(projectRoot, slug, steps...)
 	if err != nil {
 		return err
 	}
@@ -72,6 +72,16 @@ func bounceRoleFile(projectRoot, slug string, f task.RoleFile, reason string) er
 		spec = ReviewerSpec(projectRoot, slug, f.Instance)
 		keys = reviewKeys
 	}
+	shape := fmt.Sprintf("only the keys %s, and \"author\": %q", keys, f.Author())
+	if f.Step != nil {
+		spec = RoleSpawnSpec{ProjectRoot: projectRoot, Slug: slug, Role: f.Step.Role, Session: f.Step.Session}
+		switch f.Step.Shape {
+		case "verdict":
+			shape = fmt.Sprintf("only the keys %s, and \"author\": %q", reviewKeys, f.Author())
+		case "json":
+			shape = fmt.Sprintf("non-null values for the keys %s", quotedList(f.Step.Required))
+		}
+	}
 	stateDir := filepath.Join(task.RoleTaskDir(projectRoot, slug), "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return err
@@ -81,13 +91,17 @@ func bounceRoleFile(projectRoot, slug string, f task.RoleFile, reason string) er
 		return err
 	}
 	if created {
+		to := f.Author()
+		if f.Step != nil {
+			to = f.Step.Step
+		}
 		notifyRoleLoop(projectRoot, fmt.Sprintf("%s: invalid %s (%s); bounced to %s",
-			slug, f.Rel, reason, f.Author()))
+			slug, f.Rel, reason, to))
 	}
 
 	msg := fmt.Sprintf("Your file %s failed validation: %s. It was moved to %s and does not count. "+
-		"Rewrite %s with the Write tool (never a shell heredoc or cat >): one JSON object with only the keys %s, "+
-		"and \"author\": %q.", f.Path, reason, filepath.Base(dest), f.Path, keys, f.Author())
+		"Rewrite %s with the Write tool (never a shell heredoc or cat >): one JSON object with %s.",
+		f.Path, reason, filepath.Base(dest), f.Path, shape)
 	outcome, err := wakeRole(spec, "bounced-"+key, msg)
 	if err != nil {
 		return err
@@ -96,6 +110,14 @@ func bounceRoleFile(projectRoot, slug string, f task.RoleFile, reason string) er
 		return nil
 	}
 	return os.Rename(f.Path, dest)
+}
+
+func quotedList(keys []string) string {
+	q := make([]string, len(keys))
+	for i, k := range keys {
+		q[i] = fmt.Sprintf("%q", k)
+	}
+	return strings.Join(q, ", ")
 }
 
 // oneLine flattens s for a single tmux send-keys line: an embedded

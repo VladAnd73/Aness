@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -44,17 +45,32 @@ func (e *InvalidRoleFileError) Error() string {
 
 func (e *InvalidRoleFileError) Unwrap() error { return ErrInvalidRoleFile }
 
+// StepFiles describes the outputs of one loop step: Output is a path
+// under the task tree with "{round}" standing for the round number.
+// Author is the `author` value the shapes "verdict" and
+// "engineer-response" check; shape "json" carries no author.
+type StepFiles struct {
+	Step, Output, Shape, Author string
+	Role, Session               string // the pane a bounce wakes
+	Required                    []string
+}
+
 // RoleFile names one on-disk engineer response or review verdict.
-// Instance is empty for engineer responses.
+// Instance is empty for engineer responses. Step is set for a loop
+// step's output that is not one of the built-in role files.
 type RoleFile struct {
 	Path     string
 	Rel      string
 	Instance ReviewerInstance
 	Round    int
+	Step     *StepFiles
 }
 
 // Author returns the `author` value the file must carry.
 func (f RoleFile) Author() string {
+	if f.Step != nil {
+		return f.Step.Author
+	}
 	if f.Instance == "" {
 		return EngineerAuthor
 	}
@@ -62,8 +78,10 @@ func (f RoleFile) Author() string {
 }
 
 // ListRoleFiles returns every engineer response and review file under
-// the task tree, engineer first, then A, then B, each in round order.
-func ListRoleFiles(projectRoot, slug string) ([]RoleFile, error) {
+// the task tree, engineer first, then A, then B, each in round order,
+// then the outputs of steps in order. A step output at a built-in
+// path is listed once, as the built-in file.
+func ListRoleFiles(projectRoot, slug string, steps ...StepFiles) ([]RoleFile, error) {
 	root := RoleTaskDir(projectRoot, slug)
 	var out []RoleFile
 	eng, err := ListEngineerRounds(projectRoot, slug)
@@ -84,7 +102,99 @@ func ListRoleFiles(projectRoot, slug string) ([]RoleFile, error) {
 			out = append(out, RoleFile{Path: p, Rel: relTo(root, p), Instance: inst, Round: r})
 		}
 	}
+	seen := map[string]bool{}
+	for _, f := range out {
+		seen[f.Path] = true
+	}
+	for i := range steps {
+		sf := &steps[i]
+		rounds, err := StepOutputRounds(projectRoot, slug, sf.Output)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rounds {
+			p := StepOutputPath(projectRoot, slug, sf.Output, r)
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, RoleFile{Path: p, Rel: relTo(root, p), Round: r, Step: sf})
+		}
+	}
 	return out, nil
+}
+
+// StepOutputPath expands a step's output pattern for round.
+func StepOutputPath(projectRoot, slug, output string, round int) string {
+	rel := strings.ReplaceAll(output, "{round}", strconv.Itoa(round))
+	return filepath.Join(RoleTaskDir(projectRoot, slug), filepath.FromSlash(rel))
+}
+
+// StepOutputRounds returns 1..N where N is the last round before the
+// first missing file. Rounds are dense: a gap ends the list. A pattern
+// without "{round}" names one file, so it has at most round 1.
+func StepOutputRounds(projectRoot, slug, output string) ([]int, error) {
+	var rounds []int
+	for r := 1; ; r++ {
+		_, err := os.Lstat(StepOutputPath(projectRoot, slug, output, r))
+		if errors.Is(err, fs.ErrNotExist) {
+			return rounds, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		rounds = append(rounds, r)
+		if !strings.Contains(output, "{round}") {
+			return rounds, nil
+		}
+	}
+}
+
+// ReadStepOutput reads and validates round of a step's output and
+// returns its verdict ("" when the shape has none). A bad file returns
+// an error wrapping ErrInvalidRoleFile.
+func ReadStepOutput(projectRoot, slug string, sf StepFiles, round int) (string, error) {
+	path := StepOutputPath(projectRoot, slug, sf.Output, round)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	legacy, err := isLegacyFile(projectRoot, slug, relTo(RoleTaskDir(projectRoot, slug), path))
+	if err != nil {
+		return "", err
+	}
+	return ParseStepOutput(path, b, sf, legacy)
+}
+
+// ParseStepOutput checks b against sf.Shape. Shape "json" needs one
+// JSON object with every Required key present and non-null; its
+// verdict is a string "verdict" key when there is one.
+func ParseStepOutput(path string, b []byte, sf StepFiles, legacy bool) (string, error) {
+	switch sf.Shape {
+	case "engineer-response":
+		_, err := ParseEngineerResponse(path, b, legacy)
+		return "", err
+	case "verdict":
+		r, err := ParseReview(path, b, ReviewerInstance(sf.Author), legacy)
+		return r.Verdict, err
+	case "json":
+		var v any
+		if err := decodeRoleJSON(b, &v, true); err != nil {
+			return "", invalid(path, err.Error())
+		}
+		m, ok := v.(map[string]any)
+		if !ok {
+			return "", invalid(path, "not a JSON object")
+		}
+		for _, k := range sf.Required {
+			if m[k] == nil {
+				return "", invalid(path, fmt.Sprintf("required field %q is missing or null", k))
+			}
+		}
+		verdict, _ := m["verdict"].(string)
+		return verdict, nil
+	}
+	return "", invalid(path, fmt.Sprintf("unknown shape %q", sf.Shape))
 }
 
 // ValidateRoleFile reads f and checks it against its schema. Returns
@@ -99,9 +209,12 @@ func ValidateRoleFile(projectRoot, slug string, f RoleFile) error {
 	if err != nil {
 		return err
 	}
-	if f.Instance == "" {
+	switch {
+	case f.Step != nil:
+		_, err = ParseStepOutput(f.Path, b, *f.Step, legacy)
+	case f.Instance == "":
 		_, err = ParseEngineerResponse(f.Path, b, legacy)
-	} else {
+	default:
 		_, err = ParseReview(f.Path, b, f.Instance, legacy)
 	}
 	return err

@@ -43,6 +43,10 @@ type RoleSpawnSpec struct {
 	// Agent is the command the pane execs. Empty resolves through the
 	// reviewer slot's `agent`, then roleAgent.
 	Agent string
+	// Session names a loop step's pane, "spore-role/<project>/<slug>/
+	// <Session>", for any Role. Empty keeps the engineer and reviewer
+	// names below.
+	Session string
 }
 
 // SessionName returns the tmux session name the spec spawns. For
@@ -54,6 +58,12 @@ func (s RoleSpawnSpec) SessionName() (string, error) {
 	project, err := task.ProjectName(s.ProjectRoot)
 	if err != nil {
 		return "", err
+	}
+	if s.Session != "" {
+		if !isBareTOMLKey(s.Session) {
+			return "", fmt.Errorf("rolespawn: session %q must be letters, digits, '-' or '_'", s.Session)
+		}
+		return fmt.Sprintf("spore-role/%s/%s/%s", project, s.Slug, s.Session), nil
 	}
 	switch s.Role {
 	case "engineer":
