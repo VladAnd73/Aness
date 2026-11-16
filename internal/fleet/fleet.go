@@ -230,26 +230,38 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
-	// A task with `loop: role` in its frontmatter is opted into the
-	// role-loop and owned solely by DriveRoleLoop. The homogeneous
+	// A task whose `loop:` key names a loop file (see LoadLoop; `role`
+	// is the dev loop) is owned solely by DriveLoop. The homogeneous
 	// spawn below must skip it: otherwise Reconcile would mint a
 	// generic worker at spore/<project>/<slug> (invisible to
 	// runningSet, which only tracks the spore-role/<project>/ prefix)
-	// on top of the role panes that edit the same wt/<slug> branch.
+	// on top of the loop panes that edit the same wt/<slug> branch.
 	// The key rides in the same file write that flips status to
 	// active, so the watcher-triggered pass already sees it. The key is
 	// the only opt-in: `.spore/<slug>/` presence is not, because
-	// coordinators stage briefs there for generic tasks too.
-	roleLooped := map[string]bool{}
+	// coordinators stage briefs there for generic tasks too. A name no
+	// loop file carries keeps the generic worker; a loop file that does
+	// not load starts nothing until it is fixed.
+	looped := map[string]bool{}
+	refused := map[string]bool{}
 	for _, m := range metas {
-		switch {
-		case m.Loop == task.LoopRole:
-			roleLooped[m.Slug] = true
-		case m.Loop != "" && m.Status == "active":
-			w := fmt.Sprintf("task %s: unknown loop: %q (want %q or empty); treating as a generic worker task", m.Slug, m.Loop, task.LoopRole)
-			fmt.Fprintln(os.Stderr, w)
-			res.Warnings = append(res.Warnings, w)
+		if m.Loop == "" || m.Status != "active" {
+			continue
 		}
+		_, err := classifyLoop(cfg.ProjectRoot, m)
+		var w string
+		switch {
+		case err == nil:
+			looped[m.Slug] = true
+			continue
+		case errors.Is(err, ErrUnknownLoop):
+			w = fmt.Sprintf("task %s: unknown loop: %q (no such loop file in bootstrap/loops/ or bundled); treating as a generic worker task", m.Slug, m.Loop)
+		default:
+			refused[m.Slug] = true
+			w = fmt.Sprintf("task %s: loop %s: %v; not started", m.Slug, m.Loop, err)
+		}
+		fmt.Fprintln(os.Stderr, w)
+		res.Warnings = append(res.Warnings, w)
 	}
 
 	// Only active workers count toward the cap. The coordinator pauses a
@@ -267,11 +279,11 @@ func Reconcile(cfg Config) (Result, error) {
 	var spawnErr error
 	now := time.Now()
 	backoff := loadSpawnBackoff(cfg.ProjectRoot)
-	// Role-looped slugs are left out so prune drops any record left
-	// from before the task opted into the loop.
+	// Looped and refused slugs are left out so prune drops any record
+	// left from before the task opted into the loop.
 	genericActive := map[string]bool{}
 	for slug := range activeSet {
-		if !roleLooped[slug] {
+		if !looped[slug] && !refused[slug] {
 			genericActive[slug] = true
 		}
 	}
@@ -283,7 +295,7 @@ func Reconcile(cfg Config) (Result, error) {
 	}()
 
 	for _, slug := range actives {
-		if roleLooped[slug] {
+		if looped[slug] || refused[slug] {
 			continue
 		}
 		if runningSet[slug] {
@@ -325,16 +337,16 @@ func Reconcile(cfg Config) (Result, error) {
 		agentCounts[picked]++
 	}
 
-	// Advance any role-looped tasks. DriveRoleLoop owns the worktree
-	// precondition for these slugs (see the homogeneous-spawn skip
-	// above) and creates `.spore/<slug>/` itself on the first tick, so
-	// a task starts moving on the same pass that classified it.
+	// Advance looped tasks. DriveLoop owns the worktree precondition
+	// for these slugs (see the homogeneous-spawn skip above) and
+	// creates `.spore/<slug>/` itself on the first tick, so a task
+	// starts moving on the same pass that classified it.
 	for _, slug := range actives {
-		if !roleLooped[slug] {
+		if !looped[slug] {
 			continue
 		}
-		if _, err := DriveRoleLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil {
-			fmt.Fprintf(os.Stderr, "role-loop drive %s: %v\n", slug, err)
+		if _, err := DriveLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil {
+			fmt.Fprintf(os.Stderr, "loop drive %s: %v\n", slug, err)
 		}
 	}
 

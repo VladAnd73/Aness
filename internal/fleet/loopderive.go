@@ -27,6 +27,8 @@ type LoopState struct {
 	Round       int    // valid outputs consumed for Step (agent) or completed visits (action)
 	ReturnFrom  string // sender step while serving a return, else ""
 	SenderRound int    // round number of the sender's output that requested changes
+	From        string // step whose output jumped the cursor back to Step without a return, else ""
+	FromRound   int    // round number of From's output
 	LastVerdict string // last verdict consumed; outputs without one keep it
 	Rounds      map[string]int
 	Blocked     string // non-empty when the current output exists but a done gate fails
@@ -48,10 +50,14 @@ func deriveLoopState(def LoopDef, outs map[string][]StepOutput, actionsDone map[
 	}
 	var stack []frame
 	i, phase := 0, def.Steps[0].Phase
+	var from string
+	var fromRound int
 	for {
 		s := def.Steps[i]
 		st.Step, st.Phase, st.Round = s.Name, phase, st.Rounds[s.Name]
 		st.ReturnFrom, st.SenderRound = "", 0
+		st.From, st.FromRound = from, fromRound
+		from, fromRound = "", 0
 		serving := len(stack) > 0 && stack[len(stack)-1].target == s.Name
 		if serving {
 			st.ReturnFrom, st.SenderRound = stack[len(stack)-1].sender, stack[len(stack)-1].round
@@ -109,6 +115,9 @@ func deriveLoopState(def LoopDef, outs map[string][]StepOutput, actionsDone map[
 		if j <= i && s.MaxRounds > 0 && st.Round >= s.MaxRounds {
 			st.Terminal, st.Phase = "escalated", "escalated"
 			return st
+		}
+		if j <= i && !t.Return {
+			from, fromRound = s.Name, fileRound
 		}
 		if t.Return {
 			stack = append(stack, frame{sender: s.Name, target: t.To, round: fileRound})

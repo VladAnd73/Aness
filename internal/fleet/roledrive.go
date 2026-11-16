@@ -14,170 +14,26 @@ import (
 	"github.com/versality/spore/internal/task"
 )
 
-// DriveRoleLoop advances the role-loop state machine for slug by one
-// tick. It is idempotent and side-effecting:
-//
-//   - On first call, copies tasks/<slug>.md (frontmatter stripped) to
-//     .spore/<slug>/spec.md.
-//   - Reads the derived snapshot.
-//   - Keeps the role panes the phase expects alive (engineer always,
-//     plus reviewer A or B in review phases) via ensureRolePane: a
-//     missing session is spawned, a session whose agent died is
-//     killed and respawned, capped per role per round.
-//   - Reaps reviewer A when the loop transitions into B (A's pane is
-//     no longer needed once it has approved).
-//   - When the snapshot is engineer-revise-*, sends a tmux send-keys
-//     wake to the engineer pane pointing at the latest verdict file.
-//     A delivery marker guards against re-sending the same verdict.
-//   - When the snapshot is review-A / review-B and the reviewer has
-//     already issued a verdict (round >= 1), sends the same style of
-//     wake to the reviewer pane pointing at the latest engineer
-//     response. Round 0 is skipped: a freshly spawned reviewer starts
-//     from its role body.
-//   - When the snapshot is PhaseDone, writes a synthesized summary at
-//     .spore/<slug>/summary.md (idempotent: skip if file already
-//     exists).
-//   - When the snapshot is PhaseEscalated, leaves panes alive.
-//   - Bounces any role file that fails validation back to its author
-//     (see bounceInvalidRoleFiles). Runs after the spawn pass so the
-//     owning pane is up to receive the wake.
-//   - Tells the coordinator when the active role stalls (see
-//     checkRoleStall).
-//   - With pr_flow = "draft" in the host-side github.toml, mirrors new
-//     round files to the task's draft PR (see mirrorGitHub); the done
-//     notice then comes from the mirror, carrying the PR url.
-//
-// Returns the snapshot observed after side effects.
+// DriveRoleLoop is upstream's role-loop entry point: one DriveLoop
+// tick, reported as a role-loop Snapshot. A task without a `loop:`
+// key is refused before anything touches .spore/<slug>/, so a refused
+// drive on a generic task leaves no role state behind.
 func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
-	// Checked before anything touches .spore/<slug>/, so a refused
-	// drive on a generic task leaves no role state behind.
-	if err := task.RequireRoleLoop(tasksDir, slug); err != nil {
+	name, err := task.RequireLoop(tasksDir, slug)
+	if err != nil {
+		if rerr := task.RequireRoleLoop(tasksDir, slug); rerr != nil {
+			err = rerr
+		}
 		return Snapshot{}, fmt.Errorf("drive %s: %w", slug, err)
 	}
-	if err := task.CacheSpecFromTaskFile(projectRoot, tasksDir, slug); err != nil {
-		return Snapshot{}, fmt.Errorf("drive %s: cache spec: %w", slug, err)
-	}
-	if err := task.EnsureLegacyMarker(projectRoot, slug); err != nil {
-		return Snapshot{}, fmt.Errorf("drive %s: legacy marker: %w", slug, err)
-	}
-	// Own the worktree precondition explicitly. The role panes cwd
-	// into <projectRoot>/.worktrees/<slug>/; without this call the
-	// loop would rely on the homogeneous fleet's task.Ensure to add
-	// the worktree, which is gated off for role-looped slugs.
-	if _, err := task.EnsureWorktree(tasksDir, slug); err != nil {
-		return Snapshot{}, fmt.Errorf("drive %s: ensure worktree: %w", slug, err)
-	}
-	snap, err := DeriveSnapshot(projectRoot, slug)
+	def, err := LoadLoop(projectRoot, name)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("drive %s: snapshot: %w", slug, err)
+		return Snapshot{}, fmt.Errorf("drive %s: %w", slug, err)
 	}
-
-	prFlow := githubFlow(projectRoot)
-	engineer := EngineerSpec(projectRoot, slug)
-	engineer.TasksDir = tasksDir
-	switch snap.Phase {
-	case PhaseEngineerInitial, PhaseEngineerReviseA, PhaseEngineerReviseB:
-		if err := ensureRolePane(engineer, snap.EngineerRound); err != nil {
-			return snap, fmt.Errorf("drive %s: ensure engineer: %w", slug, err)
-		}
-		if snap.Phase != PhaseEngineerInitial {
-			if err := wakeEngineer(projectRoot, slug, snap); err != nil {
-				return snap, fmt.Errorf("drive %s: wake engineer: %w", slug, err)
-			}
-		}
-	case PhaseReviewA, PhaseReviewB:
-		if snap.Phase == PhaseReviewB {
-			// A approved; tear down A's pane and bring B up. Engineer
-			// stays alive across the handover.
-			if _, err := ReapRole(ReviewerSpec(projectRoot, slug, task.ReviewerA)); err != nil {
-				return snap, fmt.Errorf("drive %s: reap reviewer A: %w", slug, err)
-			}
-		}
-		if err := ensureRolePane(engineer, snap.EngineerRound); err != nil {
-			return snap, fmt.Errorf("drive %s: ensure engineer: %w", slug, err)
-		}
-		reviewer := ReviewerSpec(projectRoot, slug, snap.CurrentReviewer)
-		reviewer.TasksDir = tasksDir
-		if err := ensureRolePane(reviewer, snap.ReviewerRound); err != nil {
-			return snap, fmt.Errorf("drive %s: ensure reviewer %s: %w", slug, snap.CurrentReviewer, err)
-		}
-		if err := wakeReviewer(projectRoot, slug, snap); err != nil {
-			return snap, fmt.Errorf("drive %s: wake reviewer %s: %w", slug, snap.CurrentReviewer, err)
-		}
-	case PhaseDone:
-		if err := writeSummary(projectRoot, slug); err != nil {
-			return snap, fmt.Errorf("drive %s: write summary: %w", slug, err)
-		}
-		if err := clearEscalationMarkers(projectRoot, slug); err != nil {
-			return snap, fmt.Errorf("drive %s: clear escalation markers: %w", slug, err)
-		}
-		created, err := writeReadyMarker(projectRoot, slug)
-		if err != nil {
-			return snap, fmt.Errorf("drive %s: write ready marker: %w", slug, err)
-		}
-		if created && !prFlow {
-			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: done", slug))
-		}
-		// Operator wants the panes torn down once the branch is
-		// ready; leaving them alive only re-spends tokens.
-		_, _ = ReapRole(EngineerSpec(projectRoot, slug))
-		_, _ = ReapRole(ReviewerSpec(projectRoot, slug, task.ReviewerA))
-		_, _ = ReapRole(ReviewerSpec(projectRoot, slug, task.ReviewerB))
-	case PhaseEscalated:
-		// Leave panes alive per spec: the operator inspects. Drop a
-		// marker so the waybar chip can surface the escalation.
-		created, err := writeEscalationMarker(projectRoot, slug, snap)
-		if err != nil {
-			return snap, fmt.Errorf("drive %s: write escalation marker: %w", slug, err)
-		}
-		if created {
-			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: escalated (reviewer %s, round %d)",
-				slug, snap.CurrentReviewer, snap.ReviewerRound))
-		}
-	}
-
-	if prFlow {
-		mirrorGitHub(projectRoot, tasksDir, slug, snap)
-	}
-	if err := bounceInvalidRoleFiles(projectRoot, slug); err != nil {
-		return snap, fmt.Errorf("drive %s: bounce invalid files: %w", slug, err)
-	}
-	if spec, round, expected, ok := activeRole(projectRoot, slug, snap); ok {
-		if err := checkRoleStall(spec, round, expected, roleStallWindow(projectRoot)); err != nil {
-			return snap, fmt.Errorf("drive %s: stall check: %w", slug, err)
-		}
-	}
-	return snap, nil
-}
-
-// activeRole names the role that owns the next file write in snap,
-// its completed-round count, and the file it is expected to write.
-// ok is false in terminal phases.
-func activeRole(projectRoot, slug string, snap Snapshot) (RoleSpawnSpec, int, string, bool) {
-	switch snap.Phase {
-	case PhaseEngineerInitial, PhaseEngineerReviseA, PhaseEngineerReviseB:
-		return EngineerSpec(projectRoot, slug), snap.EngineerRound,
-			task.EngineerResponsePath(projectRoot, slug, snap.EngineerRound+1), true
-	case PhaseReviewA, PhaseReviewB:
-		return ReviewerSpec(projectRoot, slug, snap.CurrentReviewer), snap.ReviewerRound,
-			task.ReviewPath(projectRoot, slug, snap.CurrentReviewer, snap.ReviewerRound+1), true
-	}
-	return RoleSpawnSpec{}, 0, "", false
-}
-
-// wakeEngineer nudges the engineer pane with the path of the latest
-// reviewer verdict, so the agent picks the revision round up without
-// waiting on a manual prompt. Delivery and idempotency live in
-// wakeSession.
-func wakeEngineer(projectRoot, slug string, snap Snapshot) error {
-	if snap.CurrentReviewer == "" || snap.ReviewerRound < 1 {
-		return nil
-	}
-	verdictPath := task.ReviewPath(projectRoot, slug, snap.CurrentReviewer, snap.ReviewerRound)
-	msg := fmt.Sprintf("Reviewer %s requested changes at round %d. Read %s and start the revision.",
-		snap.CurrentReviewer, snap.ReviewerRound, verdictPath)
-	_, err := wakeSession(EngineerSpec(projectRoot, slug), engineerWakeMarkerStem(snap), msg)
-	return err
+	st, outs, err := driveLoopDef(projectRoot, tasksDir, slug, def)
+	snap := snapshotFromLoopState(def, st, outs)
+	snap.Slug = slug
+	return snap, err
 }
 
 // wakeReviewer nudges the persistent reviewer pane with the path of
@@ -420,31 +276,12 @@ func alnumOnly(s string) string {
 	return b.String()
 }
 
-// writeEscalationMarker drops an idempotent marker at
-// `<roletaskdir>/state/escalated-<reviewer>-<round>` so the waybar
-// chip can surface the escalation. Reports whether this call created
-// the marker: the first write is the once-per-transition signal the
-// coordinator notification keys on. Returns (false, nil) when the
-// snapshot lacks a reviewer (defensive: PhaseEscalated always carries
-// one).
-func writeEscalationMarker(projectRoot, slug string, snap Snapshot) (bool, error) {
-	if snap.CurrentReviewer == "" || snap.ReviewerRound < 1 {
-		return false, nil
-	}
-	markerDir := filepath.Join(task.RoleTaskDir(projectRoot, slug), "state")
-	if err := os.MkdirAll(markerDir, 0o755); err != nil {
-		return false, err
-	}
-	marker := filepath.Join(markerDir, fmt.Sprintf("escalated-%s-%d", snap.CurrentReviewer, snap.ReviewerRound))
-	return createMarkerExcl(marker)
-}
-
 // writeReadyMarker drops an idempotent marker at
 // `<roletaskdir>/state/ready` so the waybar chip can surface
 // ready-to-claim tasks once the role-loop hits PhaseDone. The marker
 // is a singleton (a slug is either ready or not), cleared by
 // task.Done when the operator finalises the task. Reports whether
-// this call created the marker (see writeEscalationMarker).
+// this call created the marker (see escalateLoop).
 func writeReadyMarker(projectRoot, slug string) (bool, error) {
 	markerDir := filepath.Join(task.RoleTaskDir(projectRoot, slug), "state")
 	if err := os.MkdirAll(markerDir, 0o755); err != nil {

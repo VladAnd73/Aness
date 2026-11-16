@@ -312,14 +312,19 @@ func TestDriveRoleLoopSpawnsReviewerAfterTransition(t *testing.T) {
 	if f.panes[eng] == nil || f.panes[revB] == nil {
 		t.Errorf("panes after transition = %v, want engineer and reviewer-B", f.spawns)
 	}
+	revA, _ := ReviewerSpec(root, "demo", task.ReviewerA).SessionName()
+	if !equalSlices(f.kills, []string{revA}) {
+		t.Errorf("kills after transition = %v, want reviewer-A reaped", f.kills)
+	}
 
 	// B's pane dies right after spawn: the next tick replaces it.
+	before := len(f.kills)
 	f.panes[revB].Dead = true
 	if _, err := DriveRoleLoop(root, tasksDir, "demo"); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.kills) != 1 || f.kills[0] != revB || f.panes[revB] == nil || f.panes[revB].Dead {
-		t.Errorf("kills=%v, want reviewer-B respawned", f.kills)
+	if kills := f.kills[before:]; len(kills) != 1 || kills[0] != revB || f.panes[revB] == nil || f.panes[revB].Dead {
+		t.Errorf("kills=%v, want reviewer-B respawned", kills)
 	}
 }
 
