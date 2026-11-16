@@ -424,7 +424,9 @@ step (that verdict could never route); loading such a file fails.
 A step whose output exists but whose conditions do not hold is held.
 A held round followed by a newer output of the same step is
 superseded: the loop judges the newer round, and superseded rounds do
-not count toward `max_rounds`. A step held by a file or verdict
+not count toward `max_rounds`. A round that has a newer output is
+judged by its cached check results only: its check never reruns, so a
+fix commit cannot pass the old round in place of the newer one. A step held by a file or verdict
 condition is reported to the coordinator once per step and round
 (`state/held-<step>-<round>`).
 

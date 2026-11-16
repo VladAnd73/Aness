@@ -24,15 +24,16 @@
   - A failed command check reruns only when the step output or the
     task branch changes, never counts toward `max_rounds`, and a newer
     round replaces a held one. Held steps are reported once.
-  - Reconcile reaps the loop panes of tasks that are done or deleted,
-    and never drives one slug twice at once.
+  - Reconcile reaps the loop panes of tasks that are done, deleted or
+    in any status but active, paused or blocked, and never drives one
+    slug twice at once.
   - Role panes are metered by the worker token monitor, and
     `SPORE_CODEX_BIN` picks the codex binary for codex panes.
 - `spore task done` removes `.spore/<slug>/`, so a reused slug starts
   its loop fresh.
-- Every codex launch passes the CLAUDE.md project-doc fallback, so
-  codex panes and workers in a repo without AGENTS.md get the
-  project's instructions.
+- Every codex worker and role pane launch passes the CLAUDE.md
+  project-doc fallback, so they get the project's instructions in a
+  repo without AGENTS.md. A codex coordinator does not get it yet.
 - `[fleet] pre_start` now runs for plain workers too, and with
   `[worker] isolate_network` it runs inside the network namespace with
   the agent, so the agent reaches the services it starts.
