@@ -61,6 +61,6 @@ func InteractiveArgs(model, effort string) []string {
 	if model != "" {
 		args = append(args, "-m", model)
 	}
-	args = append(args, "-c", ReasoningConfig(effort))
+	args = append(args, "-c", ReasoningConfig(effort), "-c", ProjectDocFallbackConfig)
 	return args
 }

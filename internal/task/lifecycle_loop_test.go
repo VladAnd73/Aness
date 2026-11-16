@@ -53,7 +53,7 @@ func TestCodexAgentCommandIgnoresAgentBinaryOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CodexAgentCommand: %v", err)
 	}
-	want := "codex --dangerously-bypass-approvals-and-sandbox --no-alt-screen --disable apps -m gpt-5.5 -c 'model_reasoning_effort=\"xhigh\"'"
+	want := "codex --dangerously-bypass-approvals-and-sandbox --no-alt-screen --disable apps -m gpt-5.5 -c 'model_reasoning_effort=\"xhigh\"' -c 'project_doc_fallback_filenames=[\"CLAUDE.md\"]'"
 	if got != want {
 		t.Errorf("command = %q want %q", got, want)
 	}
