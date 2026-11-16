@@ -307,7 +307,9 @@ func Done(tasksDir, slug string, force bool) error {
 			fmt.Fprintf(os.Stderr, "spore task done %s: rm -r %s: %v\n", slug, dir, rmErr)
 		}
 	}
-	if dir := RoleTaskDir(projectRoot, slug); dir != filepath.Join(projectRoot, RoleTaskRoot) {
+	// Only a direct child of .spore/: a slug such as "" or "../x"
+	// resolves elsewhere.
+	if dir := RoleTaskDir(projectRoot, slug); filepath.Dir(dir) == filepath.Join(projectRoot, RoleTaskRoot) {
 		if err := os.RemoveAll(dir); err != nil {
 			fmt.Fprintf(os.Stderr, "spore task done %s: rm -r %s: %v\n", slug, dir, err)
 		}
