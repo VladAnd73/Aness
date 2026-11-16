@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,7 +14,16 @@ import (
 // JSON file following the tell protocol ({ts, source, body}), written
 // atomically via .tmp.
 func NotifyCoordinator(slug string) error {
-	return notifyCoordinatorAt(coordinatorInbox(slug))
+	return notifyCoordinatorAt(coordinatorInbox(slug), "notification", "poke")
+}
+
+// NotifyCoordinatorEvent writes a tell envelope with the given source
+// and body into the coordinator inbox for project. Unlike
+// NotifyCoordinatorEnv it never skips self-pokes: callers that drive a
+// transition from inside the coordinator's own hooks still need the
+// envelope to land (their own idempotency guard prevents repeats).
+func NotifyCoordinatorEvent(project, source, body string) error {
+	return notifyCoordinatorAt(coordinatorInbox(project), source, body)
 }
 
 // NotifyCoordinatorEnv is the env-driven entry point for the
@@ -30,18 +40,18 @@ func NotifyCoordinatorEnv() error {
 	if os.Getenv("SPORE_TASK_INBOX") == inbox {
 		return nil
 	}
-	return notifyCoordinatorAt(inbox)
+	return notifyCoordinatorAt(inbox, "notification", "poke")
 }
 
-func notifyCoordinatorAt(inbox string) error {
+func notifyCoordinatorAt(inbox, source, body string) error {
 	if err := ensureInbox(inbox); err != nil {
 		return fmt.Errorf("notify-coordinator: ensure inbox: %w", err)
 	}
 
 	poke := tellEvent{
 		Ts:     time.Now().Format("2006-01-02T15:04:05-07:00"),
-		Source: "notification",
-		Body:   "poke",
+		Source: source,
+		Body:   body,
 	}
 	b, err := json.Marshal(poke)
 	if err != nil {
@@ -49,7 +59,7 @@ func notifyCoordinatorAt(inbox string) error {
 	}
 	b = append(b, '\n')
 
-	name := fmt.Sprintf("%d-%d-1.json", time.Now().UnixMilli(), os.Getpid())
+	name := fmt.Sprintf("%d-%d-%d.json", time.Now().UnixMilli(), os.Getpid(), notifySeq.Add(1))
 	tmp := filepath.Join(inbox, ".tmp", name)
 	dst := filepath.Join(inbox, name)
 
@@ -62,6 +72,10 @@ func notifyCoordinatorAt(inbox string) error {
 	}
 	return nil
 }
+
+// notifySeq keeps two notices from one process in the same millisecond
+// from landing on the same inbox file name.
+var notifySeq atomic.Uint64
 
 type tellEvent struct {
 	Ts     string `json:"ts"`
