@@ -1,9 +1,13 @@
 package fleet
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/versality/spore/internal/task"
 )
 
 // Given a step reaped on forward exit and re-entered after a later step
@@ -61,3 +65,52 @@ func TestIdlePersistedStepNoteSaysWait(t *testing.T) {
 func killLoopFakePane(f *loopFixture, session string) {
 	delete(f.panes.panes, session)
 }
+
+// Given a step whose pane the driver reaped on forward exit, when the
+// loop re-enters that step a moment later, then the pane spawns on that
+// tick: a planned reap is not a quick death, so the real spawn gate
+// must not hold it behind backoff.
+func TestReapedStepReentersWithoutBackoff(t *testing.T) {
+	f := newLoopFixture(t, "reenter", "reenter.toml", "author", "reviewer")
+	review := f.session("review")
+
+	f.tick(t)
+	f.write(t, "author/round-1.json", `{"notes":"r1"}`)
+	f.tick(t)
+	f.write(t, "review/round-1.json", `{"notes":"ok"}`)
+	f.tick(t)
+	if countContaining(f.panes.kills, review) != 1 {
+		t.Fatalf("kills = %v, want review reaped once comp starts", f.panes.kills)
+	}
+	f.write(t, "comp/round-1.json", verdictJSON("comp", "request_changes"))
+	f.tick(t)
+	f.write(t, "author/round-2.json", `{"notes":"r2"}`)
+	f.tick(t)
+
+	if n := countContaining(f.panes.spawns, review); n != 2 {
+		t.Errorf("review spawned %d times, want 2: re-entry after a planned reap waited behind spawn backoff", n)
+	}
+}
+
+// Given a finished loop whose panes the driver reaped, when a later
+// loop on the same project spawns the same session, then no backoff
+// from the finished run holds it.
+func TestFinishedLoopLeavesNoBackoff(t *testing.T) {
+	f := newLoopFixture(t, "trio", "trio.toml", "alpha", "beta")
+	f.tick(t)
+	f.write(t, "a/round-1.json", `{"result":"x"}`)
+	f.tick(t)
+	f.write(t, "b/round-1.json", `{"result":"y"}`)
+	if st := f.tick(t); st.Terminal != "done" {
+		t.Fatalf("state = %+v, want done", st)
+	}
+	dir, err := task.StateDirForProject(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "role-spawns.json"))
+	if err == nil && strings.Contains(string(b), f.slug+"/") {
+		t.Errorf("fleet-spawns.json still records %s panes after done:\n%s", f.slug, b)
+	}
+}
+

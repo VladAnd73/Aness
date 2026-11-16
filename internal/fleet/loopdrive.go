@@ -268,14 +268,23 @@ func keepLoopPanes(projectRoot, tasksDir, slug string, def LoopDef, st LoopState
 }
 
 // reapRolePane kills spec's session when it exists, through the
-// liveness seams.
+// liveness seams. A planned reap is not a quick death: the spawn
+// gate's record for the pane goes too, or re-entering the step would
+// wait behind backoff.
 func reapRolePane(spec RoleSpawnSpec) error {
 	session, err := spec.SessionName()
 	if err != nil {
 		return err
 	}
-	if p, err := probeRolePane(session); err == nil && p.Exists {
-		killRoleSession(session)
+	p, err := probeRolePane(session)
+	if err != nil || !p.Exists {
+		return nil
+	}
+	killRoleSession(session)
+	gate := roleSpawnGate(spec.ProjectRoot)
+	gate.forget(spec.Slug + "/" + roleKey(spec))
+	if err := gate.save(); err != nil {
+		fmt.Fprintf(os.Stderr, "role-loop spawn backoff: %v\n", err)
 	}
 	return nil
 }
