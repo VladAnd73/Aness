@@ -233,3 +233,34 @@ func TestCheckFailureWakeSaysHowToRerun(t *testing.T) {
 		t.Errorf("check-failure wake has a newline (send-keys submits early): %q", wakes[0])
 	}
 }
+
+// Given a round held by its failing check, when the agent commits a fix
+// and writes the next round (as the check-failure wake tells it to),
+// then the next round is judged. The new HEAD must not re-run and pass
+// the held round, which would consume it and leave the newer round
+// unread.
+func TestCommitThenNextRoundSupersedesHeldRound(t *testing.T) {
+	f := newLoopFixture(t, "checked", "checked.toml", "alpha")
+	t.Setenv("COUNT_FILE", filepath.Join(t.TempDir(), "count"))
+
+	f.tick(t)
+	f.write(t, "a/round-1.json", `{"result":"x"}`)
+	if st := f.tick(t); st.Blocked == "" {
+		t.Fatalf("failing check: state = %+v, want blocked on a", st)
+	}
+
+	pass := filepath.Join(t.TempDir(), "pass")
+	if err := os.WriteFile(pass, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PASS_FILE", pass)
+	wt := filepath.Join(f.root, ".worktrees", f.slug)
+	if out, err := exec.Command("git", "-C", wt, "commit", "-q", "--allow-empty", "-m", "fix").CombinedOutput(); err != nil {
+		t.Fatalf("commit in worktree: %v: %s", err, out)
+	}
+	f.write(t, "a/round-2.json", `{"result":"fixed","verdict":"again"}`)
+	st := f.tick(t)
+	if st.Terminal != "" || st.Step != "a" || st.Blocked != "" {
+		t.Errorf("state = %+v, want a running round 3: round 2 (verdict again) must be judged, not the held round 1", st)
+	}
+}

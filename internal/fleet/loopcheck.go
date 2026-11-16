@@ -183,14 +183,25 @@ type checkFailure struct {
 type commandGate struct {
 	projectRoot, slug string
 	def               LoopDef
+	outs              map[string][]StepOutput
 	failed            *checkFailure
 	err               error
 }
 
 func (g *commandGate) check(step string, round int) bool {
 	s := g.def.Steps[g.def.StepIndex(step)]
+	newer := hasLaterRound(g.outs[step], round)
 	for _, c := range s.Done {
 		if c.Kind != "command" {
+			continue
+		}
+		// A round with a newer output is judged by its cached result
+		// alone. Re-running it on a new HEAD could pass and consume it,
+		// leaving the newer round, the agent's answer, unread.
+		if newer {
+			if !cachedCommandPass(g.projectRoot, g.slug, step, round, c.Run) {
+				return false
+			}
 			continue
 		}
 		passed, out, fp, err := evalCommand(g.projectRoot, g.slug, s, round, c)
@@ -205,6 +216,15 @@ func (g *commandGate) check(step string, round int) bool {
 		}
 	}
 	return true
+}
+
+func hasLaterRound(outs []StepOutput, round int) bool {
+	for _, o := range outs {
+		if o.Round > round {
+			return true
+		}
+	}
+	return false
 }
 
 const checkWakeTail = 1 << 10

@@ -125,6 +125,7 @@ func advanceLoop(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, ma
 		if err != nil {
 			return LoopState{}, nil, gate, err
 		}
+		gate.outs = outs
 		st := deriveLoopState(def, outs, actions, fileGate(projectRoot, slug, def, gate.check))
 		st.Slug = slug
 		i := def.StepIndex(st.Step)
