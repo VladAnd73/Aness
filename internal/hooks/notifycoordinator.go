@@ -26,6 +26,12 @@ func NotifyCoordinatorEvent(project, source, body string) error {
 	return notifyCoordinatorAt(coordinatorInbox(project), source, body)
 }
 
+// NotifyCoordinatorEventAt is NotifyCoordinatorEvent for a caller that
+// has already resolved the inbox dir.
+func NotifyCoordinatorEventAt(inbox, source, body string) error {
+	return notifyCoordinatorAt(inbox, source, body)
+}
+
 // NotifyCoordinatorEnv is the env-driven entry point for the
 // Notification hook. It reads $WT_PROJECT to identify the target
 // coordinator inbox, and $SPORE_TASK_INBOX to skip self-pokes when the

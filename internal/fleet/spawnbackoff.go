@@ -37,12 +37,23 @@ type spawnBackoff struct {
 }
 
 func loadSpawnBackoff(projectRoot string) *spawnBackoff {
+	return loadBackoffFile(projectRoot, "fleet-spawns.json")
+}
+
+// loadRoleSpawnBackoff keeps role panes in their own file: Reconcile
+// prunes and saves fleet-spawns.json on every pass, which would drop
+// role keys it does not know.
+func loadRoleSpawnBackoff(projectRoot string) *spawnBackoff {
+	return loadBackoffFile(projectRoot, "role-spawns.json")
+}
+
+func loadBackoffFile(projectRoot, name string) *spawnBackoff {
 	b := &spawnBackoff{recs: map[string]*spawnRecord{}}
 	dir, err := task.StateDirForProject(projectRoot)
 	if err != nil {
 		return b
 	}
-	b.path = filepath.Join(dir, "fleet-spawns.json")
+	b.path = filepath.Join(dir, name)
 	raw, err := os.ReadFile(b.path)
 	if err != nil {
 		return b
@@ -110,6 +121,10 @@ func (b *spawnBackoff) prune(running, active map[string]bool, now time.Time) {
 	}
 }
 
+func (b *spawnBackoff) forget(key string) {
+	delete(b.recs, key)
+}
+
 func (b *spawnBackoff) save() error {
 	if b.path == "" {
 		return nil
@@ -133,3 +148,28 @@ func (b *spawnBackoff) save() error {
 	}
 	return os.Rename(tmp, b.path)
 }
+
+// roleGate is the spawn backoff ensureRolePane consults, keyed
+// "<slug>/<roleKey>". Tests that respawn faster than any backoff
+// allows swap in noRoleGate.
+type roleGate interface {
+	wait(key string, now time.Time) time.Duration
+	spawned(key string, now time.Time)
+	failed(key string, now time.Time)
+	forget(key string)
+	save() error
+}
+
+var roleSpawnGate = realRoleSpawnGate
+
+func realRoleSpawnGate(projectRoot string) roleGate {
+	return loadRoleSpawnBackoff(projectRoot)
+}
+
+type noRoleGate struct{}
+
+func (noRoleGate) wait(string, time.Time) time.Duration { return 0 }
+func (noRoleGate) spawned(string, time.Time)            {}
+func (noRoleGate) failed(string, time.Time)             {}
+func (noRoleGate) forget(string)                        {}
+func (noRoleGate) save() error                          { return nil }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/ghapp"
 	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
@@ -104,6 +105,12 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if withBody, err = task.WrapAgentForIsolation(s.ProjectRoot, withBody); err != nil {
+		return nil, err
+	}
+	if bare, err = task.WrapAgentForIsolation(s.ProjectRoot, bare); err != nil {
+		return nil, err
+	}
 
 	taskDir := task.RoleTaskDir(s.ProjectRoot, s.Slug)
 	project, err := task.ProjectName(s.ProjectRoot)
@@ -134,6 +141,14 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if s.Role == "engineer" {
 		args = append(args, commitIdentityEnv(s.ProjectRoot)...)
 	}
+	projectEnv, envMsgs, err := agentenv.Load(project)
+	for _, m := range envMsgs {
+		fmt.Fprintf(os.Stderr, "agent.env: %s\n", m)
+	}
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, agentenv.TmuxArgs(projectEnv)...)
 	prelude := task.LoadPreStart(s.ProjectRoot).Prelude(s.ProjectRoot, s.Slug, roleKey(s))
 	args = append(args, roleShellCommand(prelude, withBody, bare, rolePath))
 	return args, nil

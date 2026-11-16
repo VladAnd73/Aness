@@ -123,7 +123,9 @@ func roleKey(spec RoleSpawnSpec) string {
 // `respawn-<key>-r<round>-<n>` under state/ and notifies the
 // coordinator, and once MaxRoleRespawns are used the pass stops and
 // escalates once instead. round is the role's completed-round count,
-// so a new round re-arms the cap.
+// so a new round re-arms the cap. Both kinds of spawn wait out the
+// role spawn backoff, so a pane that dies at once is not respawned on
+// every tick.
 func ensureRolePane(spec RoleSpawnSpec, round int) error {
 	session, err := spec.SessionName()
 	if err != nil {
@@ -135,12 +137,25 @@ func ensureRolePane(spec RoleSpawnSpec, round int) error {
 		fmt.Fprintf(os.Stderr, "role-loop probe %s: %v\n", session, err)
 		return nil
 	}
+	now := nowFunc()
+	gate := roleSpawnGate(spec.ProjectRoot)
+	gateKey := spec.Slug + "/" + roleKey(spec)
+	defer func() {
+		if serr := gate.save(); serr != nil {
+			fmt.Fprintf(os.Stderr, "role-loop spawn backoff: %v\n", serr)
+		}
+	}()
 	if !p.Exists {
-		_, _, err := spawnRole(spec)
-		return err
+		return gatedSpawnRole(spec, gate, gateKey, now)
 	}
-	reason := agentGone(p, nowFunc())
-	if reason == "" || (!p.Dead && preStartRunning(spec, p.Created)) {
+	reason := agentGone(p, now)
+	if reason == "" {
+		if now.Sub(p.Created) >= quickDeathWindow {
+			gate.forget(gateKey)
+		}
+		return nil
+	}
+	if !p.Dead && preStartRunning(spec, p.Created) {
 		return nil
 	}
 
@@ -166,10 +181,18 @@ func ensureRolePane(spec RoleSpawnSpec, round int) error {
 		}
 		return nil
 	}
+	if d := gate.wait(gateKey, now); d > 0 {
+		fmt.Fprintf(os.Stderr, "role-loop: %s died soon after its last spawn; next try in %s\n", gateKey, d.Round(time.Second))
+		return nil
+	}
 	killRoleSession(session)
 	if _, spawned, err := spawnRole(spec); err != nil || !spawned {
+		if err != nil {
+			gate.failed(gateKey, now)
+		}
 		return err
 	}
+	gate.spawned(gateKey, now)
 	n := respawns + 1
 	created, err := createMarkerExcl(filepath.Join(stateDir, stem+strconv.Itoa(n)))
 	if err != nil {
@@ -180,6 +203,21 @@ func ensureRolePane(spec RoleSpawnSpec, round int) error {
 			spec.Slug, key, reason, round+1, n, MaxRoleRespawns))
 	}
 	return nil
+}
+
+func gatedSpawnRole(spec RoleSpawnSpec, gate roleGate, key string, now time.Time) error {
+	if d := gate.wait(key, now); d > 0 {
+		fmt.Fprintf(os.Stderr, "role-loop: %s died soon after its last spawn; next try in %s\n", key, d.Round(time.Second))
+		return nil
+	}
+	_, spawned, err := spawnRole(spec)
+	switch {
+	case err != nil:
+		gate.failed(key, now)
+	case spawned:
+		gate.spawned(key, now)
+	}
+	return err
 }
 
 func countMarkers(dir, prefix string) (int, error) {
