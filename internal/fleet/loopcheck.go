@@ -220,7 +220,7 @@ func reportCheckFailure(projectRoot, slug string, def LoopDef, f checkFailure) e
 		out = out[len(out)-checkWakeTail:]
 	}
 	oneLine := strings.Join(strings.Fields(strings.ReplaceAll(out, "\n", " | ")), " ")
-	msg := fmt.Sprintf("Check failed for %s round %d: %s Output: %s (full result: %s)", f.Step, f.Round, f.Run, oneLine, f.Result)
+	msg := fmt.Sprintf("Check failed for %s round %d: %s Output: %s (full result: %s). The check reruns only when your step output or the task branch changes: after fixing, commit your work or rewrite your output file.", f.Step, f.Round, f.Run, oneLine, f.Result)
 	if _, err := wakeRole(StepSpec(projectRoot, slug, def, s), fmt.Sprintf("woken-check-%s-%s", f.Step, fp12), msg); err != nil {
 		return err
 	}

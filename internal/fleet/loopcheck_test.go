@@ -206,3 +206,30 @@ func TestDeriveSnapshotUsesProjectDevOverride(t *testing.T) {
 		t.Errorf("snapshot phase = %q, want %q from the project's dev.toml (engineer then done)", snap.Phase, PhaseDone)
 	}
 }
+
+// A check reruns only when the step's output or the task branch HEAD
+// changes, so the wake must say so or a fixed-but-uncommitted agent
+// waits forever.
+func TestCheckFailureWakeSaysHowToRerun(t *testing.T) {
+	f := newLoopFixture(t, "checked", "checked.toml", "alpha")
+	if err := os.WriteFile(filepath.Join(f.root, "bootstrap", "loops", "checked.toml"), []byte(cappedCheckLoop), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PASS_FILE", filepath.Join(t.TempDir(), "pass"))
+
+	f.tick(t)
+	f.write(t, "a/round-1.json", `{"result":"x"}`)
+	f.tick(t)
+	wakes := f.panes.wakesTo(f.session("a"))
+	if len(wakes) != 1 {
+		t.Fatalf("wakes to a = %q, want exactly one check-failure wake", wakes)
+	}
+	for _, want := range []string{"commit", "rewrite", "reruns only"} {
+		if !strings.Contains(wakes[0], want) {
+			t.Errorf("check-failure wake lacks %q: %q", want, wakes[0])
+		}
+	}
+	if strings.Contains(wakes[0], "\n") {
+		t.Errorf("check-failure wake has a newline (send-keys submits early): %q", wakes[0])
+	}
+}
