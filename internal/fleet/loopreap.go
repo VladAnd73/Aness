@@ -22,6 +22,7 @@ func reapFinishedLoopPanes(projectRoot string, statusBySlug map[string]string) (
 		return nil, nil
 	}
 	prefix := "spore-role/" + project + "/"
+	gate := roleSpawnGate(projectRoot)
 	seen := map[string]bool{}
 	var reaped []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -29,15 +30,21 @@ func reapFinishedLoopPanes(projectRoot string, statusBySlug map[string]string) (
 		if !ok {
 			continue
 		}
-		slug, _, _ := strings.Cut(rest, "/")
+		slug, key, _ := strings.Cut(rest, "/")
 		switch statusBySlug[slug] {
 		case "active", "paused", "blocked", statusUnparseable:
 			continue
 		}
 		killRoleSession(strings.TrimSpace(line))
+		gate.forget(slug + "/" + key)
 		if !seen[slug] {
 			seen[slug] = true
 			reaped = append(reaped, slug)
+		}
+	}
+	if len(reaped) > 0 {
+		if err := gate.save(); err != nil {
+			return reaped, err
 		}
 	}
 	return reaped, nil
