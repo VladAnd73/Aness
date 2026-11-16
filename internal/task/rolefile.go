@@ -77,12 +77,17 @@ func (f RoleFile) Author() string {
 	return string(f.Instance)
 }
 
-// ListRoleFiles returns every engineer response and review file under
-// the task tree, engineer first, then A, then B, each in round order,
-// then the outputs of steps in order. A step output at a built-in
-// path is listed once, as the built-in file.
+// ListRoleFiles returns the files a loop owns. With no steps that is
+// every engineer response and review file under the task tree,
+// engineer first, then A, then B, each in round order. With steps it
+// is only their outputs, in step order, each owned by its step: a loop
+// declares every file it reads, and a step may reuse a built-in path
+// with its own shape.
 func ListRoleFiles(projectRoot, slug string, steps ...StepFiles) ([]RoleFile, error) {
 	root := RoleTaskDir(projectRoot, slug)
+	if len(steps) > 0 {
+		return listStepFiles(projectRoot, slug, root, steps)
+	}
 	var out []RoleFile
 	eng, err := ListEngineerRounds(projectRoot, slug)
 	if err != nil {
@@ -102,10 +107,12 @@ func ListRoleFiles(projectRoot, slug string, steps ...StepFiles) ([]RoleFile, er
 			out = append(out, RoleFile{Path: p, Rel: relTo(root, p), Instance: inst, Round: r})
 		}
 	}
+	return out, nil
+}
+
+func listStepFiles(projectRoot, slug, root string, steps []StepFiles) ([]RoleFile, error) {
+	var out []RoleFile
 	seen := map[string]bool{}
-	for _, f := range out {
-		seen[f.Path] = true
-	}
 	for i := range steps {
 		sf := &steps[i]
 		rounds, err := StepOutputRounds(projectRoot, slug, sf.Output)

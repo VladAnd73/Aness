@@ -172,3 +172,35 @@ func TestQuarantinePathReturnsLstatError(t *testing.T) {
 		t.Fatal("QuarantinePath did not return on a non-not-exist Lstat error")
 	}
 }
+
+// Given a loop step whose own output sits at a built-in role path with
+// a different shape, when the loop's files are listed and validated,
+// then the step's shape decides: its valid output is kept, not checked
+// as a reviewer verdict and moved aside.
+func TestListRoleFilesStepShapeWinsAtBuiltInPath(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(RoleTaskDir(root, "s"), "reviews", "A")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "round-1.json"), []byte(`{"summary":"ok"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureLegacyMarker(root, "s"); err != nil {
+		t.Fatal(err)
+	}
+	sf := StepFiles{Step: "notes", Output: "reviews/A/round-{round}.json", Shape: "json", Required: []string{"summary"}}
+	files, err := ListRoleFiles(root, "s", sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files = %+v, want the one step output", files)
+	}
+	if files[0].Step == nil || files[0].Instance != "" {
+		t.Errorf("file listed as %+v, want it owned by step %q", files[0], sf.Step)
+	}
+	if err := ValidateRoleFile(root, "s", files[0]); err != nil {
+		t.Errorf("valid step output rejected: %v", err)
+	}
+}
