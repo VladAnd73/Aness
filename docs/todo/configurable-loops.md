@@ -13,7 +13,7 @@ agent and into spore: a driver that reads a task's files, sees which
 step the task is on, and starts the next step, with each step run by an
 independent agent.
 
-Upstream (`marketertechnologies/spore` main) already has such a driver,
+Upstream (the team repository's `main`) already has such a driver,
 `DriveRoleLoop`, but its step order is fixed in Go: engineer, reviewer
 A, reviewer B. That shape suits feature development; it does not fit
 QA. The operator's ask: keep upstream's machinery, make the steps
