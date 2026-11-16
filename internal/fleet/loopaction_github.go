@@ -31,7 +31,7 @@ func actionPushAndOpenPR(ctx actionCtx) error {
 		return fmt.Errorf("github.toml: missing operator_login")
 	}
 
-	unlock, ok := lockGitHubState(githubStatePath(ctx.ProjectRoot, ctx.Slug))
+	unlock, ok := flockBeside(githubStatePath(ctx.ProjectRoot, ctx.Slug))
 	if !ok {
 		return errActionBusy
 	}

@@ -118,7 +118,7 @@ func TestPushAndOpenPRAdoptsExistingPR(t *testing.T) {
 // GitHub.
 func TestPushAndOpenPRHeldLockOpensNothing(t *testing.T) {
 	f := newMirrorFixture(t, "")
-	unlock, ok := lockGitHubState(githubStatePath(f.root, f.slug))
+	unlock, ok := flockBeside(githubStatePath(f.root, f.slug))
 	if !ok {
 		t.Fatal("lock")
 	}

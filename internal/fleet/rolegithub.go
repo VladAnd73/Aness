@@ -149,7 +149,7 @@ type githubMirror struct {
 // the lock makes this tick a no-op.
 func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
 	statePath := githubStatePath(projectRoot, slug)
-	unlock, ok := lockGitHubState(statePath)
+	unlock, ok := flockBeside(statePath)
 	if !ok {
 		return
 	}
@@ -216,9 +216,10 @@ func mirrorErrorKey(err error) string {
 	return msg
 }
 
-// lockGitHubState takes a non-blocking flock beside the state file so
-// two drives never post the same event twice.
-func lockGitHubState(statePath string) (func(), bool) {
+// flockBeside takes a non-blocking flock on path+".lock". The GitHub
+// mirror holds one beside its state file so two drives never post the
+// same event twice; the loop drive holds one per slug.
+func flockBeside(statePath string) (func(), bool) {
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		return nil, false
 	}

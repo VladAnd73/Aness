@@ -345,7 +345,7 @@ func Reconcile(cfg Config) (Result, error) {
 		if !looped[slug] {
 			continue
 		}
-		if _, err := DriveLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil {
+		if _, err := DriveLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil && !errors.Is(err, ErrLoopBusy) {
 			fmt.Fprintf(os.Stderr, "loop drive %s: %v\n", slug, err)
 		}
 	}

@@ -45,6 +45,11 @@ func DriveLoop(projectRoot, tasksDir, slug string) (LoopState, error) {
 }
 
 func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, map[string][]StepOutput, error) {
+	unlock, ok := lockLoopDrive(projectRoot, slug)
+	if !ok {
+		return LoopState{Slug: slug, Loop: def.Name}, nil, fmt.Errorf("drive %s: %w", slug, ErrLoopBusy)
+	}
+	defer unlock()
 	if err := task.CacheSpecFromTaskFile(projectRoot, tasksDir, slug); err != nil {
 		return LoopState{}, nil, fmt.Errorf("drive %s: cache spec: %w", slug, err)
 	}
@@ -141,8 +146,12 @@ func advanceLoop(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, ma
 		if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 			return st, outs, gate, err
 		}
-		if _, err := createMarkerExcl(marker); err != nil {
+		created, err := createMarkerExcl(marker)
+		if err != nil {
 			return st, outs, gate, err
+		}
+		if !created {
+			return st, outs, gate, fmt.Errorf("action %s visit %d: %w", s.Name, visit, errActionBusy)
 		}
 	}
 }
