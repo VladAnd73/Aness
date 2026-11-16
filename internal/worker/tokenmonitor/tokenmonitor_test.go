@@ -162,3 +162,99 @@ func TestCheckMissingTranscript(t *testing.T) {
 		t.Errorf("Level = %s, want skip", got.Level)
 	}
 }
+
+func writeTranscript(t *testing.T, tokens string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "session.jsonl")
+	line := `{"role":"assistant","usage":{"input_tokens":` + tokens + `,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	if err := os.WriteFile(p, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func roleConfig(dir string) Config {
+	return Config{
+		WrapCap:             1000,
+		Role:                "engineer",
+		RoleSlug:            "feature-x",
+		RoleSession:         "spore-role/demo/feature-x/engineer",
+		TaskDir:             filepath.Join(dir, "roles", "feature-x"),
+		CoordinatorStateDir: filepath.Join(dir, "coord"),
+	}
+}
+
+func TestCheckRolePaneWrap(t *testing.T) {
+	dir := t.TempDir()
+	cfg := roleConfig(dir)
+	got := Check(cfg, HookPayload{TranscriptPath: writeTranscript(t, "500000")})
+	if got.Level != "wrap" || !got.ShouldFire {
+		t.Fatalf("Level = %s ShouldFire = %v, want wrap/true", got.Level, got.ShouldFire)
+	}
+	for _, want := range []string{
+		"ROLE TOKEN MONITOR",
+		"wt/feature-x",
+		"$SPORE_TASK_DIR",
+		`tmux kill-session -t "spore-role/demo/feature-x/engineer"`,
+		"loop driver",
+	} {
+		if !strings.Contains(got.Message, want) {
+			t.Errorf("Message missing %q:\n%s", want, got.Message)
+		}
+	}
+	for _, bad := range []string{"tasks/feature-x.md", "fleet reconciler"} {
+		if strings.Contains(got.Message, bad) {
+			t.Errorf("Message carries worker wording %q:\n%s", bad, got.Message)
+		}
+	}
+}
+
+func TestCheckRolePaneIgnoresLeakedInbox(t *testing.T) {
+	dir := t.TempDir()
+	cfg := roleConfig(dir)
+	cfg.Inbox = filepath.Join(dir, "workers", "leaked", "inbox")
+	got := Check(cfg, HookPayload{TranscriptPath: writeTranscript(t, "500000")})
+	if !got.ShouldFire || !strings.Contains(got.Message, "ROLE TOKEN MONITOR") {
+		t.Fatalf("want role wrap text despite a leaked inbox, got %+v", got)
+	}
+	if strings.Contains(got.Message, "leaked") {
+		t.Errorf("Message names the leaked inbox slug:\n%s", got.Message)
+	}
+}
+
+func TestCheckRolePaneUnderCap(t *testing.T) {
+	dir := t.TempDir()
+	got := Check(roleConfig(dir), HookPayload{TranscriptPath: writeTranscript(t, "500")})
+	if got.ShouldFire || got.Level != "ok" {
+		t.Fatalf("Level = %s ShouldFire = %v, want ok/false", got.Level, got.ShouldFire)
+	}
+}
+
+func TestCheckRolePaneWithoutSessionNamesOwnSession(t *testing.T) {
+	dir := t.TempDir()
+	cfg := roleConfig(dir)
+	cfg.RoleSession = ""
+	got := Check(cfg, HookPayload{TranscriptPath: writeTranscript(t, "500000")})
+	if !strings.Contains(got.Message, `tmux kill-session -t "$(tmux display-message -p '#S')"`) {
+		t.Errorf("Message lacks the own-session kill fallback:\n%s", got.Message)
+	}
+}
+
+func TestCheckWorkerWrapMessageUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		WrapCap:             1000,
+		Inbox:               filepath.Join(dir, "workers", "wrap-slug", "inbox"),
+		CoordinatorStateDir: filepath.Join(dir, "coord"),
+	}
+	got := Check(cfg, HookPayload{TranscriptPath: writeTranscript(t, "500000")})
+	want := "WORKER TOKEN MONITOR (wrap): context 500000 tokens >= wrap cap 1000.\n" +
+		"Wrap up NOW:\n" +
+		"  1. Flush in-flight progress to tasks/wrap-slug.md so the next worker boots from it.\n" +
+		"  2. If you have a blocker for the coordinator, send it before exiting.\n" +
+		"  3. Run: tmux kill-session -t \"$(tmux display-message -p '#S')\"\n" +
+		"The fleet reconciler resumes a fresh worker with the same worktree on the next pass."
+	if got.Message != want || got.Level != "wrap" {
+		t.Errorf("worker wrap changed:\ngot  %q\nwant %q", got.Message, want)
+	}
+}

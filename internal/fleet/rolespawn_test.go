@@ -13,6 +13,7 @@ import (
 
 func TestRoleSpawnSpecEngineerArgs(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	spec := EngineerSpec(root, "feature-x")
 	args, err := spec.TmuxArgs()
 	if err != nil {
@@ -29,6 +30,9 @@ func TestRoleSpawnSpecEngineerArgs(t *testing.T) {
 	if e := envValue(args, "SPORE_ROLE"); e != "engineer" {
 		t.Errorf("SPORE_ROLE = %q, want engineer", e)
 	}
+	if e := envValue(args, "SPORE_ROLE_SESSION"); e != wantSession {
+		t.Errorf("SPORE_ROLE_SESSION = %q, want %q", e, wantSession)
+	}
 	if e := envValue(args, "SPORE_REVIEWER_INSTANCE"); e != "" {
 		t.Errorf("SPORE_REVIEWER_INSTANCE set on engineer pane: %q", e)
 	}
@@ -39,6 +43,7 @@ func TestRoleSpawnSpecEngineerArgs(t *testing.T) {
 
 func TestRoleSpawnSpecReviewerArgs(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	for _, instance := range []task.ReviewerInstance{task.ReviewerA, task.ReviewerB} {
 		spec := ReviewerSpec(root, "feature-x", instance)
 		args, err := spec.TmuxArgs()
@@ -55,6 +60,9 @@ func TestRoleSpawnSpecReviewerArgs(t *testing.T) {
 		if e := envValue(args, "SPORE_ROLE"); e != "reviewer" {
 			t.Errorf("%s SPORE_ROLE = %q, want reviewer", instance, e)
 		}
+		if e := envValue(args, "SPORE_ROLE_SESSION"); e != wantSession {
+			t.Errorf("%s SPORE_ROLE_SESSION = %q, want %q", instance, e, wantSession)
+		}
 		if e := envValue(args, "SPORE_REVIEWER_INSTANCE"); e != string(instance) {
 			t.Errorf("%s SPORE_REVIEWER_INSTANCE = %q, want %q", instance, e, instance)
 		}
@@ -63,6 +71,7 @@ func TestRoleSpawnSpecReviewerArgs(t *testing.T) {
 
 func TestRoleSpawnSpecInjectsAccountTier(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	toml := "[fleet]\naccount_tier = \"max\"\n"
 	if err := os.WriteFile(filepath.Join(root, "spore.toml"), []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
@@ -84,6 +93,7 @@ func TestRoleSpawnSpecInjectsAccountTier(t *testing.T) {
 
 func TestRoleSpawnSpecOmitsTierWithoutKnob(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	args, err := EngineerSpec(root, "feature-x").TmuxArgs()
 	if err != nil {
 		t.Fatalf("TmuxArgs: %v", err)
@@ -154,6 +164,7 @@ func newGitRepoFor(t *testing.T, projectName string) string {
 
 func TestRoleSpawnSpecOmitsAutoConnectIDE(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "spore.toml"), []byte("[editor]\nauto_connect_ide = true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +194,7 @@ func hasEnvArg(argv []string, key string) bool {
 
 func TestRoleSpawnPreStartUnsetKeepsArgv(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	spec := EngineerSpec(root, "feature-x")
 	args, err := spec.TmuxArgs()
 	if err != nil {
@@ -201,6 +213,7 @@ func TestRoleSpawnPreStartUnsetKeepsArgv(t *testing.T) {
 
 func TestRoleSpawnPreStartWrapsAgent(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "spore.toml"), []byte("[fleet]\npre_start = \"bin/with-services up\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
