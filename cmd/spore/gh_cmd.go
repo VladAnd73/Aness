@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/versality/spore/internal/ghapp"
@@ -24,8 +28,10 @@ Subcommands:
            ($XDG_STATE_HOME/spore/<project>/github.toml, 0600). --set
            writes a key (repeatable); an empty value deletes it. Keys:
            app_id, installation_id, private_key, api_url.
-           pr_flow, operator_login, commit_name and commit_email are
-           accepted but have no effect in this build.
+           operator_login: after exec runs gh pr create without an
+           assignee, spore assigns this login to the new PR.
+           pr_flow, commit_name and commit_email are accepted but
+           have no effect in this build.
   token    Print an installation token (cached host-side until ~5 min
            before expiry).
   exec     Run <cmd> with GH_TOKEN set and a git credential helper
@@ -157,15 +163,112 @@ func runGHExec(args []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	env := ghapp.Env(os.Environ(), tok.Token)
+	assignee := ""
+	if needsOperatorAssignee(args) {
+		cfg, err := ghapp.LoadConfig(root)
+		if err != nil {
+			return 0, err
+		}
+		assignee = cfg.OperatorLogin
+	}
+	var out bytes.Buffer
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = ghapp.Env(os.Environ(), tok.Token)
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if assignee != "" {
+		cmd.Stdout = io.MultiWriter(os.Stdout, &out)
+	}
+	code := 0
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return exit.ExitCode(), nil
+		if !errors.As(err, &exit) {
+			return 0, err
 		}
-		return 0, err
+		code = exit.ExitCode()
 	}
-	return 0, nil
+	if url := createdPRURL(out.String()); url != "" {
+		assignOperator(args[0], url, assignee, env)
+	}
+	return code, nil
+}
+
+// assignOperator adds the operator to a PR gh just opened. It runs as a
+// separate call, not as --assignee on the create: on github.com gh opens
+// the PR before assigning, so a rejected assignee would fail a create
+// that already happened (and on GHES fail it before the PR exists).
+// Failure here only warns; the create's exit code stands.
+func assignOperator(gh, url, login string, env []string) {
+	cmd := exec.Command(gh, "pr", "edit", url, "--add-assignee", login)
+	cmd.Env = env
+	cmd.Stdout, cmd.Stderr = io.Discard, os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "spore gh: warning: could not assign %s to %s: %v\n", login, url, err)
+	}
+}
+
+var prURLLine = regexp.MustCompile(`^https?://\S+/pull/\d+$`)
+
+func createdPRURL(stdout string) string {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); prURLLine.MatchString(last) {
+		return last
+	}
+	return ""
+}
+
+// needsOperatorAssignee reports whether args run `gh pr create` (or its
+// alias `new`) without any assignee flag; the caller's assignee wins.
+// Flags after a bare "--" are positional to gh, so scanning stops there.
+func needsOperatorAssignee(args []string) bool {
+	if len(args) < 3 || filepath.Base(args[0]) != "gh" || args[1] != "pr" ||
+		(args[2] != "create" && args[2] != "new") {
+		return false
+	}
+	rest := args[3:]
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--":
+			return true
+		case a == "--assignee" || strings.HasPrefix(a, "--assignee="):
+			return false
+		case strings.HasPrefix(a, "--"):
+			if ghPRCreateLongValue[strings.TrimPrefix(a, "--")] {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			assignee, takesNext := scanShorthand(a[1:])
+			if assignee {
+				return false
+			}
+			if takesNext {
+				i++
+			}
+		}
+	}
+	return true
+}
+
+// ghPRCreateLongValue lists gh pr create's long flags that take the next
+// argument as their value (gh v2.91.0 create.go plus the inherited --repo).
+var ghPRCreateLongValue = map[string]bool{
+	"title": true, "body": true, "body-file": true, "base": true, "head": true,
+	"reviewer": true, "label": true, "project": true, "milestone": true,
+	"template": true, "repo": true,
+}
+
+// scanShorthand reads a pflag shorthand cluster like "da" or "abob". A
+// value-taking letter swallows the rest of the cluster ("-ta" is a
+// title), or the next argument when it ends the cluster ("-t x").
+func scanShorthand(cluster string) (assignee, takesNext bool) {
+	for i, c := range cluster {
+		if c == 'a' {
+			return true, false
+		}
+		if strings.ContainsRune("tbFBHrlpmTR", c) {
+			return false, i == len(cluster)-1
+		}
+	}
+	return false, false
 }
