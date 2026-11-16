@@ -71,55 +71,18 @@ type Snapshot struct {
 }
 
 // DeriveSnapshot reads `<projectRoot>/.spore/<slug>/` and returns the
-// implied state. A missing tree returns a PhaseEngineerInitial
-// snapshot (no error), so callers can drive the loop forward without
-// first preparing the tree. Files that fail validation are not
-// counted: a bad file must neither wedge the loop nor skew the round
-// math. DriveRoleLoop bounces them back to their author.
+// implied state: the bundled `dev` loop run by the loop interpreter. A
+// missing tree returns a PhaseEngineerInitial snapshot (no error), so
+// callers can drive the loop forward without first preparing the tree.
+// Files that fail validation are not counted: a bad file must neither
+// wedge the loop nor skew the round math. DriveRoleLoop bounces them
+// back to their author.
 func DeriveSnapshot(projectRoot, slug string) (Snapshot, error) {
-	engRounds, err := validEngineerRounds(projectRoot, slug)
+	def, err := bundledDevLoop()
 	if err != nil {
 		return Snapshot{}, err
 	}
-	aRounds, err := task.ListReviewRounds(projectRoot, slug, task.ReviewerA)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	bRounds, err := task.ListReviewRounds(projectRoot, slug, task.ReviewerB)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	aReviews, err := loadReviews(projectRoot, slug, task.ReviewerA, aRounds)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	bReviews, err := loadReviews(projectRoot, slug, task.ReviewerB, bRounds)
-	if err != nil {
-		return Snapshot{}, err
-	}
-
-	snap := Snapshot{Slug: slug, EngineerRound: 0}
-	if len(engRounds) > 0 {
-		snap.EngineerRound = engRounds[len(engRounds)-1]
-	}
-	snap.Phase, snap.CurrentReviewer, snap.ReviewerRound, snap.LastVerdict =
-		derivePhase(len(engRounds), aReviews, bReviews)
-	return snap, nil
-}
-
-func loadReviews(projectRoot, slug string, instance task.ReviewerInstance, rounds []int) ([]task.Review, error) {
-	out := make([]task.Review, 0, len(rounds))
-	for _, r := range rounds {
-		rev, err := task.ReadReview(projectRoot, slug, instance, r)
-		if errors.Is(err, task.ErrInvalidRoleFile) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read %s round %d: %w", instance, r, err)
-		}
-		out = append(out, rev)
-	}
-	return out, nil
+	return DeriveLoopSnapshot(projectRoot, slug, def)
 }
 
 func validEngineerRounds(projectRoot, slug string) ([]int, error) {
@@ -139,68 +102,4 @@ func validEngineerRounds(projectRoot, slug string) ([]int, error) {
 		out = append(out, r)
 	}
 	return out, nil
-}
-
-// derivePhase is the pure state-machine kernel. It takes the counts
-// of engineer responses and the ordered reviewer verdicts; it
-// returns the derived phase plus per-status fields.
-func derivePhase(engCount int, aRev, bRev []task.Review) (Phase, task.ReviewerInstance, int, string) {
-	if engCount == 0 {
-		return PhaseEngineerInitial, "", 0, ""
-	}
-
-	// Pre-A: engineer shipped initial, A has not written anything.
-	if len(aRev) == 0 {
-		return PhaseReviewA, task.ReviewerA, 0, ""
-	}
-
-	lastA := aRev[len(aRev)-1]
-	if lastA.Verdict == task.VerdictApprove {
-		return derivePhaseB(engCount, countRequestChanges(aRev), bRev)
-	}
-
-	// A's latest verdict is request_changes.
-	if len(aRev) >= MaxReviewerRounds {
-		return PhaseEscalated, task.ReviewerA, len(aRev), lastA.Verdict
-	}
-	expected := 1 + countRequestChanges(aRev)
-	if engCount >= expected {
-		// Engineer has responded to the latest A verdict; A owns the
-		// next write.
-		return PhaseReviewA, task.ReviewerA, len(aRev), lastA.Verdict
-	}
-	return PhaseEngineerReviseA, task.ReviewerA, len(aRev), lastA.Verdict
-}
-
-func derivePhaseB(engCount, aRC int, bRev []task.Review) (Phase, task.ReviewerInstance, int, string) {
-	if len(bRev) == 0 {
-		// A approved, B not yet spawned/written. Either way, B owns
-		// the next write; no LastVerdict for the B phase.
-		return PhaseReviewB, task.ReviewerB, 0, ""
-	}
-	lastB := bRev[len(bRev)-1]
-	if lastB.Verdict == task.VerdictApprove {
-		return PhaseDone, task.ReviewerB, len(bRev), lastB.Verdict
-	}
-	// last B is request_changes
-	if len(bRev) >= MaxReviewerRounds {
-		return PhaseEscalated, task.ReviewerB, len(bRev), lastB.Verdict
-	}
-	expected := 1 + aRC + countRequestChanges(bRev)
-	if engCount >= expected {
-		return PhaseReviewB, task.ReviewerB, len(bRev), lastB.Verdict
-	}
-	return PhaseEngineerReviseB, task.ReviewerB, len(bRev), lastB.Verdict
-}
-
-// countRequestChanges returns how many verdicts in revs are
-// request_changes.
-func countRequestChanges(revs []task.Review) int {
-	n := 0
-	for _, r := range revs {
-		if r.Verdict == task.VerdictRequestChanges {
-			n++
-		}
-	}
-	return n
 }
