@@ -198,6 +198,10 @@ func Reconcile(cfg Config) (Result, error) {
 		delete(runningSet, slug)
 	}
 
+	if _, err := reapFinishedLoopPanes(cfg.ProjectRoot, statusBySlug); err != nil {
+		fmt.Fprintf(os.Stderr, "fleet: reap loop panes: %v\n", err)
+	}
+
 	// Stable iteration: sort by matter_sort_order ascending (lower
 	// spawns first; tasks without a stamp sort after stamped ones), then
 	// by slug. Stamps come from matter adapters such as linear's

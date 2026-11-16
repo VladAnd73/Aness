@@ -321,17 +321,19 @@ and merge with `spore task merge <slug>`. Then run:
 
 Done flips the status, kills the homogeneous worker session, removes
 the worktree and the `wt/<slug>` branch, deletes `tasks/<slug>.md`,
-and clears the `state/ready` marker. It refuses while the branch has
-unmerged commits (`--force` discards them). It does not kill role
-panes: its session cleanup matches `<project>/<slug>` at a name
-boundary, which `spore-role/...` names never hit. On the normal path
-that is moot (the done tick already reaped all three panes), but when
-you abandon an escalated task, kill the surviving panes yourself with
-`tmux kill-session -t spore-role/<project>/<slug>/<role>`.
+and removes the whole `.spore/<slug>/` tree (spec cache, responses,
+reviews, summary and state markers), so a later task reusing the slug
+starts its loop from round 1 with its own spec. It refuses while the
+branch has unmerged commits (`--force` discards them).
 
-The rest of `.spore/<slug>/` is preserved: `spec.md`, `responses/`,
-`reviews/`, `summary.md`, and the remaining state markers stay on
-disk as the task's audit trail.
+Done does not kill role panes itself: its session cleanup matches
+`<project>/<slug>` at a name boundary, which `spore-role/...` names
+never hit. The next reconcile pass does. It reaps every
+`spore-role/<project>/<slug>/*` pane whose task is done, deleted or in
+an unknown state, the rule generic workers follow; panes of active,
+paused, blocked and unparseable tasks are kept. On the normal path the
+done tick already reaped them; an abandoned escalated task's panes go
+on the first pass after its status leaves active for done.
 
 ## Spawn hardening in this fork
 
