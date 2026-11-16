@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/versality/spore/internal/task"
@@ -163,8 +164,43 @@ func StepSpec(projectRoot, slug string, def LoopDef, s Step) RoleSpawnSpec {
 	}
 	if s.Output != "" {
 		spec.OutputTemplate = filepath.Join(task.RoleTaskDir(projectRoot, slug), filepath.FromSlash(s.Output))
+		spec.Note = stepNote(def, s, spec.OutputTemplate)
 	}
 	return spec
+}
+
+// stepNote tells a step's pane where its output goes and what it must
+// hold. Role bodies are shared across loops and name the role loop's
+// own paths, so the note has to win over them.
+func stepNote(def LoopDef, s Step, output string) string {
+	var format string
+	switch s.Shape {
+	case "engineer-response":
+		format = fmt.Sprintf(`exactly {"author": %q, "addressed": [...], "pushback": [...], "notes": "...", "followups": [...]}, no other keys`, task.EngineerAuthor)
+	case "verdict":
+		format = fmt.Sprintf(`exactly {"author": %q, "verdict": %q or %q, "summary": "one line", "comments": ["one per concern"]}, no other keys`,
+			stepFiles(s).Author, task.VerdictApprove, task.VerdictRequestChanges)
+	default:
+		format = "one JSON object"
+		if len(s.Required) > 0 {
+			keys := make([]string, len(s.Required))
+			for i, k := range s.Required {
+				keys[i] = strconv.Quote(k)
+			}
+			format += " with these keys present and not null: " + strings.Join(keys, ", ")
+		}
+		var ons []string
+		for _, t := range s.Next {
+			if t.On != "" {
+				ons = append(ons, strconv.Quote(t.On))
+			}
+		}
+		if len(ons) > 0 {
+			format += `, and "verdict" set to one of ` + strings.Join(ons, ", ")
+		}
+	}
+	return fmt.Sprintf("You are step %q of loop %q. Write each round's output to %s with {round} replaced by the round number: 1 on your first round, one more each time the work comes back to you. Format: %s. This path and format replace any output path or file format your role instructions below name; follow the rest of them as written.",
+		s.Name, def.Name, output, format)
 }
 
 // classifyLoop resolves a task's `loop:` key to a loop name: "" for a

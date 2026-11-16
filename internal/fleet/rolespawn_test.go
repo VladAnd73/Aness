@@ -245,12 +245,16 @@ func TestRoleShellCommandRuns(t *testing.T) {
 	}
 	failNote := "spore: pre-start hook failed (exit 2): exit 2. Services may be down."
 	cases := []struct {
-		name, cmd, body, want string
+		name, cmd, body, note, want string
 	}{
-		{"ok with body", "true", "role body", "role body"},
-		{"fail with body", "exit 2", "role body", failNote + "\n\nrole body"},
-		{"ok bare", "true", "", ""},
-		{"fail bare", "exit 2", "", failNote},
+		{"ok with body", "true", "role body", "", "role body"},
+		{"fail with body", "exit 2", "role body", "", failNote + "\n\nrole body"},
+		{"ok bare", "true", "", "", ""},
+		{"fail bare", "exit 2", "", "", failNote},
+		{"step note with body", "true", "role body", "step note", "step note\n\nrole body"},
+		{"fail and step note with body", "exit 2", "role body", "step note", failNote + "\n\nstep note\n\nrole body"},
+		{"step note bare", "true", "", "step note", "step note"},
+		{"step note without prelude", "", "role body", "step note", "step note\n\nrole body"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -261,8 +265,10 @@ func TestRoleShellCommandRuns(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			script := roleShellCommand(task.PreStart{Cmd: c.cmd}.Prelude(root, "feat", "engineer"), "printf %s", "printf %s", rolePath)
-			out, err := exec.Command("sh", "-c", script).CombinedOutput()
+			script := roleShellCommand(task.PreStart{Cmd: c.cmd}.Prelude(root, "feat", "engineer"), "printf %s", "printf %s", rolePath, StepNoteEnv)
+			cmd := exec.Command("sh", "-c", script)
+			cmd.Env = append(os.Environ(), StepNoteEnv+"="+c.note)
+			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("run: %v: %s", err, out)
 			}

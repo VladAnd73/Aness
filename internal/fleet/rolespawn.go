@@ -61,7 +61,12 @@ type RoleSpawnSpec struct {
 	Mode, Effort, StepAgent string
 	// OutputTemplate is the absolute output path, "{round}" unexpanded.
 	OutputTemplate string
+	// Note heads the first prompt, ahead of the role body.
+	Note string
 }
+
+// StepNoteEnv carries a loop step's note into its pane.
+const StepNoteEnv = "SPORE_STEP_NOTE"
 
 // SessionName returns the tmux session name the spec spawns. For
 // engineers: "spore-role/<project>/<slug>/engineer". For reviewers:
@@ -173,6 +178,9 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		if s.OutputTemplate != "" {
 			args = append(args, "-e", "SPORE_STEP_OUTPUT="+s.OutputTemplate)
 		}
+		if s.Note != "" {
+			args = append(args, "-e", StepNoteEnv+"="+s.Note)
+		}
 		if len(s.Skills) > 0 {
 			args = append(args, "-e", "SPORE_STEP_SKILLS="+strings.Join(s.Skills, ","))
 		}
@@ -189,7 +197,11 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
 	prelude := task.LoadPreStart(s.ProjectRoot).Prelude(s.ProjectRoot, s.Slug, roleKey(s))
-	args = append(args, roleShellCommand(prelude, withBody, bare, rolePath))
+	var noteVars []string
+	if s.Note != "" {
+		noteVars = append(noteVars, StepNoteEnv)
+	}
+	args = append(args, roleShellCommand(prelude, withBody, bare, rolePath, noteVars...))
 	return args, nil
 }
 
@@ -332,17 +344,28 @@ func readRoleTaskMeta(tasksDir, slug string) (frontmatter.Meta, error) {
 }
 
 // roleShellCommand is coordinatorShellCommand behind the pre-start
-// prelude. On hook failure the note heads the role body; with no
-// role body the note alone is the first prompt.
-func roleShellCommand(prelude, cmdWithBody, cmdBare, rolePath string) string {
-	if prelude == "" {
+// prelude. The pre-start failure note, then each non-empty noteVars
+// variable, head the role body, blank-line separated; with no role
+// body the notes alone are the first prompt.
+func roleShellCommand(prelude, cmdWithBody, cmdBare, rolePath string, noteVars ...string) string {
+	vars := noteVars
+	if prelude != "" {
+		vars = append([]string{task.PreStartNoteVar}, noteVars...)
+	}
+	if len(vars) == 0 {
 		return bodyShellCommand(cmdWithBody, cmdBare, rolePath)
 	}
-	return prelude + fmt.Sprintf(
-		`if [ -r %[1]s ] && [ -s %[1]s ]; then exec %[2]s "${%[4]s:+$%[4]s
+	var join strings.Builder
+	for _, v := range vars {
+		fmt.Fprintf(&join, `[ -n "$%[1]s" ] && spore_prompt_head="${spore_prompt_head:+$spore_prompt_head
 
-}$(cat %[1]s)"; else exec %[3]s ${%[4]s:+"$%[4]s"}; fi`,
-		shellSingleQuote(rolePath), cmdWithBody, cmdBare, task.PreStartNoteVar,
+}$%[1]s"; `, v)
+	}
+	return prelude + "spore_prompt_head=; " + join.String() + fmt.Sprintf(
+		`if [ -r %[1]s ] && [ -s %[1]s ]; then exec %[2]s "${spore_prompt_head:+$spore_prompt_head
+
+}$(cat %[1]s)"; else exec %[3]s ${spore_prompt_head:+"$spore_prompt_head"}; fi`,
+		shellSingleQuote(rolePath), cmdWithBody, cmdBare,
 	)
 }
 
