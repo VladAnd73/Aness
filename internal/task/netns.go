@@ -34,7 +34,12 @@ const netnsBinary = "pasta"
 // keeps host ports free. Outbound NAT (internet + DNS) rides pasta's tap
 // interface and copied routes, independent of these flags, so isolation
 // and internet both keep working. Flags precede `--` (pasta args).
-const netnsWrapPrefix = netnsBinary + " --config-net -T none -U none -t none -u none -- env IS_SANDBOX=1 "
+const netnsWrapPrefix = netnsRunPrefix + sandboxEnv
+
+const (
+	netnsRunPrefix = netnsBinary + " --config-net -T none -U none -t none -u none -- "
+	sandboxEnv     = "env IS_SANDBOX=1 "
+)
 
 // lookPath is exec.LookPath, indirected so tests can stub binary
 // discovery without touching the real PATH.
@@ -60,7 +65,8 @@ func wrapForIsolation(agent string, isolate bool) (string, error) {
 // workerSpawnCommand resolves the command tmux runs for a worker: the
 // agent binary (env > frontmatter > default) optionally wrapped in the
 // netns launcher when the project's [worker] isolate_network is on. It
-// is the single composition seam ensureSession relies on, kept pure so
+// is the composition seam ensureSession reaches through
+// workerLaunchCommand, kept pure so
 // the off/on wrap and the missing-pasta fail-loud path are testable
 // without spawning tmux. Coordinators never call this: they spawn via
 // internal/fleet/coordinator.go, so isolation cannot leak onto them.
@@ -76,12 +82,63 @@ func workerSpawnCommand(projectRoot string, m frontmatter.Meta) (string, error) 
 	return wrapForIsolation(agent, cfg.IsolateNetwork)
 }
 
-// WrapAgentForIsolation applies the project's [worker] isolate_network
-// to an agent command spawned outside ensureSession (role panes).
-func WrapAgentForIsolation(projectRoot, agent string) (string, error) {
+// Isolation is a project's resolved [worker] isolate_network.
+type Isolation struct{ on bool }
+
+// LoadIsolation reads isolate_network and, when it is on, fails loud
+// if pasta is missing, as wrapForIsolation does.
+func LoadIsolation(projectRoot string) (Isolation, error) {
 	cfg, err := LoadWorkerConfig(projectRoot)
+	if err != nil {
+		return Isolation{}, err
+	}
+	if _, err := wrapForIsolation("", cfg.IsolateNetwork); err != nil {
+		return Isolation{}, err
+	}
+	return Isolation{on: cfg.IsolateNetwork}, nil
+}
+
+// Wrap runs agent alone inside the namespace.
+func (i Isolation) Wrap(agent string) string {
+	if !i.on {
+		return agent
+	}
+	return netnsWrapPrefix + agent
+}
+
+// Agent is agent as it runs inside a namespace Script set up.
+func (i Isolation) Agent(agent string) string {
+	if !i.on {
+		return agent
+	}
+	return sandboxEnv + agent
+}
+
+// Script runs a whole launch script inside the namespace, so a
+// pre-start hook and the agent share one loopback: services the hook
+// starts are reachable from the agent. Only the agent gets
+// IS_SANDBOX, through Agent.
+func (i Isolation) Script(script string) string {
+	if !i.on {
+		return script
+	}
+	return netnsRunPrefix + "sh -c " + shellQuote(script)
+}
+
+// workerLaunchCommand is the command tmux runs for a worker: the
+// agent behind the [fleet] pre_start hook when one is set.
+func workerLaunchCommand(projectRoot, slug string, m frontmatter.Meta) (string, error) {
+	prelude := LoadPreStart(projectRoot).Prelude(projectRoot, slug, "worker")
+	if prelude == "" {
+		return workerSpawnCommand(projectRoot, m)
+	}
+	agent, err := workerAgentCommand(m)
 	if err != nil {
 		return "", err
 	}
-	return wrapForIsolation(agent, cfg.IsolateNetwork)
+	iso, err := LoadIsolation(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return iso.Script(workerShellCommand(prelude, iso.Agent(agent))), nil
 }

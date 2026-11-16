@@ -542,7 +542,7 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if hasSession(session) {
 		return session, nil
 	}
-	agent, err := workerSpawnCommand(projectRoot, meta)
+	agent, err := workerLaunchCommand(projectRoot, slug, meta)
 	if err != nil {
 		return "", err
 	}

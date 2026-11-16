@@ -343,3 +343,29 @@ func TestRoleSpawnIgnoresWorkerRatio(t *testing.T) {
 		t.Errorf("command = %q, want claude (ratio must not drive role panes)", cmd)
 	}
 }
+
+// Given pre_start and isolate_network, when a role pane is specced,
+// then its whole launch, hook included, runs inside the pasta wrapper.
+func TestRoleSpawnPreStartRunsInsideNetns(t *testing.T) {
+	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "pasta"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(root, "spore.toml"), []byte("[worker]\nisolate_network = true\n[fleet]\npre_start = \"bin/up\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, err := EngineerSpec(root, "feature-x").TmuxArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := args[len(args)-1]
+	if !strings.HasPrefix(got, "pasta ") || !strings.Contains(got, "flock") {
+		t.Errorf("shell command %q: want the pre-start hook (flock) inside the pasta wrapper", got)
+	}
+	if !strings.Contains(got, "env IS_SANDBOX=1 claude") {
+		t.Errorf("shell command %q: want IS_SANDBOX=1 on the agent", got)
+	}
+}

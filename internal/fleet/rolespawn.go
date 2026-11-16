@@ -134,12 +134,16 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if withBody, err = task.WrapAgentForIsolation(s.ProjectRoot, withBody); err != nil {
+	iso, err := task.LoadIsolation(s.ProjectRoot)
+	if err != nil {
 		return nil, err
 	}
-	if bare, err = task.WrapAgentForIsolation(s.ProjectRoot, bare); err != nil {
-		return nil, err
+	prelude := task.LoadPreStart(s.ProjectRoot).Prelude(s.ProjectRoot, s.Slug, roleKey(s))
+	wrap := iso.Wrap
+	if prelude != "" {
+		wrap = iso.Agent
 	}
+	withBody, bare = wrap(withBody), wrap(bare)
 
 	taskDir := task.RoleTaskDir(s.ProjectRoot, s.Slug)
 	project, err := task.ProjectName(s.ProjectRoot)
@@ -196,12 +200,15 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		return nil, err
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
-	prelude := task.LoadPreStart(s.ProjectRoot).Prelude(s.ProjectRoot, s.Slug, roleKey(s))
 	var noteVars []string
 	if s.Note != "" {
 		noteVars = append(noteVars, StepNoteEnv)
 	}
-	args = append(args, roleShellCommand(prelude, withBody, bare, rolePath, noteVars...))
+	script := roleShellCommand(prelude, withBody, bare, rolePath, noteVars...)
+	if prelude != "" {
+		script = iso.Script(script)
+	}
+	args = append(args, script)
 	return args, nil
 }
 
