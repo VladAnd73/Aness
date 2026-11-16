@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -13,6 +14,9 @@ import (
 // inside the per-process TMUX_TMPDIR.
 const testTmuxSocket = "default"
 
+// testStateHome is the XDG_STATE_HOME TestMain gives the whole package.
+var testStateHome string
+
 func TestMain(m *testing.M) {
 	tmpdir, err := os.MkdirTemp("", "spore-tmux-test-")
 	if err != nil {
@@ -20,6 +24,11 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	if err := os.Setenv("TMUX_TMPDIR", tmpdir); err != nil {
+		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+		os.Exit(2)
+	}
+	testStateHome = filepath.Join(tmpdir, "state")
+	if err := os.Setenv("XDG_STATE_HOME", testStateHome); err != nil {
 		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
 		os.Exit(2)
 	}

@@ -18,7 +18,10 @@ respawn of a dead agent; the `MaxRoleRespawns` cap is unchanged. Role
 notices go to the coordinator inbox the watcher reads, resolved from
 the project root and the state dir settings.
 
-Role panes have no `SPORE_TASK_INBOX`, so `spore worker token-monitor`
-does not meter them: a role agent gets no wrap reminder and runs until
-the agent compacts on its own. If a token wrap or anything else kills
-a role session, the driver respawns it silently on the next tick.
+Role panes have no `SPORE_TASK_INBOX`; `spore worker token-monitor`
+meters them through `SPORE_ROLE` at the worker wrap cap. Past it, the
+role agent is told to commit in-flight work to the task branch, write
+its step's output under `$SPORE_TASK_DIR` only if complete, and end
+its own session (named by `SPORE_ROLE_SESSION`). If a token wrap or
+anything else kills a role session, the driver respawns it silently
+on the next tick.

@@ -12,7 +12,13 @@
 //
 // The worker monitor skips any session whose inbox is under the
 // coordinator state dir (those are owned by the coordinator monitor)
-// and any session with no inbox set.
+// and any session with no inbox set, unless the session is a role
+// pane.
+//
+// Role panes (spawned by fleet rolespawn with SPORE_ROLE and no inbox)
+// are metered at the same cap but get role wrap text: commit to the
+// task branch, write the step's output if it is complete, end the
+// role session. The loop driver, not the reconciler, respawns them.
 package tokenmonitor
 
 import (
@@ -29,6 +35,14 @@ type Config struct {
 	WrapCap             int
 	Inbox               string
 	CoordinatorStateDir string
+
+	// Role-pane fields, from the rolespawn session env. A non-empty
+	// Role routes Check to the role path regardless of Inbox, which a
+	// role pane may inherit from the spawning environment.
+	Role        string
+	RoleSlug    string
+	RoleSession string
+	TaskDir     string
 }
 
 type CheckResult struct {
@@ -96,6 +110,10 @@ func (c Config) Slug() string {
 func Check(cfg Config, payload HookPayload) CheckResult {
 	cfg = cfg.Defaults()
 
+	if cfg.IsRolePane() {
+		return checkRolePane(cfg, payload)
+	}
+
 	if cfg.Inbox == "" || cfg.IsCoordinator() {
 		return CheckResult{Level: "skip"}
 	}
@@ -139,6 +157,56 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 			"  3. Run: tmux kill-session -t \"$(tmux display-message -p '#S')\"\n"+
 			"The fleet reconciler resumes a fresh worker with the same worktree on the next pass.",
 		ctx, wrap, slug)
+	return result
+}
+
+// IsRolePane reports whether the session is a loop role pane. The
+// agent.env loader reserves SPORE_*, so only rolespawn sets Role.
+func (c Config) IsRolePane() bool {
+	return c.Role != ""
+}
+
+// roleRespawnLine states the respawn contract: the loop driver finds
+// the step's session missing on its next tick and spawns a fresh
+// agent at the same step, without a respawn marker or cap use.
+const roleRespawnLine = "The loop driver resumes a fresh agent at the same step on its next tick;\n" +
+	"it resumes from the task branch and the artifacts on disk."
+
+// checkRolePane is the role-pane variant of Check. It never falls back
+// to the newest transcript under the cwd: every pane of a task shares
+// the task worktree, so that guess could meter a sibling pane.
+func checkRolePane(cfg Config, payload HookPayload) CheckResult {
+	slug := cfg.RoleSlug
+	if slug == "" && cfg.TaskDir != "" {
+		slug = filepath.Base(cfg.TaskDir)
+	}
+	if slug == "" || payload.TranscriptPath == "" || !fileExists(payload.TranscriptPath) {
+		return CheckResult{Level: "skip", Slug: slug}
+	}
+
+	wrap := cfg.WrapCap
+	ctx := transcript.SumContextTokens(payload.TranscriptPath)
+	result := CheckResult{Ctx: ctx, WrapCap: wrap, Slug: slug, Level: "ok"}
+	if ctx <= 0 || ctx < wrap {
+		return result
+	}
+
+	kill := `tmux kill-session -t "$(tmux display-message -p '#S')"`
+	if cfg.RoleSession != "" {
+		kill = fmt.Sprintf("tmux kill-session -t %q", cfg.RoleSession)
+	}
+	result.Level = "wrap"
+	result.ShouldFire = true
+	result.Message = fmt.Sprintf(
+		"ROLE TOKEN MONITOR (wrap): context %d tokens >= wrap cap %d on role %s.\n"+
+			"Wrap up NOW:\n"+
+			"  1. Commit in-flight work to the wt/%s branch now; a WIP commit is fine.\n"+
+			"  2. If your step's output is complete, write it under $SPORE_TASK_DIR;\n"+
+			"     otherwise leave it unwritten so the respawned agent redoes the step.\n"+
+			"  3. If you have a blocker for the coordinator, send it before exiting.\n"+
+			"  4. Run: %s\n"+
+			"%s",
+		ctx, wrap, cfg.Role, slug, kill, roleRespawnLine)
 	return result
 }
 

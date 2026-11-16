@@ -21,8 +21,13 @@ Subcommands:
                   cap ($SPORE_COORDINATOR_HARD_CAP or [coordinator] hard_cap
                   in spore.toml, default 400000). $SPORE_WORKER_TOKEN_WRAP
                   overrides it for workers only.
+                  Loop role panes ($SPORE_ROLE set) are metered at the
+                  same cap with role wrap text: commit to the task
+                  branch, write the step output if complete, end the
+                  role session; the loop driver respawns it.
                   Skips coordinator inboxes (handled by spore coordinator
-                  token-monitor) and sessions with no $SPORE_TASK_INBOX.
+                  token-monitor) and non-role sessions with no
+                  $SPORE_TASK_INBOX.
 `
 
 func runWorker(args []string) int {
@@ -56,10 +61,14 @@ func runWorkerTokenMonitor(_ []string) int {
 	}
 
 	cfg := tokenmonitor.Config{
-		Inbox:   os.Getenv("SPORE_TASK_INBOX"),
-		WrapCap: envInt("SPORE_WORKER_TOKEN_WRAP"),
+		Inbox:       os.Getenv("SPORE_TASK_INBOX"),
+		WrapCap:     envInt("SPORE_WORKER_TOKEN_WRAP"),
+		Role:        os.Getenv("SPORE_ROLE"),
+		RoleSlug:    os.Getenv("SPORE_TASK_SLUG"),
+		RoleSession: os.Getenv("SPORE_ROLE_SESSION"),
+		TaskDir:     os.Getenv("SPORE_TASK_DIR"),
 	}
-	if cfg.WrapCap == 0 && cfg.Inbox != "" && !cfg.Defaults().IsCoordinator() {
+	if cfg.WrapCap == 0 && (cfg.IsRolePane() || cfg.Inbox != "" && !cfg.Defaults().IsCoordinator()) {
 		_, cfg.WrapCap = coordinatorCaps()
 	}
 

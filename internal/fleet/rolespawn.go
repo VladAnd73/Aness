@@ -127,6 +127,7 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		"-e", "WT_PROJECT=" + project,
 		"-e", "SPORE_TASK_DIR=" + taskDir,
 		"-e", "SPORE_ROLE=" + s.Role,
+		"-e", "SPORE_ROLE_SESSION=" + session,
 	}
 	if tier := task.LoadAccountTier(s.ProjectRoot); tier != "" {
 		args = append(args, "-e", "SPORE_ACCOUNT_TIER="+tier)
