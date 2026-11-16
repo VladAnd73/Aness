@@ -32,6 +32,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
 		os.Exit(2)
 	}
+	// A coordinator pane exports this, and it beats XDG_STATE_HOME.
+	_ = os.Unsetenv("SPORE_COORDINATOR_STATE_DIR")
 	_ = os.Unsetenv("TMUX")
 	_ = os.Unsetenv("TMUX_PANE")
 	_ = exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "keepalive", "sleep 86400").Run()
