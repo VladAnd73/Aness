@@ -86,6 +86,9 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 				return st, outs, fmt.Errorf("drive %s: report check: %w", slug, err)
 			}
 		}
+		if err := reportHeldStep(projectRoot, slug, def, st, outs); err != nil {
+			return st, outs, fmt.Errorf("drive %s: report held step: %w", slug, err)
+		}
 	}
 
 	if prFlow {
@@ -331,6 +334,31 @@ func wakeLoopPanes(projectRoot, slug string, def LoopDef, st LoopState, outs map
 		target.Title, st.Round, resp.Path, st.Round+1)
 	_, err := wakeRole(spec, fmt.Sprintf("woken-%s-%d", s.Session, resp.Round), msg+writeNowHint(projectRoot, slug, def, s, st)+skillsHint(s))
 	return err
+}
+
+// reportHeldStep tells the coordinator once per step and round when a
+// file or verdict condition holds the current step. Nothing else would:
+// the stall check skips blocked steps, and only command checks report
+// themselves.
+func reportHeldStep(projectRoot, slug string, def LoopDef, st LoopState, outs map[string][]StepOutput) error {
+	if st.Blocked == "" || st.Round < 1 || st.Round > len(outs[st.Step]) {
+		return nil
+	}
+	s := def.Steps[def.StepIndex(st.Step)]
+	o := outs[st.Step][st.Round-1]
+	if verdictConditionsHold(s, o.Verdict) && fileGate(projectRoot, slug, def, nil)(s.Name, o.Round) {
+		return nil
+	}
+	stateDir := filepath.Join(task.RoleTaskDir(projectRoot, slug), "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return err
+	}
+	created, err := createMarkerExcl(filepath.Join(stateDir, fmt.Sprintf("held-%s-%d", s.Name, o.Round)))
+	if err != nil || !created {
+		return err
+	}
+	notifyRoleLoop(projectRoot, fmt.Sprintf("%s: %s; the loop waits until they hold", slug, st.Blocked))
+	return nil
 }
 
 // writeNowHint names the exact file a woken step writes next. The dev

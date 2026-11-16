@@ -377,6 +377,16 @@ func (d LoopDef) validateStep(i int, s Step) error {
 			return fmt.Errorf("step %q: verdict condition needs equals", s.Name)
 		}
 	}
+	for _, c := range s.Done {
+		if c.Kind != "verdict" {
+			continue
+		}
+		for _, t := range s.Next {
+			if t.On != "" && t.On != c.Equals {
+				return fmt.Errorf("step %q: verdict condition equals %q blocks next on %q: an output with that verdict could never route; drop the condition or the transition", s.Name, c.Equals, t.On)
+			}
+		}
+	}
 	for _, t := range s.Next {
 		if t.To == "done" {
 			if t.Return {

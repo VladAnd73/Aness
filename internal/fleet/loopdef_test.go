@@ -179,6 +179,7 @@ func TestValidateRejects(t *testing.T) {
 		{"unknown mode", "name = \"x\"\n" + agent("a", "mode = \"codereview\"\n"), `mode "codereview"`},
 		{"unknown slot", "name = \"x\"\n" + agent("a", "slot = \"C\"\n"), `slot "C"`},
 		{"unknown effort", "name = \"x\"\n" + agent("a", "effort = \"huge\"\n"), `effort "huge"`},
+		{"verdict condition blocks routing", "name = \"x\"\n" + agent("a", "") + agent("b", "[[steps.done]]\nkind = \"verdict\"\nequals = \"approve\"\n[[steps.next]]\non = \"request_changes\"\nto = \"a\"\n"), `verdict condition equals "approve" blocks next on "request_changes"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
