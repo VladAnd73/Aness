@@ -1,0 +1,41 @@
+# A minimal loop to copy from. A drafter writes a draft, a checker
+# approves it or sends it back (at most two rounds), then the
+# coordinator is told. Copy it to bootstrap/loops/<name>.toml in your
+# project, rename the steps and point role at your own role bodies.
+name = "example"
+
+[[steps]]
+name = "draft"
+kind = "agent"
+role = "engineer"
+session = "draft"
+title = "Drafter"
+persist = true
+output = "draft/round-{round}.json"
+shape = "json"
+required = ["summary"]
+
+[[steps]]
+name = "check"
+kind = "agent"
+role = "reviewer"
+session = "check"
+title = "Checker"
+output = "check/round-{round}.json"
+shape = "verdict"
+max_rounds = 2
+
+[[steps.next]]
+on = "request_changes"
+to = "draft"
+return = true
+
+[[steps.next]]
+on = "approve"
+to = "notify"
+
+[[steps]]
+name = "notify"
+kind = "action"
+action = "notify-coordinator"
+message = "example loop finished: the draft passed its check"
