@@ -51,6 +51,11 @@ func Start(tasksDir, slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", path, err)
 	}
+	if m.Loop != "" {
+		return "", fmt.Errorf(
+			"task %s: has loop: %s; edit status to active and let the reconciler drive it, or run `spore task role-drive %s`",
+			slug, m.Loop, slug)
+	}
 	prev := m.Status
 	switch prev {
 	case "draft", "paused", "blocked":
@@ -81,6 +86,39 @@ func Start(tasksDir, slug string) (string, error) {
 	}
 	notifyMatterSpawn(projectRoot, slug, m, os.Stderr)
 	return out, nil
+}
+
+// EnsureWorktree creates the wt/<slug> branch and worktree under
+// `<projectRoot>/.worktrees/<slug>/` when missing, without spawning the
+// homogeneous worker tmux session. Idempotent. Used by the role-loop
+// driver to own its worktree precondition instead of riding on
+// Ensure (which also spawns the worker session that the role-looped
+// task explicitly does not want).
+func EnsureWorktree(tasksDir, slug string) (string, error) {
+	projectRoot, err := projectRootFromTasksDir(tasksDir)
+	if err != nil {
+		return "", err
+	}
+	worktree := filepath.Join(projectRoot, ".worktrees", slug)
+	if _, err := os.Stat(worktree); err == nil {
+		return worktree, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	branch := "wt/" + slug
+	args := []string{"worktree", "add", worktree}
+	if branchExists(projectRoot, branch) {
+		args = append(args, branch)
+	} else {
+		args = append(args, "-b", branch)
+	}
+	if out, err := gitCmd(projectRoot, args...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := copyBriefToWorktree(tasksDir, worktree, slug); err != nil {
+		return "", fmt.Errorf("copy brief: %w", err)
+	}
+	return worktree, nil
 }
 
 // Ensure makes sure the wt/<slug> branch, worktree, and tmux session
@@ -590,7 +628,13 @@ func workerAgentCommand(m frontmatter.Meta) (string, error) {
 	if agent != "codex" {
 		return agent, nil
 	}
+	return CodexAgentCommand(m)
+}
 
+// CodexAgentCommand returns the interactive codex command line for a
+// task, honouring its effort/complexity and model keys. Unlike
+// workerAgentCommand it ignores SPORE_AGENT_BINARY.
+func CodexAgentCommand(m frontmatter.Meta) (string, error) {
 	effort, err := codexpolicy.EffortForTask(m.Extra["effort"], m.Extra["complexity"])
 	if err != nil {
 		return "", err

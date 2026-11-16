@@ -17,9 +17,9 @@ import (
 )
 
 // Meta is the parsed frontmatter view. Status, Slug, Title, Created,
-// Project, Host, Agent, and Session are first-class scalars; Needs is
-// a first-class list. Any other recognised key lands in Extra so a
-// Parse / Write round trip preserves it.
+// Project, Host, Agent, Session, and Loop are first-class scalars;
+// Needs is a first-class list. Any other recognised key lands in
+// Extra so a Parse / Write round trip preserves it.
 //
 // Session is the tmux session name the spawner registered for this
 // task. The kernel's own ensureSession path uses the computed
@@ -27,6 +27,11 @@ import (
 // their own session names (e.g. "🐈 acme/my-task [opus]") write
 // the real name here so reap/done/merge can target the live session
 // instead of a stale computed one.
+//
+// Loop selects the execution loop that owns the task. Empty means the
+// homogeneous worker loop; "role" opts into the role-based
+// engineer/reviewer loop. Carried in the task file itself so the
+// opt-in is atomic with the status flip the fleet reconciler watches.
 type Meta struct {
 	Status  string
 	Slug    string
@@ -36,6 +41,7 @@ type Meta struct {
 	Host    string
 	Agent   string
 	Session string
+	Loop    string
 	Needs   []string
 	Extra   map[string]string
 }
@@ -91,6 +97,8 @@ func Parse(content []byte) (Meta, []byte, error) {
 			m.Agent = val
 		case "session":
 			m.Session = val
+		case "loop":
+			m.Loop = val
 		case "needs":
 			listTarget = &m.Needs
 		default:
@@ -113,10 +121,10 @@ func Parse(content []byte) (Meta, []byte, error) {
 }
 
 // Write serialises Meta back into the `---`...`---` envelope and
-// appends body. Field order is fixed (Status, Slug, Title, Created,
-// Project) followed by Extra in sorted key order, so Parse + Write
-// round-trips byte-for-byte when callers preserve insertion via
-// Extra.
+// appends body. Field order is fixed (the first-class scalars in
+// struct order, then Needs) followed by Extra in sorted key order, so
+// Parse + Write round-trips byte-for-byte when callers preserve
+// insertion via Extra.
 func Write(m Meta, body []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("---\n")
@@ -128,6 +136,7 @@ func Write(m Meta, body []byte) []byte {
 	writeScalar(&buf, "host", m.Host)
 	writeScalar(&buf, "agent", m.Agent)
 	writeScalar(&buf, "session", m.Session)
+	writeScalar(&buf, "loop", m.Loop)
 	writeBlockList(&buf, "needs", m.Needs)
 
 	keys := make([]string, 0, len(m.Extra))

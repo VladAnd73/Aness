@@ -198,3 +198,21 @@ func TestParseErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoopFieldRoundTrip(t *testing.T) {
+	in := []byte("---\nstatus: active\nslug: x\nloop: role\n---\nbody\n")
+	m, body, err := Parse(in)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.Loop != "role" {
+		t.Errorf("Loop = %q, want %q", m.Loop, "role")
+	}
+	if m.Extra["loop"] != "" {
+		t.Errorf("loop leaked into Extra: %#v", m.Extra)
+	}
+	out := Write(m, body)
+	if string(out) != string(in) {
+		t.Errorf("round-trip mismatch\nwant:\n%s\ngot:\n%s", in, out)
+	}
+}
