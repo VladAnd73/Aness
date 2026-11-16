@@ -1,0 +1,63 @@
+# The dev loop: upstream's role loop as a loop file. An engineer
+# writes a response; reviewer A then reviewer B each approve or send
+# it back. request_changes returns to the engineer and, once the
+# engineer answers, back to the same reviewer. Each reviewer gets at
+# most three rounds before the loop escalates to the coordinator.
+name = "dev"
+summary = true
+github_mirror = true
+
+[[steps]]
+name = "engineer"
+kind = "agent"
+role = "engineer"
+session = "engineer"
+title = "Engineer"
+phase = "engineer-initial"
+persist = true
+output = "responses/engineer-round-{round}.json"
+shape = "engineer-response"
+
+[[steps]]
+name = "review-A"
+kind = "agent"
+role = "reviewer"
+session = "reviewer-A"
+title = "Reviewer A"
+label = "A"
+slot = "A"
+output = "reviews/A/round-{round}.json"
+shape = "verdict"
+max_rounds = 3
+
+[[steps.next]]
+on = "request_changes"
+to = "engineer"
+return = true
+phase = "engineer-revise-A"
+
+[[steps.next]]
+on = "approve"
+to = "review-B"
+
+[[steps]]
+name = "review-B"
+kind = "agent"
+role = "reviewer"
+session = "reviewer-B"
+title = "Reviewer B"
+label = "B"
+slot = "B"
+output = "reviews/B/round-{round}.json"
+shape = "verdict"
+max_rounds = 3
+
+[[steps.next]]
+on = "request_changes"
+to = "engineer"
+return = true
+phase = "engineer-revise-B"
+
+[[steps.next]]
+on = "approve"
+to = "done"

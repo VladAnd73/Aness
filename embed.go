@@ -82,3 +82,10 @@ var BundledRecipes embed.FS
 //
 //go:embed all:bootstrap/roles
 var BundledRoles embed.FS
+
+// BundledLoops holds the shipped loop files (dev, example). A
+// project's bootstrap/loops/<name>.toml overrides the bundled loop of
+// the same name.
+//
+//go:embed all:bootstrap/loops
+var BundledLoops embed.FS
