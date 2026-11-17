@@ -17,10 +17,13 @@
   that rewrites the https URL to ssh is refused.
 - Loop state under `.spore/` is git-excluded. Spore adds `.spore/` to
   the repo's `info/exclude` (in the common git dir, so a linked
-  worktree updates the main repo's) when a loop drives or a role task
-  dir is created. Loop files no longer show as untracked and trip a
+  worktree updates the main repo's) when it first creates `.spore/`.
+  Loop files no longer show as untracked and trip a
   `git status --porcelain` done check. The tracked `.gitignore` is not
-  touched.
+  touched. Only a project root that is the top of its own repo is
+  excluded (a plain dir inside a parent repo, or an exported
+  `GIT_DIR`, never writes another repo's exclude), and an exclude
+  spore cannot write is logged without blocking a drive or a spawn.
 - Loop files take `pr_footer = false` to drop the "Dispatched by ...
   merges." footer from PR bodies opened by `push-and-open-pr` or the
   draft-PR mirror. Absent, the footer stays.

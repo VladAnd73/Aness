@@ -106,3 +106,70 @@ func TestEnsureRoleTaskDirOutsideGitStillWorks(t *testing.T) {
 		t.Fatalf("non-git root: %v", err)
 	}
 }
+
+func TestEnsureRoleTaskDirSurvivesUnwritableExclude(t *testing.T) {
+	root := t.TempDir()
+	gitIn(t, root, "init", "-q")
+	info := filepath.Join(root, ".git", "info")
+	if err := os.Chmod(filepath.Join(info, "exclude"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(info, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(info, 0o755) })
+	if _, err := EnsureRoleTaskDir(root, "demo"); err != nil {
+		t.Fatalf("EnsureRoleTaskDir: %v", err)
+	}
+}
+
+func TestEnsureRoleTaskDirExcludesOnlyOnCreate(t *testing.T) {
+	root := t.TempDir()
+	gitIn(t, root, "init", "-q")
+	if err := os.Mkdir(filepath.Join(root, RoleTaskRoot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureRoleTaskDir(root, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := excludeLines(t, filepath.Join(root, ".git")); len(got) != 0 {
+		t.Fatalf(".spore/ lines = %q, want none once .spore/ already existed", got)
+	}
+}
+
+// TestEnsureRoleTaskDirNonGitProjectLeavesParentRepo: a project dir
+// that is not its own repo, inside one (a dotfiles repo at $HOME),
+// must not write into the parent's exclude.
+func TestEnsureRoleTaskDirNonGitProjectLeavesParentRepo(t *testing.T) {
+	parent := t.TempDir()
+	gitIn(t, parent, "init", "-q")
+	root := filepath.Join(parent, "proj")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureRoleTaskDir(root, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := excludeLines(t, filepath.Join(parent, ".git")); len(got) != 0 {
+		t.Fatalf("parent repo exclude got %q", got)
+	}
+}
+
+// TestEnsureRoleTaskDirIgnoresExportedGitDir: an exported GIT_DIR
+// must not redirect the exclude into another repo.
+func TestEnsureRoleTaskDirIgnoresExportedGitDir(t *testing.T) {
+	root, other := t.TempDir(), t.TempDir()
+	gitIn(t, root, "init", "-q")
+	gitIn(t, other, "init", "-q")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+	if _, err := EnsureRoleTaskDir(root, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := excludeLines(t, filepath.Join(other, ".git")); len(got) != 0 {
+		t.Fatalf("other repo exclude got %q", got)
+	}
+	if got := excludeLines(t, filepath.Join(root, ".git")); len(got) != 1 {
+		t.Fatalf("project exclude .spore/ lines = %q, want one", got)
+	}
+}

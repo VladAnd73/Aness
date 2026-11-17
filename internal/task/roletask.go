@@ -167,7 +167,7 @@ func EnsureRoleTaskDir(projectRoot, slug string) (string, error) {
 	if slug == "" {
 		return "", errors.New("roletask: empty slug")
 	}
-	if err := ExcludeRoleTaskRoot(projectRoot); err != nil {
+	if err := EnsureRoleTaskRoot(projectRoot); err != nil {
 		return "", err
 	}
 	root := RoleTaskDir(projectRoot, slug)
@@ -184,20 +184,41 @@ func EnsureRoleTaskDir(projectRoot, slug string) (string, error) {
 	return root, nil
 }
 
+// EnsureRoleTaskRoot creates `<projectRoot>/.spore/` and git-excludes
+// it, only when it creates it, so a drive tick that finds it does no
+// git work. An exclude failure (read-only info/, another owner) is
+// logged, never returned: it must not block a drive or a spawn.
+func EnsureRoleTaskRoot(projectRoot string) error {
+	dir := filepath.Join(projectRoot, RoleTaskRoot)
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := ExcludeRoleTaskRoot(projectRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "spore: git-exclude %s/ in %s: %v\n", RoleTaskRoot, projectRoot, err)
+	}
+	return nil
+}
+
 // ExcludeRoleTaskRoot adds `.spore/` to the repo's info/exclude so
 // loop state never shows as untracked, which would trip a done check
 // such as `git status --porcelain`. The consumer's tracked .gitignore
 // is left alone. The exclude file lives in the common git dir, so a
 // linked worktree updates the main repo's. Idempotent; a projectRoot
-// outside git is a no-op.
+// that is not the top of its own repo (outside git, or a plain dir
+// inside a parent repo) is a no-op.
 func ExcludeRoleTaskRoot(projectRoot string) error {
-	out, err := exec.Command("git", "-C", projectRoot, "rev-parse", "--git-common-dir").Output()
+	cmd := exec.Command("git", "-C", projectRoot, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	cmd.Env = withoutGitRepoEnv(os.Environ())
+	out, err := cmd.Output()
 	if err != nil {
 		return nil
 	}
-	gitDir := strings.TrimSpace(string(out))
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(projectRoot, gitDir)
+	top, gitDir, ok := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if !ok || !samePath(top, projectRoot) {
+		return nil
 	}
 	path := filepath.Join(gitDir, "info", "exclude")
 	b, err := os.ReadFile(path)
@@ -226,6 +247,27 @@ func ExcludeRoleTaskRoot(projectRoot string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// withoutGitRepoEnv drops the variables that point git at a repo other
+// than the one its -C dir is in.
+func withoutGitRepoEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		switch k {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE":
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func samePath(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }
 
 // WriteSpec caches body at `<roletaskdir>/spec.md`. The cache is

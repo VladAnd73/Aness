@@ -45,10 +45,6 @@ func DriveLoop(projectRoot, tasksDir, slug string) (LoopState, error) {
 }
 
 func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, map[string][]StepOutput, error) {
-	// The drive lock below is what first creates .spore/.
-	if err := task.ExcludeRoleTaskRoot(projectRoot); err != nil {
-		return LoopState{Slug: slug, Loop: def.Name}, nil, fmt.Errorf("drive %s: git-exclude %s/: %w", slug, task.RoleTaskRoot, err)
-	}
 	unlock, err := lockLoopDrive(projectRoot, slug)
 	if err != nil {
 		return LoopState{Slug: slug, Loop: def.Name}, nil, fmt.Errorf("drive %s: %w", slug, err)

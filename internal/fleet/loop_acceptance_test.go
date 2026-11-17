@@ -775,3 +775,36 @@ func TestDriveLoopKeepsSporeOutOfGitStatus(t *testing.T) {
 		t.Fatalf("git status shows loop state:\n%s", out)
 	}
 }
+
+// TestDriveLoopSurvivesUnwritableExclude: an info/exclude spore cannot
+// write (read-only, another owner) must not stop the drive.
+func TestDriveLoopSurvivesUnwritableExclude(t *testing.T) {
+	f := newLoopFixture(t, "trio", "trio.toml", "alpha", "beta")
+	info := filepath.Join(f.root, ".git", "info")
+	if err := os.Chmod(filepath.Join(info, "exclude"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(info, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(info, 0o755) })
+	if _, err := DriveLoop(f.root, f.tasks, f.slug); err != nil {
+		t.Fatalf("DriveLoop: %v", err)
+	}
+}
+
+// TestDriveLoopExcludesOnlyWhenSporeIsCreated: once .spore/ exists a
+// drive tick does no exclude work, so an exclude line the operator
+// removed stays removed.
+func TestDriveLoopExcludesOnlyWhenSporeIsCreated(t *testing.T) {
+	f := newLoopFixture(t, "trio", "trio.toml", "alpha", "beta")
+	f.tick(t)
+	exclude := filepath.Join(f.root, ".git", "info", "exclude")
+	if err := os.WriteFile(exclude, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if b, _ := os.ReadFile(exclude); len(b) != 0 {
+		t.Fatalf("a later tick rewrote info/exclude: %q", b)
+	}
+}
