@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -166,6 +167,9 @@ func EnsureRoleTaskDir(projectRoot, slug string) (string, error) {
 	if slug == "" {
 		return "", errors.New("roletask: empty slug")
 	}
+	if err := ExcludeRoleTaskRoot(projectRoot); err != nil {
+		return "", err
+	}
 	root := RoleTaskDir(projectRoot, slug)
 	for _, sub := range []string{
 		"",
@@ -178,6 +182,50 @@ func EnsureRoleTaskDir(projectRoot, slug string) (string, error) {
 		}
 	}
 	return root, nil
+}
+
+// ExcludeRoleTaskRoot adds `.spore/` to the repo's info/exclude so
+// loop state never shows as untracked, which would trip a done check
+// such as `git status --porcelain`. The consumer's tracked .gitignore
+// is left alone. The exclude file lives in the common git dir, so a
+// linked worktree updates the main repo's. Idempotent; a projectRoot
+// outside git is a no-op.
+func ExcludeRoleTaskRoot(projectRoot string) error {
+	out, err := exec.Command("git", "-C", projectRoot, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return nil
+	}
+	gitDir := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(projectRoot, gitDir)
+	}
+	path := filepath.Join(gitDir, "info", "exclude")
+	b, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		switch strings.TrimSpace(line) {
+		case RoleTaskRoot + "/", "/" + RoleTaskRoot + "/", RoleTaskRoot, "/" + RoleTaskRoot:
+			return nil
+		}
+	}
+	add := RoleTaskRoot + "/\n"
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		add = "\n" + add
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(add); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // WriteSpec caches body at `<roletaskdir>/spec.md`. The cache is

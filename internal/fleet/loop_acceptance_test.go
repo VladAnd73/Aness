@@ -756,3 +756,22 @@ func TestAcceptanceS9DyingPaneBackoffAndCap(t *testing.T) {
 		}
 	})
 }
+
+// TestDriveLoopKeepsSporeOutOfGitStatus: a fresh repo with no ignore
+// rules shows nothing under .spore/ once a loop task has started, so
+// a done check such as `git status --porcelain` is not tripped.
+func TestDriveLoopKeepsSporeOutOfGitStatus(t *testing.T) {
+	f := newLoopFixture(t, "trio", "trio.toml", "alpha", "beta")
+	f.tick(t)
+	f.write(t, "alpha/round-1.json", `{"notes":"1"}`)
+	if _, err := os.Stat(loopTaskDir(f.root, f.slug)); err != nil {
+		t.Fatalf("loop created no task tree: %v", err)
+	}
+	out, err := exec.Command("git", "-C", f.root, "status", "--porcelain", "--untracked-files=all").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status: %v: %s", err, out)
+	}
+	if strings.Contains(string(out), ".spore/") {
+		t.Fatalf("git status shows loop state:\n%s", out)
+	}
+}

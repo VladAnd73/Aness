@@ -9,6 +9,12 @@
   config. When origin carries several urls, the first https one wins,
   so an extra ssh url is never tried. An ssh origin on another host
   fails with an error naming it.
+- Loop state under `.spore/` is git-excluded. Spore adds `.spore/` to
+  the repo's `info/exclude` (in the common git dir, so a linked
+  worktree updates the main repo's) when a loop drives or a role task
+  dir is created. Loop files no longer show as untracked and trip a
+  `git status --porcelain` done check. The tracked `.gitignore` is not
+  touched.
 
 ## 1.0.9 - 2026-11-17
 
