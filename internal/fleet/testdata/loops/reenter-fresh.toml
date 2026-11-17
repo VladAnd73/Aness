@@ -1,0 +1,37 @@
+# Fixture: no step persists, so every round after the first runs in a
+# pane spawned fresh after a planned reap.
+name = "reenter-fresh"
+
+[[steps]]
+name = "author"
+kind = "agent"
+role = "engineer"
+session = "author"
+output = "author/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "review"
+kind = "agent"
+role = "engineer"
+session = "review"
+output = "review/round-{round}.json"
+shape = "json"
+required = ["notes"]
+
+[[steps]]
+name = "comp"
+kind = "agent"
+role = "reviewer"
+session = "comp"
+output = "comp/round-{round}.json"
+shape = "verdict"
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+
+[[steps.next]]
+on = "approve"
+to = "done"

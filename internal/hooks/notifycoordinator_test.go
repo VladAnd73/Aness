@@ -146,3 +146,42 @@ func TestNotifyCoordinatorEnv_SelfPokeIsNoop(t *testing.T) {
 		t.Errorf("expected inbox not created (self-poke skipped), got err=%v", err)
 	}
 }
+
+func TestNotifyCoordinatorEventSourceAndBody(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("SPORE_COORDINATOR_STATE_DIR", state)
+
+	bodies := []string{"first notice", "second notice"}
+	for _, b := range bodies {
+		if err := NotifyCoordinatorEvent("demo", "role-loop", b); err != nil {
+			t.Fatalf("NotifyCoordinatorEvent: %v", err)
+		}
+	}
+
+	inbox := filepath.Join(state, "demo", "inbox")
+	entries, err := os.ReadDir(inbox)
+	if err != nil {
+		t.Fatalf("read inbox: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(inbox, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ev tellEvent
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			t.Fatalf("unmarshal %s: %v", e.Name(), err)
+		}
+		if ev.Source != "role-loop" {
+			t.Errorf("%s: source=%q, want role-loop", e.Name(), ev.Source)
+		}
+		got[ev.Body] = true
+	}
+	if len(got) != 2 || !got[bodies[0]] || !got[bodies[1]] {
+		t.Fatalf("inbox bodies = %v, want both %v in separate files", got, bodies)
+	}
+}

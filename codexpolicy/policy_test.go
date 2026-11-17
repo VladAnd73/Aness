@@ -71,6 +71,7 @@ func TestInteractiveArgs(t *testing.T) {
 		"--disable", "apps",
 		"-m", "gpt-5.5",
 		"-c", `model_reasoning_effort="high"`,
+		"-c", ProjectDocFallbackConfig,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("args = %#v want %#v", got, want)

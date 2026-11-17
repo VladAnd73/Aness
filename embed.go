@@ -75,3 +75,17 @@ var BundledMigrations embed.FS
 //
 //go:embed all:bootstrap/recipes
 var BundledRecipes embed.FS
+
+// BundledRoles holds the role-loop bodies (engineer, reviewer,
+// reviewer-code-review). A project's bootstrap/roles/<name>.md
+// overrides the bundled body of the same name.
+//
+//go:embed all:bootstrap/roles
+var BundledRoles embed.FS
+
+// BundledLoops holds the shipped loop files (dev, example). A
+// project's bootstrap/loops/<name>.toml overrides the bundled loop of
+// the same name.
+//
+//go:embed all:bootstrap/loops
+var BundledLoops embed.FS

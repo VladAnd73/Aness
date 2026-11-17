@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/versality/spore/internal/editor"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
@@ -67,6 +68,10 @@ type Result struct {
 	// lists the spawns this pass that did not come up.
 	BackedOff []string
 	Failed    []string
+
+	// Warnings are non-fatal problems found in task frontmatter or loop
+	// files, also logged to stderr.
+	Warnings []string
 
 	// InboxWatchdog is the lost-wakeup watchdog's outcome for this
 	// pass. Zero-valued when the kill switch is off, since the
@@ -193,6 +198,10 @@ func Reconcile(cfg Config) (Result, error) {
 		delete(runningSet, slug)
 	}
 
+	if _, err := reapFinishedLoopPanes(cfg.ProjectRoot, statusBySlug); err != nil {
+		fmt.Fprintf(os.Stderr, "fleet: reap loop panes: %v\n", err)
+	}
+
 	// Stable iteration: sort by matter_sort_order ascending (lower
 	// spawns first; tasks without a stamp sort after stamped ones), then
 	// by slug. Stamps come from matter adapters such as linear's
@@ -225,6 +234,40 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
+	// A task whose `loop:` key names a loop file (see LoadLoop; `role`
+	// is the dev loop) is owned solely by DriveLoop. The homogeneous
+	// spawn below must skip it: otherwise Reconcile would mint a
+	// generic worker at spore/<project>/<slug> (invisible to
+	// runningSet, which only tracks the spore-role/<project>/ prefix)
+	// on top of the loop panes that edit the same wt/<slug> branch.
+	// The key rides in the same file write that flips status to
+	// active, so the watcher-triggered pass already sees it. The key is
+	// the only opt-in: `.spore/<slug>/` presence is not, because
+	// coordinators stage briefs there for generic tasks too. A name no
+	// loop file carries keeps the generic worker; a loop file that does
+	// not load starts nothing until it is fixed.
+	looped := map[string]bool{}
+	refused := map[string]bool{}
+	for _, m := range metas {
+		if m.Loop == "" || m.Status != "active" {
+			continue
+		}
+		_, err := classifyLoop(cfg.ProjectRoot, m)
+		var w string
+		switch {
+		case err == nil:
+			looped[m.Slug] = true
+			continue
+		case errors.Is(err, ErrUnknownLoop):
+			w = fmt.Sprintf("task %s: unknown loop: %q (no such loop file in bootstrap/loops/ or bundled); treating as a generic worker task", m.Slug, m.Loop)
+		default:
+			refused[m.Slug] = true
+			w = fmt.Sprintf("task %s: loop %s: %v; not started", m.Slug, m.Loop, err)
+		}
+		fmt.Fprintln(os.Stderr, w)
+		res.Warnings = append(res.Warnings, w)
+	}
+
 	// Only active workers count toward the cap. The coordinator pauses a
 	// task right after its worker reports DONE; that session is kept for
 	// the operator but is idle, and counting it starved the queue.
@@ -240,7 +283,15 @@ func Reconcile(cfg Config) (Result, error) {
 	var spawnErr error
 	now := time.Now()
 	backoff := loadSpawnBackoff(cfg.ProjectRoot)
-	backoff.prune(runningSet, activeSet, now)
+	// Looped and refused slugs are left out so prune drops any record
+	// left from before the task opted into the loop.
+	genericActive := map[string]bool{}
+	for slug := range activeSet {
+		if !looped[slug] && !refused[slug] {
+			genericActive[slug] = true
+		}
+	}
+	backoff.prune(runningSet, genericActive, now)
 	defer func() {
 		if err := backoff.save(); err != nil {
 			fmt.Fprintln(os.Stderr, "fleet: spawn backoff:", err)
@@ -248,6 +299,9 @@ func Reconcile(cfg Config) (Result, error) {
 	}()
 
 	for _, slug := range actives {
+		if looped[slug] || refused[slug] {
+			continue
+		}
 		if runningSet[slug] {
 			continue
 		}
@@ -285,6 +339,23 @@ func Reconcile(cfg Config) (Result, error) {
 		runningSet[slug] = true
 		activeRunning++
 		agentCounts[picked]++
+	}
+
+	// Advance looped tasks. DriveLoop owns the worktree precondition
+	// for these slugs (see the homogeneous-spawn skip above) and
+	// creates `.spore/<slug>/` itself on the first tick, so a task
+	// starts moving on the same pass that classified it.
+	for _, slug := range actives {
+		if !looped[slug] {
+			continue
+		}
+		if _, err := DriveLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil && !errors.Is(err, ErrLoopBusy) {
+			fmt.Fprintf(os.Stderr, "loop drive %s: %v\n", slug, err)
+		}
+	}
+
+	if _, err := editor.RefreshWorkspace(cfg.ProjectRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "code workspace refresh: %v\n", err)
 	}
 
 	sort.Strings(res.Spawned)

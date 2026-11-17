@@ -35,6 +35,10 @@ const defaultAgentBinary = "claude"
 // launches. Empty lets the codex CLI use its own default.
 const CodexModelEnv = "SPORE_CODEX_MODEL"
 
+// CodexBinEnv replaces the codex executable in worker and role-pane
+// launches.
+const CodexBinEnv = "SPORE_CODEX_BIN"
+
 // Start flips status to active and (when starting from draft) creates
 // the worktree and wt/<slug> branch under <projectRoot>/.worktrees/.
 // In every case it spawns a detached tmux session named
@@ -50,6 +54,11 @@ func Start(tasksDir, slug string) (string, error) {
 	m, body, err := frontmatter.Parse(raw)
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", path, err)
+	}
+	if m.Loop != "" {
+		return "", fmt.Errorf(
+			"task %s: has loop: %s; edit status to active and let the reconciler drive it, or run `spore task role-drive %s`",
+			slug, m.Loop, slug)
 	}
 	prev := m.Status
 	switch prev {
@@ -81,6 +90,39 @@ func Start(tasksDir, slug string) (string, error) {
 	}
 	notifyMatterSpawn(projectRoot, slug, m, os.Stderr)
 	return out, nil
+}
+
+// EnsureWorktree creates the wt/<slug> branch and worktree under
+// `<projectRoot>/.worktrees/<slug>/` when missing, without spawning the
+// homogeneous worker tmux session. Idempotent. Used by the role-loop
+// driver to own its worktree precondition instead of riding on
+// Ensure (which also spawns the worker session that the role-looped
+// task explicitly does not want).
+func EnsureWorktree(tasksDir, slug string) (string, error) {
+	projectRoot, err := projectRootFromTasksDir(tasksDir)
+	if err != nil {
+		return "", err
+	}
+	worktree := filepath.Join(projectRoot, ".worktrees", slug)
+	if _, err := os.Stat(worktree); err == nil {
+		return worktree, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	branch := "wt/" + slug
+	args := []string{"worktree", "add", worktree}
+	if branchExists(projectRoot, branch) {
+		args = append(args, branch)
+	} else {
+		args = append(args, "-b", branch)
+	}
+	if out, err := gitCmd(projectRoot, args...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := copyBriefToWorktree(tasksDir, worktree, slug); err != nil {
+		return "", fmt.Errorf("copy brief: %w", err)
+	}
+	return worktree, nil
 }
 
 // Ensure makes sure the wt/<slug> branch, worktree, and tmux session
@@ -263,6 +305,13 @@ func Done(tasksDir, slug string, force bool) error {
 	} else if _, statErr := os.Stat(dir); statErr == nil {
 		if rmErr := os.RemoveAll(dir); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "spore task done %s: rm -r %s: %v\n", slug, dir, rmErr)
+		}
+	}
+	// Only a direct child of .spore/: a slug such as "" or "../x"
+	// resolves elsewhere.
+	if dir := RoleTaskDir(projectRoot, slug); filepath.Dir(dir) == filepath.Join(projectRoot, RoleTaskRoot) {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "spore task done %s: rm -r %s: %v\n", slug, dir, err)
 		}
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -495,7 +544,7 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if hasSession(session) {
 		return session, nil
 	}
-	agent, err := workerSpawnCommand(projectRoot, meta)
+	agent, err := workerLaunchCommand(projectRoot, slug, meta)
 	if err != nil {
 		return "", err
 	}
@@ -590,7 +639,13 @@ func workerAgentCommand(m frontmatter.Meta) (string, error) {
 	if agent != "codex" {
 		return agent, nil
 	}
+	return CodexAgentCommand(m)
+}
 
+// CodexAgentCommand returns the interactive codex command line for a
+// task, honouring its effort/complexity and model keys. Unlike
+// workerAgentCommand it ignores SPORE_AGENT_BINARY.
+func CodexAgentCommand(m frontmatter.Meta) (string, error) {
 	effort, err := codexpolicy.EffortForTask(m.Extra["effort"], m.Extra["complexity"])
 	if err != nil {
 		return "", err
@@ -599,7 +654,11 @@ func workerAgentCommand(m frontmatter.Meta) (string, error) {
 	if model == "" {
 		model = os.Getenv(CodexModelEnv)
 	}
-	return shellJoin(codexpolicy.InteractiveArgs(model, effort)), nil
+	args := codexpolicy.InteractiveArgs(model, effort)
+	if bin := os.Getenv(CodexBinEnv); bin != "" {
+		args[0] = bin
+	}
+	return shellJoin(args), nil
 }
 
 func shellJoin(args []string) string {

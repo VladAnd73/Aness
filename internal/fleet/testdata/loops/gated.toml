@@ -1,0 +1,28 @@
+# Fixture: a step held by a verdict condition and one held by a file
+# condition; neither has a command check that would report itself.
+name = "gated"
+
+[[steps]]
+name = "a"
+kind = "agent"
+role = "alpha"
+session = "a"
+output = "a/round-{round}.json"
+shape = "json"
+required = ["result"]
+
+[[steps.done]]
+kind = "file"
+path = "a/extra-{round}.txt"
+
+[[steps]]
+name = "b"
+kind = "agent"
+role = "beta"
+session = "b"
+output = "b/round-{round}.json"
+shape = "verdict"
+
+[[steps.done]]
+kind = "verdict"
+equals = "approve"
