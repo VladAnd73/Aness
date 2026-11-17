@@ -28,7 +28,7 @@ repo holding the cwd. When $SPORE_PROJECT_ROOT is set and the cwd is in
 a different git repo (a worktree of the same project is fine), config
 and token refuse rather than guess; pass --project to pick one. exec
 does not refuse, since its cwd is often a throwaway clone of another
-repo. In exec, --project is read only before the command; after it, it
+repo. --project is made absolute and must be inside a git repo. In exec, --project is read only before the command; after it, it
 is the child's.
 
 Subcommands:
@@ -109,7 +109,7 @@ func takeProjectFlag(args []string, stopAtCmd bool) (project string, rest []stri
 // cwd is routinely a throwaway https clone of another repo by design.
 func ghProjectRoot(flag string, guard bool) (string, error) {
 	if flag != "" {
-		return task.MainRepoRoot(flag)
+		return projectFlagRoot(flag)
 	}
 	env := os.Getenv("SPORE_PROJECT_ROOT")
 	root, err := task.MainRepoRoot(env)
@@ -131,6 +131,20 @@ func ghProjectRoot(flag string, guard bool) (string, error) {
 		return "", fmt.Errorf("SPORE_PROJECT_ROOT is %s but the cwd is in %s; pass --project <path> to choose", root, cwdRoot)
 	}
 	return root, nil
+}
+
+// projectFlagRoot makes --project absolute and requires a git repo
+// there: MainRepoRoot falls back to its argument outside git, so a
+// typo would name a fresh project and "." would name the state root.
+func projectFlagRoot(flag string) (string, error) {
+	abs, err := filepath.Abs(flag)
+	if err != nil {
+		return "", err
+	}
+	if out, err := exec.Command("git", "-C", abs, "rev-parse", "--git-common-dir").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("--project %s: not inside a git repository: %s", abs, strings.TrimSpace(string(out)))
+	}
+	return task.MainRepoRoot(abs)
 }
 
 // samePath compares after resolving symlinks: git reports a worktree's

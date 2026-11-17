@@ -183,6 +183,7 @@ func TestGHConfigUsesCwdWhenEnvUnset(t *testing.T) {
 // it belongs to the child and is passed through untouched.
 func TestGHTokenAndExecTakeProjectFlag(t *testing.T) {
 	root := ghTestProject(t)
+	gitT(t, root, "init", "-q")
 	b := newGitRepo(t, t.TempDir(), "bravo")
 	t.Setenv("SPORE_PROJECT_ROOT", filepath.Join(t.TempDir(), "elsewhere"))
 	t.Chdir(b)
@@ -249,6 +250,20 @@ func TestGHBinaryProjectRootMismatchEndToEnd(t *testing.T) {
 	}
 	assertFileHas(t, ghTomlFor(state, "bravo"), `operator_login = "x"`)
 	assertNoFile(t, ghTomlFor(state, "alpha"))
+
+	code, out = run("config", "--project", ".", "--set", "operator_login=y")
+	if code != 0 {
+		t.Errorf("--project .: exit %d, want 0; output %q", code, out)
+	}
+	assertFileHas(t, ghTomlFor(state, "bravo"), `operator_login = "y"`)
+	assertNoFile(t, filepath.Join(state, "spore", "github.toml"))
+
+	missing := filepath.Join(parent, "brovo")
+	code, out = run("config", "--project", missing, "--set", "operator_login=x")
+	if code == 0 || !strings.Contains(out, missing) {
+		t.Errorf("--project missing: exit %d output %q, want non-zero naming %s", code, out, missing)
+	}
+	assertNoFile(t, ghTomlFor(state, "brovo"))
 }
 
 // The bot PR recipe: env names project A, the cwd is a throwaway clone
@@ -267,5 +282,103 @@ func TestGHExecIgnoresMismatchForThrowawayClone(t *testing.T) {
 	})
 	if code != 0 || stdout != "ghs_cli" {
 		t.Errorf("exec from clone: exit %d stdout %q stderr %q, want 0 ghs_cli", code, stdout, stderr)
+	}
+}
+
+// assertNoGithubToml fails if any github.toml exists under state.
+func assertNoGithubToml(t *testing.T, state string) {
+	t.Helper()
+	_ = filepath.WalkDir(state, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.Name() == "github.toml" {
+			t.Errorf("github.toml written at %s, want none", p)
+		}
+		return nil
+	})
+}
+
+// --project . is the cwd's repo, never the shared state root.
+func TestGHConfigProjectDotIsCwdRepo(t *testing.T) {
+	state, a, b := ghRootFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", a)
+	t.Chdir(b)
+
+	code, _, stderr := captureFn(t, func() int {
+		return runGH([]string{"config", "--project", ".", "--set", "operator_login=x"})
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0; stderr %q", code, stderr)
+	}
+	assertFileHas(t, ghTomlFor(state, "bravo"), `operator_login = "x"`)
+	assertNoFile(t, filepath.Join(state, "spore", "github.toml"))
+	assertNoFile(t, ghTomlFor(state, "alpha"))
+}
+
+// A relative --project resolves against the cwd.
+func TestGHConfigRelativeProjectFlag(t *testing.T) {
+	state, a, _ := ghRootFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", a)
+	t.Chdir(a)
+
+	code, _, stderr := captureFn(t, func() int {
+		return runGH([]string{"config", "--project", "../bravo", "--set", "operator_login=x"})
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0; stderr %q", code, stderr)
+	}
+	assertFileHas(t, ghTomlFor(state, "bravo"), `operator_login = "x"`)
+	assertNoFile(t, ghTomlFor(state, "alpha"))
+}
+
+func TestGHConfigRefusesMissingProject(t *testing.T) {
+	state, a, _ := ghRootFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", a)
+	t.Chdir(a)
+	missing := filepath.Join(filepath.Dir(a), "brovo")
+
+	code, _, stderr := captureFn(t, func() int {
+		return runGH([]string{"config", "--project", missing, "--set", "operator_login=x"})
+	})
+	if code == 0 {
+		t.Errorf("exit = 0, want non-zero")
+	}
+	if !strings.Contains(stderr, missing) {
+		t.Errorf("stderr %q does not name %s", stderr, missing)
+	}
+	assertNoGithubToml(t, state)
+}
+
+func TestGHConfigRefusesNonGitProject(t *testing.T) {
+	state, a, _ := ghRootFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", a)
+	t.Chdir(a)
+	plain := filepath.Join(t.TempDir(), "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := captureFn(t, func() int {
+		return runGH([]string{"config", "--project", plain, "--set", "operator_login=x"})
+	})
+	if code == 0 {
+		t.Errorf("exit = 0, want non-zero")
+	}
+	if !strings.Contains(stderr, plain) {
+		t.Errorf("stderr %q does not name %s", stderr, plain)
+	}
+	assertNoGithubToml(t, state)
+}
+
+// exec --project . reads the token of the cwd's project, by absolute root.
+func TestGHExecProjectDotResolvesAbsolute(t *testing.T) {
+	root := ghTestProject(t)
+	gitT(t, root, "init", "-q")
+	t.Setenv("SPORE_PROJECT_ROOT", newGitRepo(t, t.TempDir(), "alpha"))
+	t.Chdir(root)
+
+	code, stdout, stderr := captureFn(t, func() int {
+		return runGH([]string{"exec", "--project", ".", "--", "sh", "-c", `printf '%s' "$GH_TOKEN"`})
+	})
+	if code != 0 || stdout != "ghs_cli" {
+		t.Errorf("exec --project .: exit %d stdout %q stderr %q, want 0 ghs_cli", code, stdout, stderr)
 	}
 }
