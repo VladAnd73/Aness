@@ -87,14 +87,18 @@ func takeProjectFlag(args []string, stopAtCmd bool) (project string, rest []stri
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--project":
-			if i+1 >= len(args) {
+		case a == "--project" || strings.HasPrefix(a, "--project="):
+			if v, ok := strings.CutPrefix(a, "--project="); ok {
+				project = v
+			} else if i+1 < len(args) {
+				project = args[i+1]
+				i++
+			} else {
+				project = ""
+			}
+			if project == "" {
 				return "", nil, fmt.Errorf("--project needs a path")
 			}
-			project = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--project="):
-			project = strings.TrimPrefix(a, "--project=")
 		case stopAtCmd:
 			return project, append(rest, args[i:]...), nil
 		default:

@@ -382,3 +382,21 @@ func TestGHExecProjectDotResolvesAbsolute(t *testing.T) {
 		t.Errorf("exec --project .: exit %d stdout %q stderr %q, want 0 ghs_cli", code, stdout, stderr)
 	}
 }
+
+// An empty --project must not fall back to the env project.
+func TestGHConfigRefusesEmptyProject(t *testing.T) {
+	state, a, _ := ghRootFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", a)
+	t.Chdir(a)
+
+	for _, args := range [][]string{
+		{"config", "--project=", "--set", "operator_login=x"},
+		{"config", "--project", "", "--set", "operator_login=x"},
+	} {
+		code, _, stderr := captureFn(t, func() int { return runGH(args) })
+		if code == 0 || !strings.Contains(stderr, "--project") {
+			t.Errorf("%v: exit %d stderr %q, want non-zero naming --project", args, code, stderr)
+		}
+	}
+	assertNoGithubToml(t, state)
+}
