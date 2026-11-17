@@ -72,7 +72,7 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 	prFlow := def.GitHubMirror && githubFlow(projectRoot)
 	switch st.Terminal {
 	case "done":
-		if err := finishLoop(projectRoot, slug, def, prFlow); err != nil {
+		if err := finishLoop(projectRoot, slug, def, outs, prFlow); err != nil {
 			return st, outs, fmt.Errorf("drive %s: %w", slug, err)
 		}
 	case "escalated":
@@ -97,7 +97,7 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 	}
 
 	if prFlow {
-		mirrorGitHub(projectRoot, tasksDir, slug, snapshotFromLoopState(def, st, outs))
+		mirrorGitHub(projectRoot, tasksDir, slug, snapshotFromLoopState(def, st, outs), def.PRFooter)
 	}
 	if err := bounceInvalidRoleFiles(projectRoot, slug, loopStepFiles(def)...); err != nil {
 		return st, outs, fmt.Errorf("drive %s: bounce invalid files: %w", slug, err)
@@ -398,9 +398,9 @@ func skillsHint(s Step) string {
 // finishLoop is the done transition: summary (when the loop keeps
 // one), escalation markers cleared, ready marker, one notice unless
 // the PR mirror sends it, and every pane reaped.
-func finishLoop(projectRoot, slug string, def LoopDef, prFlow bool) error {
+func finishLoop(projectRoot, slug string, def LoopDef, outs map[string][]StepOutput, prFlow bool) error {
 	if def.Summary {
-		if err := writeSummary(projectRoot, slug); err != nil {
+		if err := writeLoopSummary(projectRoot, slug, def, outs); err != nil {
 			return fmt.Errorf("write summary: %w", err)
 		}
 	}

@@ -72,3 +72,35 @@ func GHRepo(url string) (string, error) {
 	}
 	return host + "/" + parts[1] + "/" + parts[2], nil
 }
+
+// HTTPSRemote returns the https form of a remote URL, which the app
+// token can push to without rewriting the remote. An https URL comes
+// back as is; a github.com ssh URL (scp-like or ssh://) is converted;
+// any other ssh host has no known https form and is an error.
+func HTTPSRemote(url string) (string, error) {
+	if strings.HasPrefix(url, "https://") {
+		return url, nil
+	}
+	var host, path string
+	if rest, ok := strings.CutPrefix(url, "ssh://"); ok {
+		host, path, _ = strings.Cut(rest, "/")
+		if h, _, ok := strings.Cut(host, ":"); ok {
+			host = h
+		}
+	} else if h, p, ok := strings.Cut(url, ":"); ok && !strings.Contains(h, "/") && !strings.HasPrefix(p, "//") {
+		host, path = h, p
+	} else {
+		return "", fmt.Errorf("ghapp: remote %q is neither https nor ssh", url)
+	}
+	if _, h, ok := strings.Cut(host, "@"); ok {
+		host = h
+	}
+	if !strings.EqualFold(host, "github.com") {
+		return "", fmt.Errorf("ghapp: ssh remote %q is on %s, which has no known https form (an ssh config alias is not resolved); set an https push URL: git config remote.origin.pushurl https://<host>/<owner>/<repo>.git", url, host)
+	}
+	parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/"), ".git"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("ghapp: remote %q is not <host>:<owner>/<repo>", url)
+	}
+	return "https://github.com/" + parts[0] + "/" + parts[1] + ".git", nil
+}

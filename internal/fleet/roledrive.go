@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -391,6 +392,53 @@ func writeSummary(projectRoot, slug string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+// writeLoopSummary writes summary.md for def: the dev loop's review
+// summary for the dev loop, otherwise one section per agent step from
+// outs, the valid outputs the drive already read. The fingerprint
+// hashes each output, so a rewrite with the same round count is
+// picked up.
+func writeLoopSummary(projectRoot, slug string, def LoopDef, outs map[string][]StepOutput) error {
+	if def.Name == "dev" {
+		return writeSummary(projectRoot, slug)
+	}
+	var sections strings.Builder
+	var fp []string
+	for _, s := range def.Steps {
+		if s.Kind != "agent" {
+			continue
+		}
+		fmt.Fprintf(&sections, "## %s\n\n", s.Name)
+		if len(outs[s.Name]) == 0 {
+			sections.WriteString("No rounds recorded.\n\n")
+		}
+		var rounds []string
+		for _, o := range outs[s.Name] {
+			body, err := os.ReadFile(o.Path)
+			if err != nil {
+				return err
+			}
+			sum := sha256.Sum256(body)
+			rounds = append(rounds, fmt.Sprintf("%d:%x", o.Round, sum[:6]))
+			fmt.Fprintf(&sections, "### round %d", o.Round)
+			if o.Verdict != "" {
+				fmt.Fprintf(&sections, " -> %s", o.Verdict)
+			}
+			fmt.Fprintf(&sections, "\n\n```\n%s\n```\n\n", strings.TrimRight(string(body), "\n"))
+		}
+		fp = append(fp, s.Name+"="+strings.Join(rounds, ","))
+	}
+	path := filepath.Join(task.RoleTaskDir(projectRoot, slug), "summary.md")
+	if existing, err := os.ReadFile(path); err == nil && extractSummaryFingerprint(existing) == strings.Join(fp, " ") {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s: %s loop summary\n\n", slug, def.Name)
+	fmt.Fprintf(&b, "Generated %s\n\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "%s %s -->\n\n", summaryFingerprintPrefix, strings.Join(fp, " "))
+	b.WriteString(sections.String())
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 // computeSummaryFingerprint returns the artifact-count signature the

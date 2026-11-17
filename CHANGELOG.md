@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- `push-and-open-pr` and the role-loop PR mirror work on an ssh
+  origin. A `git@github.com:o/r.git` or `ssh://git@github.com/o/r.git`
+  origin is pushed to `https://github.com/o/r.git` by URL, which the
+  GitHub App token can authenticate, without touching any remote
+  config. `remote.origin.pushurl` is honored before `url` (a fork
+  workflow pushes to the fork, and gh is pinned there). When origin
+  carries several urls, the first https one wins, so an extra ssh url
+  is never tried. The github.com host matches in any case, and
+  `git@github.com:/o/r.git` is accepted. An ssh origin on another host
+  or an ssh config alias fails with an error naming the host and
+  saying to set an https `remote.origin.pushurl`. The app push never
+  leaves over ssh: a `url.<base>.insteadOf` or `pushInsteadOf` rule
+  that rewrites the https URL to ssh is refused.
+- Loop state under `.spore/` is git-excluded. Spore adds `.spore/` to
+  the repo's `info/exclude` (in the common git dir, so a linked
+  worktree updates the main repo's) when it first creates `.spore/`.
+  Loop files no longer show as untracked and trip a
+  `git status --porcelain` done check. The tracked `.gitignore` is not
+  touched. Only a project root that is the top of its own repo is
+  excluded (a plain dir inside a parent repo, or an exported
+  `GIT_DIR`, never writes another repo's exclude), and an exclude
+  spore cannot write is logged without blocking a drive or a spawn.
+- Loop files take `pr_footer = false` to drop the "Dispatched by ...
+  merges." footer from PR bodies opened by `push-and-open-pr` or the
+  draft-PR mirror. Absent, the footer stays.
+- `summary = true` on a custom loop writes `summary.md` from that
+  loop's own agent steps (one section per step, each round's output)
+  instead of an empty dev-loop review summary. Only the loop named
+  `dev` gets the dev review summary. The summary is rewritten when an
+  output's content changes, not only its round count. The dev loop's
+  summary is unchanged.
+
 ## 1.0.9 - 2026-11-17
 
 - `spore gh config` and `spore gh token` refuse to act when `SPORE_PROJECT_ROOT` names one repo and

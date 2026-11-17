@@ -19,6 +19,9 @@ var ErrLoopBusy = errors.New("another drive of this loop is running")
 // held by another drive is ErrLoopBusy; any other failure is returned
 // as is, since Reconcile does not print ErrLoopBusy.
 func lockLoopDrive(projectRoot, slug string) (func(), error) {
+	if err := task.EnsureRoleTaskRoot(projectRoot); err != nil {
+		return nil, fmt.Errorf("drive lock: %w", err)
+	}
 	unlock, err := tryFlock(filepath.Join(task.RoleTaskDir(projectRoot, slug), "state", "drive.lock"))
 	if errors.Is(err, syscall.EWOULDBLOCK) {
 		return nil, ErrLoopBusy

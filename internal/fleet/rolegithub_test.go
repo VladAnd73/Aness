@@ -49,7 +49,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 }
 
 // newMirrorFixture builds a project whose origin is an https URL that
-// git rewrites (insteadOf) to a local bare repo, a task worktree on
+// git rewrites (insteadOf) to a local bare repo served over https, a task worktree on
 // wt/demo, a fake gh on PATH, and a github.toml minting tokens from an
 // httptest server.
 func newMirrorFixture(t *testing.T, prFlow string) *mirrorFixture {
@@ -76,7 +76,7 @@ func newMirrorFixture(t *testing.T, prFlow string) *mirrorFixture {
 	runGit(t, f.root, "add", ".gitignore")
 	runGit(t, f.root, "commit", "-qm", "init")
 	runGit(t, f.root, "remote", "add", "origin", "https://github.com/acme/widget.git")
-	runGit(t, f.root, "config", "url."+f.bare+".insteadOf", "https://github.com/acme/widget.git")
+	runGit(t, f.root, "config", "url."+serveBareOverHTTPS(t, f.bare)+".insteadOf", "https://github.com/acme/widget.git")
 	runGit(t, f.root, "push", "-q", "origin", "main")
 	runGit(t, f.root, "fetch", "-q", "origin")
 	runGit(t, f.root, "remote", "set-head", "origin", "main")
@@ -150,7 +150,7 @@ func (f *mirrorFixture) tick(t *testing.T) Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mirrorGitHub(f.root, f.tasksDir, f.slug, snap)
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
 	return snap
 }
 
@@ -383,16 +383,18 @@ func TestGitHubMirrorEscalationCommentsOnce(t *testing.T) {
 	}
 }
 
-func TestGitHubMirrorRejectsSSHRemote(t *testing.T) {
+// TestGitHubMirrorRejectsNonGitHubSSHRemote: an ssh origin on a host
+// with no known https form fails before any push or gh call.
+func TestGitHubMirrorRejectsNonGitHubSSHRemote(t *testing.T) {
 	f := newMirrorFixture(t, "draft")
-	runGit(t, f.root, "remote", "set-url", "origin", "git@github.com:acme/widget.git")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@gitlab.com:acme/widget.git")
 	writeEng(1)(t, f.root, f.slug)
 	f.tick(t)
-	if s := f.state(t); !strings.Contains(s.LastError, "not https") || s.PRNumber != 0 {
+	if s := f.state(t); !strings.Contains(s.LastError, "gitlab.com") || s.PRNumber != 0 {
 		t.Fatalf("state = %+v", s)
 	}
 	if c := f.calls(t); c != nil {
-		t.Fatalf("gh ran with an ssh remote: %v", c)
+		t.Fatalf("gh ran with a non-GitHub ssh remote: %v", c)
 	}
 }
 
