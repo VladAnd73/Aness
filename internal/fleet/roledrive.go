@@ -393,6 +393,79 @@ func writeSummary(projectRoot, slug string) error {
 	return os.WriteFile(path, []byte(body), 0o644)
 }
 
+// devSummaryOutputs are the step outputs buildSummary reads.
+var devSummaryOutputs = map[string]bool{
+	"responses/engineer-round-{round}.json": true,
+	"reviews/A/round-{round}.json":          true,
+	"reviews/B/round-{round}.json":          true,
+}
+
+// writeLoopSummary writes summary.md for def: the dev loop's review
+// summary when every agent step writes a dev output, otherwise one
+// section per agent step from that loop's own outputs.
+func writeLoopSummary(projectRoot, slug string, def LoopDef) error {
+	dev := true
+	for _, s := range def.Steps {
+		if s.Kind == "agent" && !devSummaryOutputs[s.Output] {
+			dev = false
+		}
+	}
+	if dev {
+		return writeSummary(projectRoot, slug)
+	}
+	type stepRounds struct {
+		step   Step
+		rounds []int
+	}
+	var steps []stepRounds
+	var fp []string
+	for _, s := range def.Steps {
+		if s.Kind != "agent" {
+			continue
+		}
+		rounds, err := task.StepOutputRounds(projectRoot, slug, s.Output)
+		if err != nil {
+			return err
+		}
+		steps = append(steps, stepRounds{s, rounds})
+		fp = append(fp, fmt.Sprintf("%s=%d", s.Name, len(rounds)))
+	}
+	path := filepath.Join(task.RoleTaskDir(projectRoot, slug), "summary.md")
+	if existing, err := os.ReadFile(path); err == nil && extractSummaryFingerprint(existing) == strings.Join(fp, " ") {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s: %s loop summary\n\n", slug, def.Name)
+	fmt.Fprintf(&b, "Generated %s\n\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "%s %s -->\n\n", summaryFingerprintPrefix, strings.Join(fp, " "))
+	for _, sr := range steps {
+		fmt.Fprintf(&b, "## %s\n\n", sr.step.Name)
+		if len(sr.rounds) == 0 {
+			b.WriteString("No rounds recorded.\n\n")
+			continue
+		}
+		for _, r := range sr.rounds {
+			verdict, err := task.ReadStepOutput(projectRoot, slug, stepFiles(sr.step), r)
+			if errors.Is(err, task.ErrInvalidRoleFile) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			body, err := os.ReadFile(task.StepOutputPath(projectRoot, slug, sr.step.Output, r))
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(&b, "### round %d", r)
+			if verdict != "" {
+				fmt.Fprintf(&b, " -> %s", verdict)
+			}
+			fmt.Fprintf(&b, "\n\n```\n%s\n```\n\n", strings.TrimRight(string(body), "\n"))
+		}
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
 // computeSummaryFingerprint returns the artifact-count signature the
 // next writeSummary will compare against the file's embedded marker.
 // Shape: "engineer=<E> A=<NA> B=<NB>".

@@ -404,7 +404,7 @@ func skillsHint(s Step) string {
 // the PR mirror sends it, and every pane reaped.
 func finishLoop(projectRoot, slug string, def LoopDef, prFlow bool) error {
 	if def.Summary {
-		if err := writeSummary(projectRoot, slug); err != nil {
+		if err := writeLoopSummary(projectRoot, slug, def); err != nil {
 			return fmt.Errorf("write summary: %w", err)
 		}
 	}

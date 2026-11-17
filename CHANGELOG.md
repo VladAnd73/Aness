@@ -18,6 +18,10 @@
 - Loop files take `pr_footer = false` to drop the "Dispatched by ...
   merges." footer from PR bodies opened by `push-and-open-pr` or the
   draft-PR mirror. Absent, the footer stays.
+- `summary = true` on a custom loop writes `summary.md` from that
+  loop's own agent steps (one section per step, each round's output)
+  instead of an empty dev-loop review summary. The dev loop's summary
+  is unchanged.
 
 ## 1.0.9 - 2026-11-17
 
