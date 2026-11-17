@@ -29,8 +29,10 @@
   draft-PR mirror. Absent, the footer stays.
 - `summary = true` on a custom loop writes `summary.md` from that
   loop's own agent steps (one section per step, each round's output)
-  instead of an empty dev-loop review summary. The dev loop's summary
-  is unchanged.
+  instead of an empty dev-loop review summary. Only the loop named
+  `dev` gets the dev review summary. The summary is rewritten when an
+  output's content changes, not only its round count. The dev loop's
+  summary is unchanged.
 
 ## 1.0.9 - 2026-11-17
 
