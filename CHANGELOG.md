@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.9 - 2026-11-17
+
 - `spore gh config` and `spore gh token` refuse to act when `SPORE_PROJECT_ROOT` names one repo and
   the cwd is inside another, naming both roots. Before, it silently
   read or wrote the env project's `github.toml`. A new `--project
