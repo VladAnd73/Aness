@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `push-and-open-pr` and the role-loop PR mirror work on an ssh
+  origin. A `git@github.com:o/r.git` or `ssh://git@github.com/o/r.git`
+  origin is pushed to `https://github.com/o/r.git` by URL, which the
+  GitHub App token can authenticate, without touching any remote
+  config. When origin carries several urls, the first https one wins,
+  so an extra ssh url is never tried. An ssh origin on another host
+  fails with an error naming it.
+
 ## 1.0.9 - 2026-11-17
 
 - `spore gh config` and `spore gh token` refuse to act when `SPORE_PROJECT_ROOT` names one repo and

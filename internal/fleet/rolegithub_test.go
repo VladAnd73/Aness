@@ -383,16 +383,18 @@ func TestGitHubMirrorEscalationCommentsOnce(t *testing.T) {
 	}
 }
 
-func TestGitHubMirrorRejectsSSHRemote(t *testing.T) {
+// TestGitHubMirrorRejectsNonGitHubSSHRemote: an ssh origin on a host
+// with no known https form fails before any push or gh call.
+func TestGitHubMirrorRejectsNonGitHubSSHRemote(t *testing.T) {
 	f := newMirrorFixture(t, "draft")
-	runGit(t, f.root, "remote", "set-url", "origin", "git@github.com:acme/widget.git")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@gitlab.com:acme/widget.git")
 	writeEng(1)(t, f.root, f.slug)
 	f.tick(t)
-	if s := f.state(t); !strings.Contains(s.LastError, "not https") || s.PRNumber != 0 {
+	if s := f.state(t); !strings.Contains(s.LastError, "gitlab.com") || s.PRNumber != 0 {
 		t.Fatalf("state = %+v", s)
 	}
 	if c := f.calls(t); c != nil {
-		t.Fatalf("gh ran with an ssh remote: %v", c)
+		t.Fatalf("gh ran with a non-GitHub ssh remote: %v", c)
 	}
 }
 

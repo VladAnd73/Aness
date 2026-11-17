@@ -137,6 +137,8 @@ type githubMirror struct {
 	cfg                         ghapp.Config
 	state                       githubState
 	env                         []string
+	// pushURL is origin's https URL; see originPushURL.
+	pushURL string
 	// loop names the loop file whose push-and-open-pr action drives
 	// this mirror; empty for the role-loop mirror.
 	loop string
@@ -298,16 +300,35 @@ func (m *githubMirror) connect() error {
 		return err
 	}
 	m.env = append(ghapp.Env(os.Environ(), tok.Token), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
-	remote, err := m.git("config", "--get", "remote.origin.url")
+	urls, err := m.git("config", "--get-all", "remote.origin.url")
 	if err != nil {
 		return fmt.Errorf("no origin remote: %w", err)
 	}
-	repo, err := ghapp.GHRepo(remote)
+	pushURL, err := originPushURL(strings.Split(urls, "\n"))
+	if err != nil {
+		return err
+	}
+	repo, err := ghapp.GHRepo(pushURL)
 	if err != nil {
 		return err
 	}
 	m.env = append(m.env, "GH_REPO="+repo)
+	m.pushURL = pushURL
 	return nil
+}
+
+// originPushURL picks the https URL the app pushes to: origin's first
+// https url, else the https form of its first url. The push names this
+// URL, never the remote: git pushes to every url of a remote, and the
+// app token cannot authenticate an ssh one. Remote config is left
+// alone.
+func originPushURL(urls []string) (string, error) {
+	for _, u := range urls {
+		if strings.HasPrefix(u, "https://") {
+			return u, nil
+		}
+	}
+	return ghapp.HTTPSRemote(urls[0])
 }
 
 func (m *githubMirror) apply(e mirrorEvent) error {
@@ -383,7 +404,7 @@ func (m *githubMirror) prComment(body string) error {
 	return err
 }
 
-// push sends the worktree HEAD to origin as the app. A branch whose
+// push sends the worktree HEAD to origin's https URL as the app. A branch whose
 // last pushed commit is no longer an ancestor of HEAD was rewritten
 // and goes up with --force-with-lease pinned to that commit.
 func (m *githubMirror) push() error {
@@ -399,7 +420,7 @@ func (m *githubMirror) push() error {
 		return err
 	}
 	ref := "refs/heads/" + branch
-	args := []string{"push", "--quiet", "origin", "HEAD:" + ref}
+	args := []string{"push", "--quiet", m.pushURL, "HEAD:" + ref}
 	if prev := m.state.PushedSHA; prev != "" {
 		if _, err := m.git("merge-base", "--is-ancestor", prev, "HEAD"); err != nil {
 			args = append(args, "--force-with-lease="+ref+":"+prev)

@@ -345,3 +345,29 @@ func TestGHRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPSRemote(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/acme/widget.git":     "https://github.com/acme/widget.git",
+		"https://x@ghe.example.com/acme/widget/": "https://x@ghe.example.com/acme/widget/",
+		"git@github.com:acme/widget.git":         "https://github.com/acme/widget.git",
+		"git@github.com:acme/widget":             "https://github.com/acme/widget.git",
+		"ssh://git@github.com/acme/widget.git":   "https://github.com/acme/widget.git",
+		"ssh://git@github.com:22/acme/widget":    "https://github.com/acme/widget.git",
+	} {
+		if got, err := HTTPSRemote(in); err != nil || got != want {
+			t.Errorf("HTTPSRemote(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"git@gitlab.com:acme/widget.git", "ssh://git@ghe.example.com/acme/widget.git", "/tmp/bare.git", "git@github.com:acme"} {
+		if got, err := HTTPSRemote(in); err == nil {
+			t.Errorf("HTTPSRemote(%q) = %q, want an error", in, got)
+		}
+	}
+	if _, err := HTTPSRemote("http://github.com/acme/widget.git"); err == nil || !strings.Contains(err.Error(), "neither https nor ssh") {
+		t.Errorf("http remote: err = %v, want neither https nor ssh", err)
+	}
+	if _, err := HTTPSRemote("git@gitlab.com:acme/widget.git"); err == nil || !strings.Contains(err.Error(), "gitlab.com") {
+		t.Errorf("non-GitHub error does not name the host: %v", err)
+	}
+}

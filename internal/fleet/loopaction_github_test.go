@@ -195,3 +195,73 @@ func runGitOut(dir string, args ...string) (string, error) {
 	m := &githubMirror{worktree: dir, env: os.Environ()}
 	return m.git(args...)
 }
+
+// gitConfigs lists every config scope git reads in dir, so a test can
+// prove an action left remote config untouched.
+func gitConfigs(t *testing.T, dir string) string {
+	t.Helper()
+	return runGit(t, dir, "config", "--list", "--show-origin")
+}
+
+// TestPushAndOpenPRSSHOriginPushesOverHTTPS: an ssh origin (which the
+// app token cannot push to) is pushed through its https form, and no
+// remote config is rewritten to get there.
+func TestPushAndOpenPRSSHOriginPushesOverHTTPS(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@github.com:acme/widget.git")
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	before, beforeWT := gitConfigs(t, f.root), gitConfigs(t, f.wt)
+	if err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1)); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	if f.bareHead(t) != runGit(t, f.wt, "rev-parse", "HEAD") {
+		t.Fatalf("branch not pushed over https")
+	}
+	if !strings.Contains(f.log(t), "REPO: github.com/acme/widget\n") {
+		t.Errorf("gh not pinned to origin's repo:\n%s", f.log(t))
+	}
+	if s := f.state(t); s.PRNumber != 12 {
+		t.Fatalf("state = %+v", s)
+	}
+	if after := gitConfigs(t, f.root); after != before {
+		t.Errorf("repo config changed:\nbefore %s\nafter  %s", before, after)
+	}
+	if after := gitConfigs(t, f.wt); after != beforeWT {
+		t.Errorf("worktree config changed:\nbefore %s\nafter  %s", beforeWT, after)
+	}
+	if got := runGit(t, f.root, "config", "--get", "remote.origin.url"); got != "git@github.com:acme/widget.git" {
+		t.Errorf("origin url = %q", got)
+	}
+}
+
+// TestPushAndOpenPRNonGitHubSSHOriginErrors: an ssh host with no known
+// https form fails clearly, naming the remote, before any push.
+func TestPushAndOpenPRNonGitHubSSHOriginErrors(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@gitlab.com:acme/widget.git")
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1))
+	if err == nil || !strings.Contains(err.Error(), "git@gitlab.com:acme/widget.git") {
+		t.Fatalf("err = %v, want one naming the remote", err)
+	}
+	if c := f.calls(t); c != nil {
+		t.Fatalf("gh ran: %v", c)
+	}
+}
+
+// TestPushAndOpenPRSecondHTTPSURLPushesOnlyThere: a worktree-style
+// workaround leaves origin with an ssh url plus an added https url. A
+// push by remote name would try every url and die on the ssh one; the
+// action pushes to the https url alone.
+func TestPushAndOpenPRSecondHTTPSURLPushesOnlyThere(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@github.com:acme/widget.git")
+	runGit(t, f.root, "config", "--add", "remote.origin.url", "https://github.com/acme/widget.git")
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	if err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1)); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	if f.bareHead(t) != runGit(t, f.wt, "rev-parse", "HEAD") {
+		t.Fatalf("branch not pushed over https")
+	}
+}
