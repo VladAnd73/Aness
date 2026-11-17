@@ -25,9 +25,11 @@ Usage:
 
 The project is --project when given, else $SPORE_PROJECT_ROOT, else the
 repo holding the cwd. When $SPORE_PROJECT_ROOT is set and the cwd is in
-a different git repo (a worktree of the same project is fine), spore gh
-refuses rather than guess; pass --project to pick one. In exec,
---project is read only before the command; after it, it is the child's.
+a different git repo (a worktree of the same project is fine), config
+and token refuse rather than guess; pass --project to pick one. exec
+does not refuse, since its cwd is often a throwaway clone of another
+repo. In exec, --project is read only before the command; after it, it
+is the child's.
 
 Subcommands:
   config   Print the host-side github.toml
@@ -102,13 +104,16 @@ func takeProjectFlag(args []string, stopAtCmd bool) (project string, rest []stri
 	return project, rest, nil
 }
 
-func ghProjectRoot(flag string) (string, error) {
+// ghProjectRoot resolves the project. With guard, a cwd inside a repo
+// other than $SPORE_PROJECT_ROOT's is refused. exec passes false: its
+// cwd is routinely a throwaway https clone of another repo by design.
+func ghProjectRoot(flag string, guard bool) (string, error) {
 	if flag != "" {
 		return task.MainRepoRoot(flag)
 	}
 	env := os.Getenv("SPORE_PROJECT_ROOT")
 	root, err := task.MainRepoRoot(env)
-	if err != nil || env == "" {
+	if err != nil || env == "" || !guard {
 		return root, err
 	}
 	wd, err := os.Getwd()
@@ -158,7 +163,7 @@ func runGHConfig(args []string) error {
 			return fmt.Errorf("usage: spore gh config [--project <path>] [--set key=value ...]")
 		}
 	}
-	root, err := ghProjectRoot(project)
+	root, err := ghProjectRoot(project, true)
 	if err != nil {
 		return err
 	}
@@ -203,7 +208,7 @@ func runGHToken(args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: spore gh token [--project <path>]")
 	}
-	root, err := ghProjectRoot(project)
+	root, err := ghProjectRoot(project, true)
 	if err != nil {
 		return err
 	}
@@ -231,7 +236,7 @@ func runGHExec(args []string) (int, error) {
 			return 0, err
 		}
 	}
-	root, err := ghProjectRoot(project)
+	root, err := ghProjectRoot(project, false)
 	if err != nil {
 		return 0, err
 	}

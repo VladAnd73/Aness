@@ -2,12 +2,14 @@
 
 ## Unreleased
 
-- `spore gh` refuses to act when `SPORE_PROJECT_ROOT` names one repo and
+- `spore gh config` and `spore gh token` refuse to act when `SPORE_PROJECT_ROOT` names one repo and
   the cwd is inside another, naming both roots. Before, it silently
   read or wrote the env project's `github.toml`. A new `--project
   <path>` flag on `config`, `token` and `exec` picks the project
   explicitly. A worktree of the same project, or a cwd outside any git
-  repo, still resolves to `SPORE_PROJECT_ROOT`.
+  repo, still resolves to `SPORE_PROJECT_ROOT`. `spore gh exec` never
+  refuses on a mismatch: its cwd is often a throwaway https clone of
+  another repo, as in the bot PR recipe.
 
 ## 1.0.7 - 2026-11-17
 

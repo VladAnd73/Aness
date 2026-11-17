@@ -250,3 +250,22 @@ func TestGHBinaryProjectRootMismatchEndToEnd(t *testing.T) {
 	assertFileHas(t, ghTomlFor(state, "bravo"), `operator_login = "x"`)
 	assertNoFile(t, ghTomlFor(state, "alpha"))
 }
+
+// The bot PR recipe: env names project A, the cwd is a throwaway clone
+// (a fresh repo with an https origin). exec must proceed with A's
+// token; only config and token refuse a cwd/env mismatch.
+func TestGHExecIgnoresMismatchForThrowawayClone(t *testing.T) {
+	root := ghTestProject(t)
+	gitT(t, root, "init", "-q")
+	clone := t.TempDir()
+	gitT(t, clone, "init", "-q")
+	gitT(t, clone, "remote", "add", "origin", "https://github.com/example/repo.git")
+	t.Chdir(clone)
+
+	code, stdout, stderr := captureFn(t, func() int {
+		return runGH([]string{"exec", "--", "sh", "-c", `printf '%s' "$GH_TOKEN"`})
+	})
+	if code != 0 || stdout != "ghs_cli" {
+		t.Errorf("exec from clone: exit %d stdout %q stderr %q, want 0 ghs_cli", code, stdout, stderr)
+	}
+}
