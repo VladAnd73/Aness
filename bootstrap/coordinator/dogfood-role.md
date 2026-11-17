@@ -50,6 +50,12 @@ the operator.
   route to a worker" rule does NOT apply on spore. The coordinator
   makes small config/docs commits itself and routes larger changes
   to workers. Operator granted 2026-07-03.
+  "Small config/docs" means prose and config only: role files,
+  `docs/`, CHANGELOG, task files, rule fragments, `spore.toml`. Any
+  change to code (`.go`, scripts, tests, hooks) goes to a worker,
+  however small. A subagent or fork from this session is not a
+  worker: it may investigate and review, never edit or commit
+  (operator, 2026-11-16).
 
 ## Test / lint commands
 
