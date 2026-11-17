@@ -6,9 +6,15 @@
   origin. A `git@github.com:o/r.git` or `ssh://git@github.com/o/r.git`
   origin is pushed to `https://github.com/o/r.git` by URL, which the
   GitHub App token can authenticate, without touching any remote
-  config. When origin carries several urls, the first https one wins,
-  so an extra ssh url is never tried. An ssh origin on another host
-  fails with an error naming it.
+  config. `remote.origin.pushurl` is honored before `url` (a fork
+  workflow pushes to the fork, and gh is pinned there). When origin
+  carries several urls, the first https one wins, so an extra ssh url
+  is never tried. The github.com host matches in any case, and
+  `git@github.com:/o/r.git` is accepted. An ssh origin on another host
+  or an ssh config alias fails with an error naming the host and
+  saying to set an https `remote.origin.pushurl`. The app push never
+  leaves over ssh: a `url.<base>.insteadOf` or `pushInsteadOf` rule
+  that rewrites the https URL to ssh is refused.
 - Loop state under `.spore/` is git-excluded. Spore adds `.spore/` to
   the repo's `info/exclude` (in the common git dir, so a linked
   worktree updates the main repo's) when a loop drives or a role task

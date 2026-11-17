@@ -302,14 +302,25 @@ func (m *githubMirror) connect() error {
 	if err != nil {
 		return err
 	}
-	m.env = append(ghapp.Env(os.Environ(), tok.Token), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
-	urls, err := m.git("config", "--get-all", "remote.origin.url")
-	if err != nil {
-		return fmt.Errorf("no origin remote: %w", err)
+	// GIT_ALLOW_PROTOCOL keeps a url rewrite (insteadOf, pushInsteadOf)
+	// from carrying the app push over ssh under the operator's own key.
+	m.env = append(ghapp.Env(os.Environ(), tok.Token), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1", "GIT_ALLOW_PROTOCOL=https")
+	urls, _ := m.git("config", "--get-all", "remote.origin.pushurl")
+	if urls == "" {
+		if urls, err = m.git("config", "--get-all", "remote.origin.url"); err != nil {
+			return fmt.Errorf("no origin remote: %w", err)
+		}
 	}
 	pushURL, err := originPushURL(strings.Split(urls, "\n"))
 	if err != nil {
 		return err
+	}
+	effective, err := m.git("ls-remote", "--get-url", pushURL)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(effective, "https://") {
+		return fmt.Errorf("git rewrites %s to %s (a url.<base>.insteadOf rule); the GitHub App pushes over https only", pushURL, effective)
 	}
 	repo, err := ghapp.GHRepo(pushURL)
 	if err != nil {
@@ -320,11 +331,11 @@ func (m *githubMirror) connect() error {
 	return nil
 }
 
-// originPushURL picks the https URL the app pushes to: origin's first
-// https url, else the https form of its first url. The push names this
-// URL, never the remote: git pushes to every url of a remote, and the
-// app token cannot authenticate an ssh one. Remote config is left
-// alone.
+// originPushURL picks the https URL the app pushes to from origin's
+// pushurls, or its urls when it has none: the first https one, else
+// the https form of the first. The push names this URL, never the
+// remote: git pushes to every url of a remote, and the app token
+// cannot authenticate an ssh one. Remote config is left alone.
 func originPushURL(urls []string) (string, error) {
 	for _, u := range urls {
 		if strings.HasPrefix(u, "https://") {
@@ -430,6 +441,9 @@ func (m *githubMirror) push() error {
 		}
 	}
 	if _, err := m.git(args...); err != nil {
+		if strings.Contains(err.Error(), "not allowed") {
+			return fmt.Errorf("a git url rewrite (pushInsteadOf) moves %s off https; the GitHub App pushes over https only: %w", m.pushURL, err)
+		}
 		return err
 	}
 	m.state.PushedSHA = sha

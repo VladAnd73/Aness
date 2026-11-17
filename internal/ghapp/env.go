@@ -95,10 +95,10 @@ func HTTPSRemote(url string) (string, error) {
 	if _, h, ok := strings.Cut(host, "@"); ok {
 		host = h
 	}
-	if host != "github.com" {
-		return "", fmt.Errorf("ghapp: ssh remote %q is on %s, which has no known https form; switch it: git remote set-url origin https://%s/<owner>/<repo>.git", url, host, host)
+	if !strings.EqualFold(host, "github.com") {
+		return "", fmt.Errorf("ghapp: ssh remote %q is on %s, which has no known https form (an ssh config alias is not resolved); set an https push URL: git config remote.origin.pushurl https://<host>/<owner>/<repo>.git", url, host)
 	}
-	parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(path, "/"), ".git"), "/")
+	parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/"), ".git"), "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", fmt.Errorf("ghapp: remote %q is not <host>:<owner>/<repo>", url)
 	}

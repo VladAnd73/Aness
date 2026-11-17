@@ -38,7 +38,7 @@ type loopGitHub struct {
 }
 
 // loopFakeGitHub puts a fake gh on PATH, points origin at a local bare
-// repo through an https insteadOf, and writes a github.toml whose token
+// repo served over https through an insteadOf, and writes a github.toml whose token
 // mint is an httptest server. Mirrors upstream's newMirrorFixture.
 func loopFakeGitHub(t *testing.T, root string) *loopGitHub {
 	t.Helper()
@@ -56,7 +56,7 @@ func loopFakeGitHub(t *testing.T, root string) *loopGitHub {
 	}
 	git(filepath.Dir(g.bare), "init", "-q", "--bare", g.bare)
 	git(root, "remote", "add", "origin", "https://github.com/acme/widget.git")
-	git(root, "config", "url."+g.bare+".insteadOf", "https://github.com/acme/widget.git")
+	git(root, "config", "url."+serveBareOverHTTPS(t, g.bare)+".insteadOf", "https://github.com/acme/widget.git")
 	git(root, "push", "-q", "origin", "main")
 	git(root, "fetch", "-q", "origin")
 	git(root, "remote", "set-head", "origin", "main")

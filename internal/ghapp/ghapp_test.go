@@ -371,3 +371,18 @@ func TestHTTPSRemote(t *testing.T) {
 		t.Errorf("non-GitHub error does not name the host: %v", err)
 	}
 }
+
+func TestHTTPSRemoteCaseAndLeadingSlash(t *testing.T) {
+	for _, in := range []string{"git@GitHub.com:acme/widget.git", "git@github.com:/acme/widget.git", "ssh://git@GITHUB.COM/acme/widget.git"} {
+		if got, err := HTTPSRemote(in); err != nil || got != "https://github.com/acme/widget.git" {
+			t.Errorf("HTTPSRemote(%q) = %q, %v; want https://github.com/acme/widget.git", in, got, err)
+		}
+	}
+}
+
+func TestHTTPSRemoteAliasErrorNamesPushURL(t *testing.T) {
+	_, err := HTTPSRemote("git@github-work:acme/widget.git")
+	if err == nil || !strings.Contains(err.Error(), "remote.origin.pushurl") {
+		t.Fatalf("err = %v, want one telling to set an https remote.origin.pushurl", err)
+	}
+}

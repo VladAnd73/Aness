@@ -312,3 +312,72 @@ func TestGitHubMirrorFooterOff(t *testing.T) {
 		t.Fatalf("bodies = %q, want the summary only first", got)
 	}
 }
+
+// trapSSH points git's ssh at a script that records being run, so a
+// test can prove a push never left over ssh.
+func trapSSH(t *testing.T) string {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "ssh-ran")
+	script := filepath.Join(t.TempDir(), "ssh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_SSH_COMMAND", script)
+	return marker
+}
+
+// TestPushAndOpenPRRefusesRewriteToSSH: an operator's global
+// insteadOf or pushInsteadOf that turns github https into ssh must
+// not carry the app push over ssh under the operator's own key.
+func TestPushAndOpenPRRefusesRewriteToSSH(t *testing.T) {
+	for _, key := range []string{"insteadOf", "pushInsteadOf"} {
+		t.Run(key, func(t *testing.T) {
+			f := newMirrorFixture(t, "")
+			key0, _, _ := strings.Cut(runGit(t, f.root, "config", "--get-regexp", `^url\..*\.insteadof$`), " ")
+			runGit(t, f.root, "config", "--remove-section", strings.TrimSuffix(key0, ".insteadof"))
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, []byte("[url \"git@github.com:\"]\n\t"+key+" = https://github.com/\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			marker := trapSSH(t)
+			err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1))
+			if _, statErr := os.Stat(marker); statErr == nil {
+				t.Fatalf("the app push went over ssh (err = %v)", err)
+			}
+			if err == nil || !strings.Contains(err.Error(), "https") {
+				t.Fatalf("err = %v, want a refusal naming https", err)
+			}
+		})
+	}
+}
+
+// TestPushAndOpenPRHonorsPushURL: a fork workflow (url = upstream,
+// pushurl = fork) pushes to the fork and pins gh there, as `git push
+// origin` did.
+func TestPushAndOpenPRHonorsPushURL(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	runGit(t, f.root, "remote", "set-url", "origin", "https://github.com/upstream/widget.git")
+	runGit(t, f.root, "config", "remote.origin.pushurl", "https://github.com/acme/widget.git")
+	if err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1)); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	if f.bareHead(t) != runGit(t, f.wt, "rev-parse", "HEAD") {
+		t.Fatalf("branch not pushed to the pushurl")
+	}
+	if !strings.Contains(f.log(t), "REPO: github.com/acme/widget\n") {
+		t.Errorf("gh not pinned to the push target:\n%s", f.log(t))
+	}
+}
+
+// TestPushAndOpenPRSSHAliasErrorNamesPushURL: an ssh config alias has
+// no knowable https form; the error says to set an https pushurl.
+func TestPushAndOpenPRSSHAliasErrorNamesPushURL(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	runGit(t, f.root, "remote", "set-url", "origin", "git@github-work:acme/widget.git")
+	trapSSH(t)
+	err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1))
+	if err == nil || !strings.Contains(err.Error(), "remote.origin.pushurl") {
+		t.Fatalf("err = %v, want one telling to set remote.origin.pushurl", err)
+	}
+}

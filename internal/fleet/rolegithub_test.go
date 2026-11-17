@@ -49,7 +49,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 }
 
 // newMirrorFixture builds a project whose origin is an https URL that
-// git rewrites (insteadOf) to a local bare repo, a task worktree on
+// git rewrites (insteadOf) to a local bare repo served over https, a task worktree on
 // wt/demo, a fake gh on PATH, and a github.toml minting tokens from an
 // httptest server.
 func newMirrorFixture(t *testing.T, prFlow string) *mirrorFixture {
@@ -76,7 +76,7 @@ func newMirrorFixture(t *testing.T, prFlow string) *mirrorFixture {
 	runGit(t, f.root, "add", ".gitignore")
 	runGit(t, f.root, "commit", "-qm", "init")
 	runGit(t, f.root, "remote", "add", "origin", "https://github.com/acme/widget.git")
-	runGit(t, f.root, "config", "url."+f.bare+".insteadOf", "https://github.com/acme/widget.git")
+	runGit(t, f.root, "config", "url."+serveBareOverHTTPS(t, f.bare)+".insteadOf", "https://github.com/acme/widget.git")
 	runGit(t, f.root, "push", "-q", "origin", "main")
 	runGit(t, f.root, "fetch", "-q", "origin")
 	runGit(t, f.root, "remote", "set-head", "origin", "main")
