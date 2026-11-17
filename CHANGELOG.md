@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.7 - 2026-11-17
+
 - Configurable task loops. A task with `loop: <name>` in its
   frontmatter is driven through the steps of
   `bootstrap/loops/<name>.toml` on every fleet reconcile: each `agent`
