@@ -19,9 +19,17 @@ import (
 const ghUsage = `spore gh - act on GitHub as the project's GitHub App
 
 Usage:
-  spore gh config [--set key=value ...]
-  spore gh token
-  spore gh exec -- <cmd> [args...]
+  spore gh config [--project <path>] [--set key=value ...]
+  spore gh token [--project <path>]
+  spore gh exec [--project <path>] -- <cmd> [args...]
+
+The project is --project when given, else $SPORE_PROJECT_ROOT, else the
+repo holding the cwd. When $SPORE_PROJECT_ROOT is set and the cwd is in
+a different git repo (a worktree of the same project is fine), config
+and token refuse rather than guess; pass --project to pick one. exec
+does not refuse, since its cwd is often a throwaway clone of another
+repo. --project is made absolute and must be inside a git repo. In exec, --project is read only before the command; after it, it
+is the child's.
 
 Subcommands:
   config   Print the host-side github.toml
@@ -72,11 +80,94 @@ func runGH(args []string) int {
 	return 0
 }
 
-func ghProjectRoot() (string, error) {
-	return task.MainRepoRoot(os.Getenv("SPORE_PROJECT_ROOT"))
+// takeProjectFlag removes --project <path> / --project=<path> from args.
+// With stopAtCmd, scanning ends at the first other argument ("--" or
+// the command), since everything from there on belongs to exec's child.
+func takeProjectFlag(args []string, stopAtCmd bool) (project string, rest []string, err error) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--project" || strings.HasPrefix(a, "--project="):
+			if v, ok := strings.CutPrefix(a, "--project="); ok {
+				project = v
+			} else if i+1 < len(args) {
+				project = args[i+1]
+				i++
+			} else {
+				project = ""
+			}
+			if project == "" {
+				return "", nil, fmt.Errorf("--project needs a path")
+			}
+		case stopAtCmd:
+			return project, append(rest, args[i:]...), nil
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return project, rest, nil
+}
+
+// ghProjectRoot resolves the project. With guard, a cwd inside a repo
+// other than $SPORE_PROJECT_ROOT's is refused. exec passes false: its
+// cwd is routinely a throwaway https clone of another repo by design.
+func ghProjectRoot(flag string, guard bool) (string, error) {
+	if flag != "" {
+		return projectFlagRoot(flag)
+	}
+	env := os.Getenv("SPORE_PROJECT_ROOT")
+	root, err := task.MainRepoRoot(env)
+	if err != nil || env == "" || !guard {
+		return root, err
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	if exec.Command("git", "-C", wd, "rev-parse", "--git-common-dir").Run() != nil {
+		return root, nil
+	}
+	cwdRoot, err := task.MainRepoRoot(wd)
+	if err != nil {
+		return "", err
+	}
+	if !samePath(root, cwdRoot) {
+		return "", fmt.Errorf("SPORE_PROJECT_ROOT is %s but the cwd is in %s; pass --project <path> to choose", root, cwdRoot)
+	}
+	return root, nil
+}
+
+// projectFlagRoot makes --project absolute and requires a git repo
+// there: MainRepoRoot falls back to its argument outside git, so a
+// typo would name a fresh project and "." would name the state root.
+func projectFlagRoot(flag string) (string, error) {
+	abs, err := filepath.Abs(flag)
+	if err != nil {
+		return "", err
+	}
+	if out, err := exec.Command("git", "-C", abs, "rev-parse", "--git-common-dir").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("--project %s: not inside a git repository: %s", abs, strings.TrimSpace(string(out)))
+	}
+	return task.MainRepoRoot(abs)
+}
+
+// samePath compares after resolving symlinks: git reports a worktree's
+// common dir by its real path while the env may name a symlinked one.
+func samePath(a, b string) bool {
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		a = ra
+	}
+	if rb, err := filepath.EvalSymlinks(b); err == nil {
+		b = rb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func runGHConfig(args []string) error {
+	project, args, err := takeProjectFlag(args, false)
+	if err != nil {
+		return err
+	}
 	var sets []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -87,10 +178,10 @@ func runGHConfig(args []string) error {
 		case strings.HasPrefix(a, "--set="):
 			sets = append(sets, strings.TrimPrefix(a, "--set="))
 		default:
-			return fmt.Errorf("usage: spore gh config [--set key=value ...]")
+			return fmt.Errorf("usage: spore gh config [--project <path>] [--set key=value ...]")
 		}
 	}
-	root, err := ghProjectRoot()
+	root, err := ghProjectRoot(project, true)
 	if err != nil {
 		return err
 	}
@@ -128,10 +219,14 @@ func runGHConfig(args []string) error {
 }
 
 func runGHToken(args []string) error {
-	if len(args) > 0 {
-		return fmt.Errorf("usage: spore gh token")
+	project, args, err := takeProjectFlag(args, false)
+	if err != nil {
+		return err
 	}
-	root, err := ghProjectRoot()
+	if len(args) > 0 {
+		return fmt.Errorf("usage: spore gh token [--project <path>]")
+	}
+	root, err := ghProjectRoot(project, true)
 	if err != nil {
 		return err
 	}
@@ -144,18 +239,22 @@ func runGHToken(args []string) error {
 }
 
 func runGHExec(args []string) (int, error) {
+	project, args, err := takeProjectFlag(args, true)
+	if err != nil {
+		return 0, err
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		return 0, fmt.Errorf("usage: spore gh exec -- <cmd> [args...]")
+		return 0, fmt.Errorf("usage: spore gh exec [--project <path>] -- <cmd> [args...]")
 	}
 	if out, err := exec.Command("git", "config", "--get", "remote.origin.url").Output(); err == nil {
 		if err := ghapp.CheckHTTPSRemote(strings.TrimSpace(string(out))); err != nil {
 			return 0, err
 		}
 	}
-	root, err := ghProjectRoot()
+	root, err := ghProjectRoot(project, false)
 	if err != nil {
 		return 0, err
 	}

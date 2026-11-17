@@ -99,6 +99,21 @@ so every worktree of a project shares one config.
 
 `spore gh config` prints the file; `--set key=` deletes a key.
 
+### Which project
+
+Every `spore gh` subcommand acts on one project's `github.toml`. It is
+`--project <path>` when given, else `$SPORE_PROJECT_ROOT`, else the
+repo holding the cwd. When `$SPORE_PROJECT_ROOT` is set and the cwd is
+inside a different git repo, `spore gh config` and `spore gh token`
+exit non-zero and name both roots instead of using the env project's
+file; pass `--project` to choose. `spore gh exec` does not refuse: its
+cwd is often a throwaway https clone of another repo, so it uses
+`$SPORE_PROJECT_ROOT`. A worktree of the same project, or a cwd outside any git repo,
+is not a mismatch. `--project` is resolved against the cwd (so `.`
+and `../other` work) and must be inside a git repo; a typo or a plain
+directory is refused rather than creating a new project's file. In `spore gh exec`, `--project` is read only before
+the command; after `--` it belongs to the child.
+
 ## Commit identity
 
 The app is the pusher and PR author; you stay the commit author, so
