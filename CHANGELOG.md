@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.10 - 2026-11-17
+
 - `push-and-open-pr` and the role-loop PR mirror work on an ssh
   origin. A `git@github.com:o/r.git` or `ssh://git@github.com/o/r.git`
   origin is pushed to `https://github.com/o/r.git` by URL, which the
