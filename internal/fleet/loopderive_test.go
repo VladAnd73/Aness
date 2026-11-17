@@ -430,3 +430,59 @@ return = true
 		t.Errorf("state = %+v, want a serving a return from b round 2 (the file's round)", st)
 	}
 }
+
+// TestDeriveLoopStateMaxRoundsCountsApprovedRounds pins max_rounds as
+// documented ("once the step has written this many outputs"): review
+// approves rounds 1 and 2, a later completeness step sends the work
+// back each time, and review's first request_changes, in round 3,
+// escalates. An approval that moves forward never escalates.
+func TestDeriveLoopStateMaxRoundsCountsApprovedRounds(t *testing.T) {
+	def := mustLoopDef(t, `
+name = "qa"
+
+[[steps]]
+name = "author"
+kind = "agent"
+role = "author"
+output = "author/round-{round}.json"
+shape = "json"
+
+[[steps]]
+name = "review"
+kind = "agent"
+role = "reviewer"
+output = "review/round-{round}.json"
+shape = "verdict"
+max_rounds = 3
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+return = true
+
+[[steps]]
+name = "completeness"
+kind = "agent"
+role = "reviewer"
+output = "completeness/round-{round}.json"
+shape = "verdict"
+
+[[steps.next]]
+on = "request_changes"
+to = "author"
+`)
+	A, RC := task.VerdictApprove, task.VerdictRequestChanges
+	in := outs(map[string][]string{
+		"author":       {"", "", ""},
+		"review":       {A, A, A},
+		"completeness": {RC, RC},
+	})
+	if st := deriveLoopState(def, in, nil, nil); st.Terminal != "" || st.Step != "completeness" {
+		t.Fatalf("review approving round 3: %+v, want completeness, not escalated", st)
+	}
+	in["review"][2].Verdict = RC
+	st := deriveLoopState(def, in, nil, nil)
+	if st.Terminal != "escalated" || st.Step != "review" || st.Round != 3 {
+		t.Fatalf("review's first request_changes in round 3: %+v, want escalated at review round 3", st)
+	}
+}
