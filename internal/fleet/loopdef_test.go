@@ -263,3 +263,13 @@ func TestLoopFixturesParse(t *testing.T) {
 		}
 	}
 }
+
+func TestParseLoopDefPRFooter(t *testing.T) {
+	const steps = "\n[[steps]]\nname = \"a\"\nkind = \"action\"\naction = \"notify-coordinator\"\n"
+	if def := mustLoopDef(t, `name = "d"`+steps); !def.PRFooter {
+		t.Errorf("pr_footer absent: PRFooter = false, want true")
+	}
+	if def := mustLoopDef(t, "name = \"d\"\npr_footer = false\n"+steps); def.PRFooter {
+		t.Errorf("pr_footer = false: PRFooter = true")
+	}
+}

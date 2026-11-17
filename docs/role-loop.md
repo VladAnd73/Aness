@@ -392,8 +392,11 @@ The reconciler classifies every active task with a `loop:` key:
 ### Schema
 
 Top-level keys: `name` (must match the file name), `summary` (write
-`summary.md` on done, as the role loop does) and `github_mirror` (run
-the draft-PR mirror when `pr_flow = "draft"`). Then one `[[steps]]`
+`summary.md` on done, as the role loop does), `github_mirror` (run
+the draft-PR mirror when `pr_flow = "draft"`) and `pr_footer` (default
+`true`; `false` drops the "Dispatched by ... merges." footer, so a PR
+body opened by `push-and-open-pr` or the mirror is the spec summary
+only). Then one `[[steps]]`
 table per step, in order:
 
 | Key | Meaning |

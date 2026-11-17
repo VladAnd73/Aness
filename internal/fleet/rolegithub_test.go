@@ -150,7 +150,7 @@ func (f *mirrorFixture) tick(t *testing.T) Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mirrorGitHub(f.root, f.tasksDir, f.slug, snap)
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
 	return snap
 }
 

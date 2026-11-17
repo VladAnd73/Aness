@@ -40,7 +40,7 @@ func actionPushAndOpenPR(ctx actionCtx) error {
 	if err != nil {
 		return err
 	}
-	m.cfg, m.loop = cfg, ctx.Def.Name
+	m.cfg, m.loop, m.footer = cfg, ctx.Def.Name, ctx.Def.PRFooter
 	if err := m.connect(); err != nil {
 		return err
 	}

@@ -101,7 +101,7 @@ func driveLoopDef(projectRoot, tasksDir, slug string, def LoopDef) (LoopState, m
 	}
 
 	if prFlow {
-		mirrorGitHub(projectRoot, tasksDir, slug, snapshotFromLoopState(def, st, outs))
+		mirrorGitHub(projectRoot, tasksDir, slug, snapshotFromLoopState(def, st, outs), def.PRFooter)
 	}
 	if err := bounceInvalidRoleFiles(projectRoot, slug, loopStepFiles(def)...); err != nil {
 		return st, outs, fmt.Errorf("drive %s: bounce invalid files: %w", slug, err)

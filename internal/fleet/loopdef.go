@@ -17,6 +17,7 @@ type LoopDef struct {
 	Name         string
 	Summary      bool // write upstream's summary.md on done
 	GitHubMirror bool // run the draft-PR mirror when pr_flow = "draft"
+	PRFooter     bool // end a PR body with the dispatch/approval footer; on unless pr_footer = false
 	Steps        []Step
 	Source       string // file path or "embedded:<name>", for errors
 }
@@ -193,6 +194,10 @@ func loopDefFromTOML(doc *loopTOML) (LoopDef, error) {
 		Name:         top.str("name"),
 		Summary:      top.boolean("summary"),
 		GitHubMirror: top.boolean("github_mirror"),
+		PRFooter:     true,
+	}
+	if v, ok := top.get("pr_footer", "boolean"); ok {
+		def.PRFooter, _ = v.(bool)
 	}
 	if err := top.finish("the loop header"); err != nil {
 		return LoopDef{}, err

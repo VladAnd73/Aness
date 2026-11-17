@@ -137,6 +137,8 @@ type githubMirror struct {
 	cfg                         ghapp.Config
 	state                       githubState
 	env                         []string
+	// footer ends a PR body with who dispatched it and who merges.
+	footer bool
 	// pushURL is origin's https URL; see originPushURL.
 	pushURL string
 	// loop names the loop file whose push-and-open-pr action drives
@@ -149,7 +151,7 @@ type githubMirror struct {
 // logged, retried next tick, and told to the coordinator once per
 // distinct error; it never fails the drive. A concurrent drive holding
 // the lock makes this tick a no-op.
-func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
+func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot, footer bool) {
 	statePath := githubStatePath(projectRoot, slug)
 	unlock, ok := flockBeside(statePath)
 	if !ok {
@@ -160,6 +162,7 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
 	// An unreadable github.json reads as empty here, as upstream does:
 	// ensurePR adopts the open PR instead of opening a second one.
 	m, _ := newGitHubMirror(projectRoot, tasksDir, slug)
+	m.footer = footer
 	err := m.run(snap)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "role-loop github mirror %s: %v\n", slug, err)
@@ -530,6 +533,9 @@ func (m *githubMirror) prBody(title string) string {
 	summary := specSummary(string(spec))
 	if summary == "" || absPathRE.MatchString(summary) {
 		summary = title
+	}
+	if !m.footer {
+		return summary + "\n"
 	}
 	if m.loop != "" {
 		return fmt.Sprintf("%s\n\nDispatched by @%s. Opened by spore's `%s` loop. @%s gives the only approval and merges.\n",

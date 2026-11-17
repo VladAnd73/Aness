@@ -15,6 +15,9 @@
   dir is created. Loop files no longer show as untracked and trip a
   `git status --porcelain` done check. The tracked `.gitignore` is not
   touched.
+- Loop files take `pr_footer = false` to drop the "Dispatched by ...
+  merges." footer from PR bodies opened by `push-and-open-pr` or the
+  draft-PR mirror. Absent, the footer stays.
 
 ## 1.0.9 - 2026-11-17
 

@@ -265,3 +265,50 @@ func TestPushAndOpenPRSecondHTTPSURLPushesOnlyThere(t *testing.T) {
 		t.Fatalf("branch not pushed over https")
 	}
 }
+
+// prBodies returns every --body-file payload gh received.
+func prBodies(t *testing.T, f *mirrorFixture) []string {
+	t.Helper()
+	var out []string
+	for _, chunk := range strings.Split(f.log(t), "BODY:\n")[1:] {
+		body, _, _ := strings.Cut(chunk, "END\n")
+		out = append(out, body)
+	}
+	return out
+}
+
+func TestPushAndOpenPRFooterOffBodyIsSummaryOnly(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	if err := actionPushAndOpenPR(prActionCtx(t, f, "pr_footer = false\n"+prActionLoop, 1)); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	if got := prBodies(t, f); !reflect.DeepEqual(got, []string{"Make the widget spin.\n"}) {
+		t.Fatalf("bodies = %q, want the summary only", got)
+	}
+}
+
+func TestPushAndOpenPRFooterDefaultUnchanged(t *testing.T) {
+	f := newMirrorFixture(t, "")
+	if err := actionPushAndOpenPR(prActionCtx(t, f, prActionLoop, 1)); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	want := "Make the widget spin.\n\nDispatched by @octo. Opened by spore's `pr` loop. @octo gives the only approval and merges.\n"
+	if got := prBodies(t, f); !reflect.DeepEqual(got, []string{want}) {
+		t.Fatalf("bodies = %q, want %q", got, want)
+	}
+}
+
+// TestGitHubMirrorFooterOff: a github_mirror loop with pr_footer =
+// false opens its draft PR with the summary only.
+func TestGitHubMirrorFooterOff(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	writeEng(1)(t, f.root, f.slug)
+	snap, err := DeriveSnapshot(f.root, f.slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, false)
+	if got := prBodies(t, f); len(got) == 0 || got[0] != "Make the widget spin.\n" {
+		t.Fatalf("bodies = %q, want the summary only first", got)
+	}
+}
