@@ -169,7 +169,9 @@ mode = "fleet"
   when no `mode` is set, but falls back to `fleet` when its agent
   (slot `agent`, else the task `agent:`, else the `[fleet.workers]`
   default) resolves to non-claude; an `effort` it set is then
-  ignored with a stderr warning, as on any fleet slot. The fallback
+  ignored with a stderr warning, as on any fleet slot. A loop step
+  on slot A whose role is not `reviewer` falls back to `fleet` the
+  same way, since only the reviewer has a code-review body. The fallback
   is re-evaluated at every spawn, like the agent, so changing the
   task agent or `[fleet.workers]` default mid-task can switch A
   between the two protocols across rounds; pin `mode` on A to rule
@@ -199,9 +201,11 @@ test schema, e.g. marketer:
 
 The command runs in the session cwd (the worktree) with the session's
 `SPORE_*` env, via `sh -c`, under `flock .spore/<slug>/state/pre-start.lock`.
-The lock is per slug and shared by the worker, engineer, and both
-reviewers, so make the command idempotent: later sessions wait for
-the first, then should return quickly. The pane shell runs it, not
+The hook runs once per pane: the worker, the engineer and each
+reviewer each run it. The lock is per slug and only serializes those
+runs, so make the command idempotent. Without network isolation the
+panes share the host network, and later runs wait for the first, then
+should return quickly. The pane shell runs it, not
 the reconciler, so spawning never blocks on it. The hook runs under
 `timeout`, default 900s, set by `[fleet] pre_start_timeout_seconds`
 (0 runs it unbounded), so a hung bring-up cannot hold the slug lock
@@ -230,6 +234,21 @@ then agent, runs inside one pasta network namespace, so services the
 hook starts on loopback are the ones the agent reaches (pasta runs
 with port forwarding off, so a hook run on the host would be out of
 the agent's reach). Only the agent gets `IS_SANDBOX=1`.
+
+Each pane gets its own namespace, not one per slug. The engineer's
+hook and reviewer A's hook run in different namespaces: services one
+starts on loopback are invisible to the other, so the second run finds
+nothing listening and starts its own copy, and a reviewer cannot reach
+the engineer's dev server. Two rules follow for a hook under
+isolation. Key pid files and data directories per pane (for example
+by `SPORE_ROLE_SESSION`), since the copies share the worktree. Decide
+"already running" by probing the loopback port, not by a pid file or
+lock another pane wrote. Path-based unix sockets are files, not network
+state, so they are shared across a slug's panes (checked with a socket
+bound outside a pasta namespace and reached from inside one); a service
+that listens on one is shared too, and per-pane copies need per-pane
+socket paths. One namespace shared by all panes of a slug is a
+possible follow-up.
 
 Engineer (`spore-role/<project>/<slug>/engineer`): reads the spec and
 the latest verdict, commits on the task branch, and ends each round
@@ -394,7 +413,11 @@ The reconciler classifies every active task with a `loop:` key:
 Top-level keys: `name` (must match the file name), `summary` (write
 `summary.md` on done: the dev loop's review summary, or for any other
 loop one section per agent step with each round's output), `github_mirror` (run
-the draft-PR mirror when `pr_flow = "draft"`) and `pr_footer` (default
+the draft-PR mirror when `pr_flow = "draft"`; the mirror reads only the
+dev loop's outputs, so the loop's agent steps must write exactly
+`responses/engineer-round-{round}.json` (shape `engineer-response`) and
+`reviews/A/round-{round}.json`, `reviews/B/round-{round}.json` (shape
+`verdict`)) and `pr_footer` (default
 `true`; `false` drops the "Dispatched by ... merges." footer, so a PR
 body opened by `push-and-open-pr` or the mirror is the spec summary
 only). Then one `[[steps]]`
@@ -418,7 +441,8 @@ table per step, in order:
 
 `[[steps.done]]` adds conditions on top of the output: `kind = "file"`
 (`path`), `"verdict"` (`equals`; the field is always `verdict`) or
-`"command"` (`run`, `timeout`). `[[steps.next]]` picks the next step by
+`"command"` (`run`, `timeout`); only agent steps take them, and a file
+that puts one on an action step fails to load. `[[steps.next]]` picks the next step by
 verdict: `on`, `to` (a step or `done`), and `return = true` to come
 back to this step once the target answers. Without a matching `next`,
 the loop moves to the following step; past the last step it is done.

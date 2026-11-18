@@ -37,7 +37,8 @@ type githubState struct {
 	Posted    []string `json:"posted,omitempty"`
 	Ready     bool     `json:"ready,omitempty"`
 	// DoneNotified records the plain "<slug>: done" fallback sent while
-	// the mirror was failing at PhaseDone.
+	// the mirror was failing at PhaseDone, or when it had no ready
+	// event to post.
 	DoneNotified bool   `json:"done_notified,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 }
@@ -58,10 +59,11 @@ func githubStatePath(projectRoot, slug string) string {
 // mirrorEvent is one GitHub action derived from a file on disk. name
 // keys it in githubState.Posted.
 type mirrorEvent struct {
-	name     string
-	kind     string
-	round    int
-	instance task.ReviewerInstance
+	name      string
+	kind      string
+	round     int
+	instance  task.ReviewerInstance
+	maxRounds int // escalated: the step's max_rounds
 }
 
 const (
@@ -122,7 +124,7 @@ reviews:
 	case PhaseEscalated:
 		out = append(out, mirrorEvent{
 			name: fmt.Sprintf("escalated-%s-%d", snap.CurrentReviewer, snap.ReviewerRound),
-			kind: eventEscalated, round: snap.ReviewerRound, instance: snap.CurrentReviewer,
+			kind: eventEscalated, round: snap.ReviewerRound, instance: snap.CurrentReviewer, maxRounds: snap.MaxRounds,
 		})
 	case PhaseDone:
 		out = append(out, mirrorEvent{name: eventReady, kind: eventReady})
@@ -182,6 +184,13 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot, footer bool
 	}
 	if m.state.LastError != "" {
 		m.state.LastError = ""
+		m.save()
+	}
+	// finishLoop leaves the done notice to the mirror; a done loop that
+	// gave the mirror no ready event to post would otherwise go unheard.
+	if snap.Phase == PhaseDone && !m.state.posted(eventReady) && !m.state.DoneNotified {
+		m.state.DoneNotified = true
+		notifyRoleLoop(projectRoot, fmt.Sprintf("%s: done", slug))
 		m.save()
 	}
 }
@@ -376,7 +385,7 @@ func (m *githubMirror) apply(e mirrorEvent) error {
 		return err
 	case eventEscalated:
 		return m.prComment(fmt.Sprintf("**Role loop escalated.** %s requested changes at round %d, the cap of %d rounds per reviewer. The PR stays draft until the operator decides.",
-			reviewLabel(e.instance), e.round, MaxReviewerRounds))
+			reviewLabel(e.instance), e.round, e.maxRounds))
 	case eventReady:
 		if _, err := m.gh("", "pr", "ready", strconv.Itoa(m.state.PRNumber)); err != nil {
 			return err
@@ -441,14 +450,29 @@ func (m *githubMirror) push() error {
 		}
 	}
 	if _, err := m.git(args...); err != nil {
-		if strings.Contains(err.Error(), "not allowed") {
-			return fmt.Errorf("a git url rewrite (pushInsteadOf) moves %s off https; the GitHub App pushes over https only: %w", m.pushURL, err)
+		if base := m.pushRewrite(); base != "" {
+			return fmt.Errorf("a git url rewrite (url.<base>.pushInsteadOf = %s) moves %s off https; the GitHub App pushes over https only: %w", base, m.pushURL, err)
 		}
 		return err
 	}
 	m.state.PushedSHA = sha
 	m.save()
 	return nil
+}
+
+// pushRewrite returns the pushInsteadOf value that rewrites m.pushURL,
+// or "". connect already refused an insteadOf rewrite, and the push
+// names m.pushURL, never origin, so only such a rule can move it off
+// https; any other push failure is the server's and is reported as is.
+func (m *githubMirror) pushRewrite() string {
+	out, _ := m.git("config", "--get-regexp", `^url\..*\.pushinsteadof$`)
+	for _, line := range strings.Split(out, "\n") {
+		_, base, ok := strings.Cut(line, " ")
+		if ok && base != "" && strings.HasPrefix(m.pushURL, base) {
+			return base
+		}
+	}
+	return ""
 }
 
 func (m *githubMirror) branch() (string, error) {

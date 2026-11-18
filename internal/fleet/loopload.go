@@ -50,6 +50,16 @@ func LoadLoop(projectRoot, name string) (LoopDef, error) {
 	if def.Name != name {
 		return LoopDef{}, fmt.Errorf("%s: loop name %q does not match the file name %q", source, def.Name, name)
 	}
+	// Checked again at spawn: the mode can follow reviewer config that
+	// changes after load.
+	for _, s := range def.Steps {
+		if s.Kind != "agent" {
+			continue
+		}
+		if err := checkRoleBody(projectRoot, roleBodyFile(s.Role, s.Mode)); err != nil {
+			return LoopDef{}, fmt.Errorf("%s: step %q: %w", source, s.Name, err)
+		}
+	}
 	return def, nil
 }
 

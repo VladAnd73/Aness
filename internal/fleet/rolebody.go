@@ -64,6 +64,27 @@ func ResolveRoleBody(projectRoot, name string) (string, error) {
 	return path, nil
 }
 
+// roleBodyFile names the body a role pane in mode runs.
+func roleBodyFile(role, mode string) string {
+	if mode == ReviewerModeCodeReview {
+		return role + "-code-review.md"
+	}
+	return role + ".md"
+}
+
+// checkRoleBody reports whether ResolveRoleBody would find name,
+// without materializing a bundled body.
+func checkRoleBody(projectRoot, name string) error {
+	project, err := projectRoleBody(projectRoot, name)
+	if err != nil || project != "" {
+		return err
+	}
+	if _, err := fs.Stat(spore.BundledRoles, "bootstrap/roles/"+name); err != nil {
+		return fmt.Errorf("role body %s: not in %s and not bundled", name, filepath.Join(projectRoot, "bootstrap", "roles"))
+	}
+	return nil
+}
+
 // projectRoleBody returns the project override for name, or "" when
 // a path component is absent or a parent is not a directory. A
 // component that exists but is broken (dangling symlink, unreadable,

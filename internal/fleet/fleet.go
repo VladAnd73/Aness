@@ -278,8 +278,10 @@ func Reconcile(cfg Config) (Result, error) {
 		}
 	}
 
-	// A failed spawn backs off and the pass moves on to the next task;
-	// the first failure is still returned to the caller.
+	// A failed spawn backs off and the pass moves on to the next task,
+	// as does a failed agent assign (no backoff): returning early would
+	// stop every looped task from being driven below. The first failure
+	// is still returned to the caller.
 	var spawnErr error
 	now := time.Now()
 	backoff := loadSpawnBackoff(cfg.ProjectRoot)
@@ -316,7 +318,12 @@ func Reconcile(cfg Config) (Result, error) {
 		}
 		picked, err := assignAgent(cfg.TasksDir, slug, workersCfg, agentCounts)
 		if err != nil {
-			return res, fmt.Errorf("assign agent %s: %w", slug, err)
+			res.Failed = append(res.Failed, slug)
+			fmt.Fprintf(os.Stderr, "fleet: assign agent %s: %v\n", slug, err)
+			if spawnErr == nil {
+				spawnErr = fmt.Errorf("assign agent %s: %w", slug, err)
+			}
+			continue
 		}
 		if _, err := task.Ensure(cfg.TasksDir, slug); err != nil {
 			backoff.failed(slug, now)

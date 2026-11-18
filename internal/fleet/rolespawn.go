@@ -118,11 +118,7 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	}
 	rolePath := s.RoleBodyPath
 	if rolePath == "" {
-		body := s.Role + ".md"
-		if slot.Mode == ReviewerModeCodeReview {
-			body = s.Role + "-code-review.md"
-		}
-		if rolePath, err = ResolveRoleBody(s.ProjectRoot, body); err != nil {
+		if rolePath, err = ResolveRoleBody(s.ProjectRoot, roleBodyFile(s.Role, slot.Mode)); err != nil {
 			return nil, err
 		}
 	}
@@ -231,7 +227,8 @@ func commitIdentityEnv(projectRoot string) []string {
 // resolve settles the pane's reviewer slot and agent in one place.
 // Agent: the spec's Agent, else the slot's, else claude for an
 // explicit code-review slot, else roleAgent. A defaulted code-review
-// slot whose agent is non-claude drops to fleet; Effort is filled in
+// slot drops to fleet when its agent is non-claude or its role is not
+// reviewer (only the reviewer has a code-review body); Effort is filled in
 // code-review mode and cleared, with a warning, in fleet mode. Like
 // the agent itself, the defaulted mode follows the config at each
 // spawn, so editing the agent config mid-task can switch A's protocol
@@ -280,7 +277,7 @@ func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agen
 	if !s.slotted() {
 		return slot, meta, agent, nil
 	}
-	if slot.Mode == ReviewerModeCodeReview && slot.DefaultMode && !isClaudeAgent(agent) {
+	if slot.Mode == ReviewerModeCodeReview && slot.DefaultMode && (!isClaudeAgent(agent) || s.Role != "reviewer") {
 		slot.Mode = ReviewerModeFleet
 	}
 	switch {
@@ -399,19 +396,6 @@ func SpawnRole(spec RoleSpawnSpec) (string, bool, error) {
 		return "", false, fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return name, true, nil
-}
-
-// ReapRole kills the tmux session for spec. Idempotent.
-func ReapRole(spec RoleSpawnSpec) (bool, error) {
-	name, err := spec.SessionName()
-	if err != nil {
-		return false, err
-	}
-	if !hasSession(name) {
-		return false, nil
-	}
-	_ = exec.Command("tmux", "kill-session", "-t", name).Run()
-	return true, nil
 }
 
 // EngineerSpec builds the engineer pane spec for a task.

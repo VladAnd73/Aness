@@ -199,20 +199,16 @@ func stepNote(def LoopDef, s Step, output string, next int, now bool) string {
 	default:
 		format = "one JSON object"
 		if len(s.Required) > 0 {
-			keys := make([]string, len(s.Required))
-			for i, k := range s.Required {
-				keys[i] = strconv.Quote(k)
-			}
-			format += " with these keys present and not null: " + strings.Join(keys, ", ")
+			format += " with these keys present and not null: " + quotedList(s.Required)
 		}
 		var ons []string
 		for _, t := range s.Next {
 			if t.On != "" {
-				ons = append(ons, strconv.Quote(t.On))
+				ons = append(ons, t.On)
 			}
 		}
 		if len(ons) > 0 {
-			format += `, and "verdict" set to one of ` + strings.Join(ons, ", ")
+			format += `, and "verdict" set to one of ` + quotedList(ons)
 		}
 	}
 	round := ""

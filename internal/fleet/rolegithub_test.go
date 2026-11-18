@@ -595,3 +595,86 @@ func TestEngineerCommitIdentityEnv(t *testing.T) {
 		t.Error("pr_flow off engineer got commit identity")
 	}
 }
+
+// TestGitHubMirrorDoneNoticeWithoutReady: a loop that reaches done
+// with nothing for the mirror to post still tells the coordinator
+// once, since finishLoop leaves the done notice to the mirror.
+func TestGitHubMirrorDoneNoticeWithoutReady(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	snap := Snapshot{Slug: f.slug, Phase: PhaseDone}
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
+	var bodies []string
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		bodies = append(bodies, e.Body)
+	}
+	if len(bodies) != 1 || bodies[0] != "demo: done" {
+		t.Fatalf("notices = %q, want one %q", bodies, "demo: done")
+	}
+}
+
+// TestGitHubMirrorEscalationNamesLoopCap: the escalation comment names
+// the step's max_rounds from a project dev.toml, not the default 3.
+func TestGitHubMirrorEscalationNamesLoopCap(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	b, err := os.ReadFile(filepath.Join("..", "..", "bootstrap", "loops", "dev.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(f.root, "bootstrap", "loops")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dev.toml"), []byte(strings.ReplaceAll(string(b), "max_rounds = 3", "max_rounds = 5")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeEng(1)(t, f.root, f.slug)
+	for r := 1; r <= 5; r++ {
+		if r > 1 {
+			writeEng(r)(t, f.root, f.slug)
+		}
+		mustWriteReview(t, f.root, f.slug, task.ReviewerA, r, task.Review{Verdict: task.VerdictRequestChanges, Summary: "no"})
+	}
+	if snap := f.tick(t); snap.Phase != PhaseEscalated {
+		t.Fatalf("phase = %s", snap.Phase)
+	}
+	if !strings.Contains(f.log(t), "Review #1 requested changes at round 5, the cap of 5") {
+		t.Fatalf("escalation comment does not name the cap of 5; log:\n%s", f.log(t))
+	}
+}
+
+// TestGitHubMirrorServerRejectionIsNotARewrite: a pre-receive hook
+// refusing the push surfaces as git's own error, not as a url rewrite.
+func TestGitHubMirrorServerRejectionIsNotARewrite(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	hook := filepath.Join(f.bare, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'Pushing to this branch is not allowed' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	s := f.state(t)
+	if !strings.Contains(s.LastError, "git push") || strings.Contains(s.LastError, "pushInsteadOf") {
+		t.Fatalf("LastError = %q, want the raw push error without a rewrite claim", s.LastError)
+	}
+	var bodies []string
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		bodies = append(bodies, e.Body)
+	}
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "Pushing to this branch is not allowed") || strings.Contains(bodies[0], "pushInsteadOf") {
+		t.Fatalf("notices = %q", bodies)
+	}
+}
+
+// TestGitHubMirrorPushInsteadOfRewriteNamed: a pushInsteadOf rule that
+// moves the push URL off https is reported as the rewrite.
+func TestGitHubMirrorPushInsteadOfRewriteNamed(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	runGit(t, f.root, "config", "url.git@github.com:.pushInsteadOf", "https://github.com/")
+	trapSSH(t)
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	if s := f.state(t); !strings.Contains(s.LastError, "pushInsteadOf") {
+		t.Fatalf("LastError = %q, want the pushInsteadOf rewrite named", s.LastError)
+	}
+}

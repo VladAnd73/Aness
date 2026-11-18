@@ -37,35 +37,6 @@ func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
 	return snap, err
 }
 
-// wakeReviewer nudges the persistent reviewer pane with the path of
-// the latest engineer response. Only fires when the reviewer has
-// already issued a verdict (ReviewerRound >= 1): the phase moving back
-// to review-* then means a fresh engineer response landed and the idle
-// pane must be told. Round 0 is a freshly spawned reviewer that starts
-// from its role body; no nudge needed.
-func wakeReviewer(projectRoot, slug string, snap Snapshot) error {
-	if snap.CurrentReviewer == "" || snap.ReviewerRound < 1 {
-		return nil
-	}
-	respPath := task.EngineerResponsePath(projectRoot, slug, snap.EngineerRound)
-	msg := fmt.Sprintf("Engineer responded to your round %d verdict. Read %s and review round %d.",
-		snap.ReviewerRound, respPath, snap.ReviewerRound+1)
-	_, err := wakeSession(ReviewerSpec(projectRoot, slug, snap.CurrentReviewer), reviewerWakeMarkerStem(snap), msg)
-	return err
-}
-
-// engineerWakeMarkerStem keys the engineer wake on which verdict is
-// being delivered: a new reviewer round re-arms the nudge.
-func engineerWakeMarkerStem(snap Snapshot) string {
-	return fmt.Sprintf("woken-%s-%d", snap.CurrentReviewer, snap.ReviewerRound)
-}
-
-// reviewerWakeMarkerStem keys the reviewer wake on which engineer
-// response is being delivered: a new engineer round re-arms the nudge.
-func reviewerWakeMarkerStem(snap Snapshot) string {
-	return fmt.Sprintf("woken-reviewer-%s-%d", snap.CurrentReviewer, snap.EngineerRound)
-}
-
 // wakeSession delivers msg to the role pane for spec, gated by an
 // idempotency marker at <roletaskdir>/state/<stem>-<created>. The
 // marker name embeds the session's `#{session_created}` stamp so a

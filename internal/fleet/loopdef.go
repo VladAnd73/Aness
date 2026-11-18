@@ -3,9 +3,12 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -265,7 +268,7 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 			Field: cr.str("field"), Equals: cr.str("equals"),
 			Run: cr.str("run"), TimeoutSeconds: cr.timeoutSeconds("timeout"),
 		}
-		if err := cr.finish("[[steps.done]] of step " + strconvQuote(s.Name)); err != nil {
+		if err := cr.finish("[[steps.done]] of step " + strconv.Quote(s.Name)); err != nil {
 			return Step{}, err
 		}
 		if c.Kind == "verdict" && c.Field == "" {
@@ -279,7 +282,7 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 	for _, t := range ts.next {
 		nr := newTOMLReader(t)
 		tr := Transition{On: nr.str("on"), To: nr.str("to"), Return: nr.boolean("return"), Phase: nr.str("phase")}
-		if err := nr.finish("[[steps.next]] of step " + strconvQuote(s.Name)); err != nil {
+		if err := nr.finish("[[steps.next]] of step " + strconv.Quote(s.Name)); err != nil {
 			return Step{}, err
 		}
 		if tr.Return && tr.Phase == "" {
@@ -289,8 +292,6 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 	}
 	return s, nil
 }
-
-func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
 
 // Validate checks the cross-field rules a parse cannot. Every error is
 // prefixed with d.Source.
@@ -323,6 +324,46 @@ func (d LoopDef) validate() error {
 			return err
 		}
 	}
+	// Two steps on one output would read each other's rounds as their
+	// own.
+	byOutput := map[string]string{}
+	for _, s := range d.Steps {
+		if s.Output == "" {
+			continue
+		}
+		o := path.Clean(s.Output)
+		if prev, ok := byOutput[o]; ok {
+			return fmt.Errorf("steps %q and %q have the same output %q", prev, s.Name, o)
+		}
+		byOutput[o] = s.Name
+	}
+	if d.GitHubMirror {
+		if err := d.validateMirrorOutputs(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mirrorOutputs are the agent-step outputs the draft-PR mirror reads
+// (mirrorEvents), whatever the loop or its steps are called.
+var mirrorOutputs = map[string]string{
+	"responses/engineer-round-{round}.json": "engineer-response",
+	"reviews/A/round-{round}.json":          "verdict",
+	"reviews/B/round-{round}.json":          "verdict",
+}
+
+func (d LoopDef) validateMirrorOutputs() error {
+	got := map[string]string{}
+	for _, s := range d.Steps {
+		if s.Kind == "agent" {
+			got[path.Clean(s.Output)] = s.Shape
+		}
+	}
+	if !maps.Equal(got, mirrorOutputs) {
+		return fmt.Errorf("github_mirror = true needs agent steps writing exactly %s (shape engineer-response), %s and %s (shape verdict): the mirror reads only those",
+			"responses/engineer-round-{round}.json", "reviews/A/round-{round}.json", "reviews/B/round-{round}.json")
+	}
 	return nil
 }
 
@@ -347,6 +388,11 @@ func (d LoopDef) validateStep(i int, s Step) error {
 	case "action":
 		if _, ok := loopActions[s.Action]; !ok {
 			return fmt.Errorf("step %q: unknown action %q", s.Name, s.Action)
+		}
+		// Only agent steps evaluate done conditions; an action step's
+		// would be ignored and the cursor would move on regardless.
+		if len(s.Done) > 0 {
+			return fmt.Errorf("action step %q: [[steps.done]] applies to agent steps only", s.Name)
 		}
 	}
 	if s.MaxRounds < 0 {
@@ -374,8 +420,6 @@ func (d LoopDef) validateStep(i int, s Step) error {
 			return fmt.Errorf("step %q: verdict condition field %q: only \"verdict\" is supported", s.Name, c.Field)
 		case c.Kind == "command" && strings.TrimSpace(c.Run) == "":
 			return fmt.Errorf("step %q: command condition needs run", s.Name)
-		case c.Kind == "command" && s.Output == "":
-			return fmt.Errorf("step %q: command condition needs an output to fingerprint; the step has none", s.Name)
 		case c.Kind == "file" && c.Path == "":
 			return fmt.Errorf("step %q: file condition needs path", s.Name)
 		case c.Kind == "verdict" && c.Equals == "":

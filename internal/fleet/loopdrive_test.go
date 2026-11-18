@@ -82,24 +82,24 @@ func TestDriveLoopDevMatchesUpstreamWakeText(t *testing.T) {
 	writeDevStep(t, f.root, f.slug, devStep{who: "A", round: 1, verdict: task.VerdictRequestChanges})
 	f.tick(t)
 	snap := Snapshot{CurrentReviewer: A, ReviewerRound: 1, EngineerRound: 1}
-	expectLastWake("A round 1 request_changes", eng, engineerWakeMarkerStem(snap), engMsg(snap))
+	expectLastWake("A round 1 request_changes", eng, "woken-A-1", engMsg(snap))
 
 	writeDevStep(t, f.root, f.slug, devStep{who: "eng", round: 2})
 	f.tick(t)
 	snap = Snapshot{CurrentReviewer: A, ReviewerRound: 1, EngineerRound: 2}
-	expectLastWake("engineer round 2", revA, reviewerWakeMarkerStem(snap), revMsg(snap))
+	expectLastWake("engineer round 2", revA, "woken-reviewer-A-2", revMsg(snap))
 
 	writeDevStep(t, f.root, f.slug, devStep{who: "A", round: 2, verdict: task.VerdictApprove})
 	f.tick(t)
 	writeDevStep(t, f.root, f.slug, devStep{who: "B", round: 1, verdict: task.VerdictRequestChanges})
 	f.tick(t)
 	snap = Snapshot{CurrentReviewer: B, ReviewerRound: 1, EngineerRound: 2}
-	expectLastWake("B round 1 request_changes", eng, engineerWakeMarkerStem(snap), engMsg(snap))
+	expectLastWake("B round 1 request_changes", eng, "woken-B-1", engMsg(snap))
 
 	writeDevStep(t, f.root, f.slug, devStep{who: "eng", round: 3})
 	f.tick(t)
 	snap = Snapshot{CurrentReviewer: B, ReviewerRound: 1, EngineerRound: 3}
-	expectLastWake("engineer round 3", revB, reviewerWakeMarkerStem(snap), revMsg(snap))
+	expectLastWake("engineer round 3", revB, "woken-reviewer-B-3", revMsg(snap))
 
 	if n := len(f.panes.wakesTo(revA)); n != 1 {
 		t.Errorf("reviewer A got %d wakes, want 1 (round 0 and its forward exit wake nothing)", n)

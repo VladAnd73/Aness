@@ -369,3 +369,33 @@ func TestRoleSpawnPreStartRunsInsideNetns(t *testing.T) {
 		t.Errorf("shell command %q: want IS_SANDBOX=1 on the agent", got)
 	}
 }
+
+// TestRoleSpawnNonReviewerOnSlotAUsesItsOwnBody: slot A defaults to
+// code-review mode, which only the reviewer role has a body for; a
+// qa step on slot A spawns from qa.md in fleet mode.
+func TestRoleSpawnNonReviewerOnSlotAUsesItsOwnBody(t *testing.T) {
+	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	roles := filepath.Join(root, "bootstrap", "roles")
+	if err := os.MkdirAll(roles, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roles, "qa.md"), []byte("You are QA.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def := LoopDef{Name: "qa"}
+	s := Step{Name: "check", Kind: "agent", Role: "qa", Session: "check", Slot: "A", Output: "qa/round-{round}.json", Shape: "json"}
+	args, err := StepSpec(root, "feature-x", def, s).TmuxArgs()
+	if err != nil {
+		t.Fatalf("TmuxArgs: %v", err)
+	}
+	if m := envValue(args, "SPORE_REVIEWER_MODE"); m != ReviewerModeFleet {
+		t.Errorf("SPORE_REVIEWER_MODE = %q, want %q", m, ReviewerModeFleet)
+	}
+	if e := envValue(args, "SPORE_REVIEW_EFFORT"); e != "" {
+		t.Errorf("SPORE_REVIEW_EFFORT = %q on a fleet-mode pane", e)
+	}
+	if script := args[len(args)-1]; !strings.Contains(script, filepath.Join(roles, "qa.md")) {
+		t.Errorf("pane script does not use qa.md:\n%s", script)
+	}
+}

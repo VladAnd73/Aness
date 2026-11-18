@@ -68,6 +68,8 @@ type Snapshot struct {
 	// LastVerdict is the verdict on the latest reviewer round in
 	// the current phase, or empty when none has been written yet.
 	LastVerdict string
+	// MaxRounds is the current reviewer step's max_rounds.
+	MaxRounds int
 }
 
 // DeriveSnapshot reads `<projectRoot>/.spore/<slug>/` and returns the
