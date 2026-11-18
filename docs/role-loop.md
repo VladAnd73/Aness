@@ -424,7 +424,8 @@ table per step, in order:
 
 `[[steps.done]]` adds conditions on top of the output: `kind = "file"`
 (`path`), `"verdict"` (`equals`; the field is always `verdict`) or
-`"command"` (`run`, `timeout`). `[[steps.next]]` picks the next step by
+`"command"` (`run`, `timeout`); only agent steps take them, and a file
+that puts one on an action step fails to load. `[[steps.next]]` picks the next step by
 verdict: `on`, `to` (a step or `done`), and `return = true` to come
 back to this step once the target answers. Without a matching `next`,
 the loop moves to the following step; past the last step it is done.
