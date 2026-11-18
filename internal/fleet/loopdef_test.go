@@ -186,6 +186,7 @@ func TestValidateRejects(t *testing.T) {
 			"[[steps]]\nname = \"review-B\"\nkind = \"agent\"\nrole = \"reviewer\"\noutput = \"reviews/B/round-{round}.json\"\nshape = \"verdict\"\n", `github_mirror`},
 		{"file check on action", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"action\"\naction = \"notify-coordinator\"\n[[steps.done]]\nkind = \"file\"\npath = \"approved.flag\"\n", `action step "a"`},
 		{"verdict check on action", "name = \"x\"\n[[steps]]\nname = \"a\"\nkind = \"action\"\naction = \"notify-coordinator\"\n[[steps.done]]\nkind = \"verdict\"\nequals = \"approve\"\n", `action step "a"`},
+		{"duplicate output", "name = \"x\"\n" + agent("a", "") + "\n[[steps]]\nname = \"b\"\nkind = \"agent\"\nrole = \"r\"\noutput = \"a/./r-{round}.json\"\nshape = \"verdict\"\n", `same output`},
 		{"verdict condition blocks routing", "name = \"x\"\n" + agent("a", "") + agent("b", "[[steps.done]]\nkind = \"verdict\"\nequals = \"approve\"\n[[steps.next]]\non = \"request_changes\"\nto = \"a\"\n"), `verdict condition equals "approve" blocks next on "request_changes"`},
 	}
 	for _, c := range cases {
