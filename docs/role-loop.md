@@ -201,9 +201,11 @@ test schema, e.g. marketer:
 
 The command runs in the session cwd (the worktree) with the session's
 `SPORE_*` env, via `sh -c`, under `flock .spore/<slug>/state/pre-start.lock`.
-The lock is per slug and shared by the worker, engineer, and both
-reviewers, so make the command idempotent: later sessions wait for
-the first, then should return quickly. The pane shell runs it, not
+The hook runs once per pane: the worker, the engineer and each
+reviewer each run it. The lock is per slug and only serializes those
+runs, so make the command idempotent. Without network isolation the
+panes share the host network, and later runs wait for the first, then
+should return quickly. The pane shell runs it, not
 the reconciler, so spawning never blocks on it. The hook runs under
 `timeout`, default 900s, set by `[fleet] pre_start_timeout_seconds`
 (0 runs it unbounded), so a hung bring-up cannot hold the slug lock
@@ -232,6 +234,21 @@ then agent, runs inside one pasta network namespace, so services the
 hook starts on loopback are the ones the agent reaches (pasta runs
 with port forwarding off, so a hook run on the host would be out of
 the agent's reach). Only the agent gets `IS_SANDBOX=1`.
+
+Each pane gets its own namespace, not one per slug. The engineer's
+hook and reviewer A's hook run in different namespaces: services one
+starts on loopback are invisible to the other, so the second run finds
+nothing listening and starts its own copy, and a reviewer cannot reach
+the engineer's dev server. Two rules follow for a hook under
+isolation. Key pid files and data directories per pane (for example
+by `SPORE_ROLE_SESSION`), since the copies share the worktree. Decide
+"already running" by probing the loopback port, not by a pid file or
+lock another pane wrote. Path-based unix sockets are files, not network
+state, so they are shared across a slug's panes (checked with a socket
+bound outside a pasta namespace and reached from inside one); a service
+that listens on one is shared too, and per-pane copies need per-pane
+socket paths. One namespace shared by all panes of a slug is a
+possible follow-up.
 
 Engineer (`spore-role/<project>/<slug>/engineer`): reads the spec and
 the latest verdict, commits on the task branch, and ends each round
