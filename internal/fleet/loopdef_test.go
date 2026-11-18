@@ -179,6 +179,11 @@ func TestValidateRejects(t *testing.T) {
 		{"unknown mode", "name = \"x\"\n" + agent("a", "mode = \"codereview\"\n"), `mode "codereview"`},
 		{"unknown slot", "name = \"x\"\n" + agent("a", "slot = \"C\"\n"), `slot "C"`},
 		{"unknown effort", "name = \"x\"\n" + agent("a", "effort = \"huge\"\n"), `effort "huge"`},
+		{"github_mirror on custom outputs", "name = \"x\"\ngithub_mirror = true\n" + agent("a", ""), `github_mirror`},
+		{"github_mirror on renamed dev outputs", "name = \"x\"\ngithub_mirror = true\n" +
+			"[[steps]]\nname = \"engineer\"\nkind = \"agent\"\nrole = \"engineer\"\noutput = \"responses/eng-{round}.json\"\nshape = \"engineer-response\"\n" +
+			"[[steps]]\nname = \"review-A\"\nkind = \"agent\"\nrole = \"reviewer\"\noutput = \"reviews/A/round-{round}.json\"\nshape = \"verdict\"\n" +
+			"[[steps]]\nname = \"review-B\"\nkind = \"agent\"\nrole = \"reviewer\"\noutput = \"reviews/B/round-{round}.json\"\nshape = \"verdict\"\n", `github_mirror`},
 		{"verdict condition blocks routing", "name = \"x\"\n" + agent("a", "") + agent("b", "[[steps.done]]\nkind = \"verdict\"\nequals = \"approve\"\n[[steps.next]]\non = \"request_changes\"\nto = \"a\"\n"), `verdict condition equals "approve" blocks next on "request_changes"`},
 	}
 	for _, c := range cases {
@@ -273,3 +278,20 @@ func TestParseLoopDefPRFooter(t *testing.T) {
 		t.Errorf("pr_footer = false: PRFooter = true")
 	}
 }
+
+// TestGitHubMirrorAcceptsDevOutputsUnderAnyName: the mirror reads the
+// dev loop's output paths, so a loop carrying them passes whatever its
+// name or step names.
+func TestGitHubMirrorAcceptsDevOutputsUnderAnyName(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "bootstrap", "loops", "dev.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Replace(string(b), `name = "dev"`, `name = "ship"`, 1)
+	src = strings.Replace(src, `name = "review-B"`, `name = "second-look"`, 1)
+	src = strings.Replace(src, `to = "review-B"`, `to = "second-look"`, 1)
+	if _, err := ParseLoopDef("src/ship.toml", []byte(src)); err != nil {
+		t.Fatalf("ParseLoopDef: %v", err)
+	}
+}
+

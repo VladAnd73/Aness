@@ -37,7 +37,8 @@ type githubState struct {
 	Posted    []string `json:"posted,omitempty"`
 	Ready     bool     `json:"ready,omitempty"`
 	// DoneNotified records the plain "<slug>: done" fallback sent while
-	// the mirror was failing at PhaseDone.
+	// the mirror was failing at PhaseDone, or when it had no ready
+	// event to post.
 	DoneNotified bool   `json:"done_notified,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 }
@@ -182,6 +183,13 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot, footer bool
 	}
 	if m.state.LastError != "" {
 		m.state.LastError = ""
+		m.save()
+	}
+	// finishLoop leaves the done notice to the mirror; a done loop that
+	// gave the mirror no ready event to post would otherwise go unheard.
+	if snap.Phase == PhaseDone && !m.state.posted(eventReady) && !m.state.DoneNotified {
+		m.state.DoneNotified = true
+		notifyRoleLoop(projectRoot, fmt.Sprintf("%s: done", slug))
 		m.save()
 	}
 }

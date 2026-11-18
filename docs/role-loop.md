@@ -394,7 +394,11 @@ The reconciler classifies every active task with a `loop:` key:
 Top-level keys: `name` (must match the file name), `summary` (write
 `summary.md` on done: the dev loop's review summary, or for any other
 loop one section per agent step with each round's output), `github_mirror` (run
-the draft-PR mirror when `pr_flow = "draft"`) and `pr_footer` (default
+the draft-PR mirror when `pr_flow = "draft"`; the mirror reads only the
+dev loop's outputs, so the loop's agent steps must write exactly
+`responses/engineer-round-{round}.json` (shape `engineer-response`) and
+`reviews/A/round-{round}.json`, `reviews/B/round-{round}.json` (shape
+`verdict`)) and `pr_footer` (default
 `true`; `false` drops the "Dispatched by ... merges." footer, so a PR
 body opened by `push-and-open-pr` or the mirror is the spec summary
 only). Then one `[[steps]]`

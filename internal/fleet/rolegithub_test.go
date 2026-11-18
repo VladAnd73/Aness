@@ -595,3 +595,23 @@ func TestEngineerCommitIdentityEnv(t *testing.T) {
 		t.Error("pr_flow off engineer got commit identity")
 	}
 }
+
+// TestGitHubMirrorDoneNoticeWithoutReady: a loop that reaches done
+// with nothing for the mirror to post still tells the coordinator
+// once, since finishLoop leaves the done notice to the mirror.
+func TestGitHubMirrorDoneNoticeWithoutReady(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	snap := Snapshot{Slug: f.slug, Phase: PhaseDone}
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
+	mirrorGitHub(f.root, f.tasksDir, f.slug, snap, true)
+	var bodies []string
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		bodies = append(bodies, e.Body)
+	}
+	if len(bodies) != 1 || bodies[0] != "demo: done" {
+		t.Fatalf("notices = %q, want one %q", bodies, "demo: done")
+	}
+}
+
+
+

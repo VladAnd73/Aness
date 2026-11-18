@@ -3,6 +3,8 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -322,6 +324,33 @@ func (d LoopDef) validate() error {
 		if err := d.validateStep(i, s); err != nil {
 			return err
 		}
+	}
+	if d.GitHubMirror {
+		if err := d.validateMirrorOutputs(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mirrorOutputs are the agent-step outputs the draft-PR mirror reads
+// (mirrorEvents), whatever the loop or its steps are called.
+var mirrorOutputs = map[string]string{
+	"responses/engineer-round-{round}.json": "engineer-response",
+	"reviews/A/round-{round}.json":          "verdict",
+	"reviews/B/round-{round}.json":          "verdict",
+}
+
+func (d LoopDef) validateMirrorOutputs() error {
+	got := map[string]string{}
+	for _, s := range d.Steps {
+		if s.Kind == "agent" {
+			got[path.Clean(s.Output)] = s.Shape
+		}
+	}
+	if !maps.Equal(got, mirrorOutputs) {
+		return fmt.Errorf("github_mirror = true needs agent steps writing exactly %s (shape engineer-response), %s and %s (shape verdict): the mirror reads only those",
+			"responses/engineer-round-{round}.json", "reviews/A/round-{round}.json", "reviews/B/round-{round}.json")
 	}
 	return nil
 }
