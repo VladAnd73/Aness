@@ -369,7 +369,11 @@ func TestAcceptanceS3DevLoopMatchesRoleLoop(t *testing.T) {
 		B  = task.ReviewerB
 	)
 	snap := func(p Phase, eng int, rev task.ReviewerInstance, round int, last string) *Snapshot {
-		return &Snapshot{Phase: p, EngineerRound: eng, CurrentReviewer: rev, ReviewerRound: round, LastVerdict: last}
+		s := &Snapshot{Phase: p, EngineerRound: eng, CurrentReviewer: rev, ReviewerRound: round, LastVerdict: last}
+		if rev != "" {
+			s.MaxRounds = MaxReviewerRounds
+		}
+		return s
 	}
 	cases := []struct {
 		name    string

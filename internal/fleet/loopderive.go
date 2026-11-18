@@ -357,6 +357,7 @@ func snapshotFromLoopState(def LoopDef, st LoopState, outs map[string][]StepOutp
 	}
 	snap.CurrentReviewer = task.ReviewerInstance(stepFiles(def.Steps[i]).Author)
 	snap.ReviewerRound = st.Rounds[rev]
+	snap.MaxRounds = def.Steps[i].MaxRounds
 	if n := snap.ReviewerRound; n > 0 && n <= len(outs[rev]) {
 		snap.LastVerdict = outs[rev][n-1].Verdict
 	}

@@ -613,6 +613,36 @@ func TestGitHubMirrorDoneNoticeWithoutReady(t *testing.T) {
 	}
 }
 
+// TestGitHubMirrorEscalationNamesLoopCap: the escalation comment names
+// the step's max_rounds from a project dev.toml, not the default 3.
+func TestGitHubMirrorEscalationNamesLoopCap(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	b, err := os.ReadFile(filepath.Join("..", "..", "bootstrap", "loops", "dev.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(f.root, "bootstrap", "loops")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dev.toml"), []byte(strings.ReplaceAll(string(b), "max_rounds = 3", "max_rounds = 5")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeEng(1)(t, f.root, f.slug)
+	for r := 1; r <= 5; r++ {
+		if r > 1 {
+			writeEng(r)(t, f.root, f.slug)
+		}
+		mustWriteReview(t, f.root, f.slug, task.ReviewerA, r, task.Review{Verdict: task.VerdictRequestChanges, Summary: "no"})
+	}
+	if snap := f.tick(t); snap.Phase != PhaseEscalated {
+		t.Fatalf("phase = %s", snap.Phase)
+	}
+	if !strings.Contains(f.log(t), "Review #1 requested changes at round 5, the cap of 5") {
+		t.Fatalf("escalation comment does not name the cap of 5; log:\n%s", f.log(t))
+	}
+}
+
 // TestGitHubMirrorServerRejectionIsNotARewrite: a pre-receive hook
 // refusing the push surfaces as git's own error, not as a url rewrite.
 func TestGitHubMirrorServerRejectionIsNotARewrite(t *testing.T) {

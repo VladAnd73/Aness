@@ -60,6 +60,7 @@ func TestDeriveSnapshotHappyPath(t *testing.T) {
 		Phase:           PhaseReviewA,
 		EngineerRound:   1,
 		CurrentReviewer: task.ReviewerA,
+		MaxRounds:       MaxReviewerRounds,
 	})
 
 	// 2. A approves round 1 -> review-B (B not yet spawned).
@@ -68,6 +69,7 @@ func TestDeriveSnapshotHappyPath(t *testing.T) {
 		Phase:           PhaseReviewB,
 		EngineerRound:   1,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 	})
 
 	// 3. B approves round 1 -> done.
@@ -76,6 +78,7 @@ func TestDeriveSnapshotHappyPath(t *testing.T) {
 		Phase:           PhaseDone,
 		EngineerRound:   1,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   1,
 		LastVerdict:     task.VerdictApprove,
 	})
@@ -97,6 +100,7 @@ func TestDeriveSnapshotReviseLoop(t *testing.T) {
 		Phase:           PhaseEngineerReviseA,
 		EngineerRound:   1,
 		CurrentReviewer: task.ReviewerA,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   1,
 		LastVerdict:     task.VerdictRequestChanges,
 	}
@@ -112,6 +116,7 @@ func TestDeriveSnapshotReviseLoop(t *testing.T) {
 		Phase:           PhaseReviewA,
 		EngineerRound:   2,
 		CurrentReviewer: task.ReviewerA,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   1,
 		LastVerdict:     task.VerdictRequestChanges,
 	}
@@ -128,6 +133,7 @@ func TestDeriveSnapshotReviseLoop(t *testing.T) {
 		Phase:           PhaseReviewB,
 		EngineerRound:   2,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 	}
 	if got != want {
 		t.Errorf("after A round 2 approve\n want: %+v\n got:  %+v", want, got)
@@ -141,6 +147,7 @@ func TestDeriveSnapshotReviseLoop(t *testing.T) {
 		Phase:           PhaseEngineerReviseB,
 		EngineerRound:   2,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   1,
 		LastVerdict:     task.VerdictRequestChanges,
 	}
@@ -157,6 +164,7 @@ func TestDeriveSnapshotReviseLoop(t *testing.T) {
 		Phase:           PhaseDone,
 		EngineerRound:   3,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   2,
 		LastVerdict:     task.VerdictApprove,
 	}
@@ -189,6 +197,7 @@ func TestDeriveSnapshotEscalateAtRound3A(t *testing.T) {
 		Phase:           PhaseEscalated,
 		EngineerRound:   3,
 		CurrentReviewer: task.ReviewerA,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   3,
 		LastVerdict:     task.VerdictRequestChanges,
 	}
@@ -229,6 +238,7 @@ func TestDeriveSnapshotEscalateAtRound3B(t *testing.T) {
 		Phase:           PhaseEscalated,
 		EngineerRound:   3,
 		CurrentReviewer: task.ReviewerB,
+		MaxRounds:       MaxReviewerRounds,
 		ReviewerRound:   3,
 		LastVerdict:     task.VerdictRequestChanges,
 	}

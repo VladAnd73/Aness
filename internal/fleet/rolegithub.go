@@ -59,10 +59,11 @@ func githubStatePath(projectRoot, slug string) string {
 // mirrorEvent is one GitHub action derived from a file on disk. name
 // keys it in githubState.Posted.
 type mirrorEvent struct {
-	name     string
-	kind     string
-	round    int
-	instance task.ReviewerInstance
+	name      string
+	kind      string
+	round     int
+	instance  task.ReviewerInstance
+	maxRounds int // escalated: the step's max_rounds
 }
 
 const (
@@ -123,7 +124,7 @@ reviews:
 	case PhaseEscalated:
 		out = append(out, mirrorEvent{
 			name: fmt.Sprintf("escalated-%s-%d", snap.CurrentReviewer, snap.ReviewerRound),
-			kind: eventEscalated, round: snap.ReviewerRound, instance: snap.CurrentReviewer,
+			kind: eventEscalated, round: snap.ReviewerRound, instance: snap.CurrentReviewer, maxRounds: snap.MaxRounds,
 		})
 	case PhaseDone:
 		out = append(out, mirrorEvent{name: eventReady, kind: eventReady})
@@ -384,7 +385,7 @@ func (m *githubMirror) apply(e mirrorEvent) error {
 		return err
 	case eventEscalated:
 		return m.prComment(fmt.Sprintf("**Role loop escalated.** %s requested changes at round %d, the cap of %d rounds per reviewer. The PR stays draft until the operator decides.",
-			reviewLabel(e.instance), e.round, MaxReviewerRounds))
+			reviewLabel(e.instance), e.round, e.maxRounds))
 	case eventReady:
 		if _, err := m.gh("", "pr", "ready", strconv.Itoa(m.state.PRNumber)); err != nil {
 			return err
