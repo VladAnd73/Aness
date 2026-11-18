@@ -687,3 +687,75 @@ func TestReconcileRoleLoopedSkipsSpawnBackoff(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcileDrivesLoopsPastAFailedSpawn: a generic task whose
+// worker cannot start (a typo under [worker]) is recorded and the
+// pass goes on to drive the looped task.
+func TestReconcileDrivesLoopsPastAFailedSpawn(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	mustEnable(t)
+	t.Setenv("SPORE_AGENT_BINARY", "sleep 30")
+	shimClaudeOnPath(t)
+	if err := os.WriteFile(filepath.Join(dirs.project, "spore.toml"), []byte("[worker]\nisolate_netwrok = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeTask(t, dirs.tasks, "plain", "active")
+	writeRoleLoopTask(t, dirs.tasks, "keyed", "active")
+	t.Cleanup(func() {
+		killSporeSessions(dirs.project)
+		killRoleSessions(dirs.project)
+	})
+
+	r, err := Reconcile(Config{TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3})
+	if err == nil || !strings.Contains(err.Error(), "ensure plain") {
+		t.Errorf("Reconcile err = %v, want the failed spawn of plain reported", err)
+	}
+	if !equalSlices(r.Failed, []string{"plain"}) {
+		t.Errorf("Failed = %v, want [plain]", r.Failed)
+	}
+	spec := filepath.Join(task.RoleTaskDir(dirs.project, "keyed"), "spec.md")
+	if _, statErr := os.Stat(spec); statErr != nil {
+		t.Errorf("keyed: loop not driven after plain's spawn failed: %v", statErr)
+	}
+}
+
+// TestReconcileDrivesLoopsPastAFailedAgentAssign: a generic task whose
+// agent pick cannot be written back (a read-only task file) is
+// recorded and the pass goes on to drive the looped task.
+func TestReconcileDrivesLoopsPastAFailedAgentAssign(t *testing.T) {
+	requireToolchain(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root writes a read-only file")
+	}
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	mustEnable(t)
+	t.Setenv("SPORE_AGENT_BINARY", "sleep 30")
+	shimClaudeOnPath(t)
+	writeTask(t, dirs.tasks, "plain", "active")
+	plain := filepath.Join(dirs.tasks, "plain.md")
+	if err := os.Chmod(plain, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	writeRoleLoopTask(t, dirs.tasks, "keyed", "active")
+	t.Cleanup(func() {
+		killSporeSessions(dirs.project)
+		killRoleSessions(dirs.project)
+	})
+
+	r, err := Reconcile(Config{TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3})
+	if err == nil || !strings.Contains(err.Error(), "assign agent plain") {
+		t.Errorf("Reconcile err = %v, want the failed agent assign of plain reported", err)
+	}
+	if !equalSlices(r.Failed, []string{"plain"}) {
+		t.Errorf("Failed = %v, want [plain]", r.Failed)
+	}
+	spec := filepath.Join(task.RoleTaskDir(dirs.project, "keyed"), "spec.md")
+	if _, statErr := os.Stat(spec); statErr != nil {
+		t.Errorf("keyed: loop not driven after plain's agent assign failed: %v", statErr)
+	}
+}
