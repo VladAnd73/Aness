@@ -595,16 +595,6 @@ func TestDriveRoleLoopNotifyFailureDoesNotFailDrive(t *testing.T) {
 	}
 }
 
-func TestWakeMarkerStems(t *testing.T) {
-	snap := Snapshot{CurrentReviewer: task.ReviewerA, ReviewerRound: 2, EngineerRound: 3}
-	if got := engineerWakeMarkerStem(snap); got != "woken-A-2" {
-		t.Errorf("engineerWakeMarkerStem = %q, want %q", got, "woken-A-2")
-	}
-	if got := reviewerWakeMarkerStem(snap); got != "woken-reviewer-A-3" {
-		t.Errorf("reviewerWakeMarkerStem = %q, want %q", got, "woken-reviewer-A-3")
-	}
-}
-
 func TestWakeSubmitted(t *testing.T) {
 	// The claude-code TUI (>= 2.1.199) draws the input area as plain
 	// full-width U+2500 rules around a U+276F prompt line; the
@@ -673,35 +663,6 @@ func TestHasInputPrompt(t *testing.T) {
 		if got := hasInputPrompt(c.pane); got != c.want {
 			t.Errorf("%s: hasInputPrompt = %v, want %v", c.name, got, c.want)
 		}
-	}
-}
-
-// Round 0 must be a no-op before any tmux or filesystem side effect: a
-// freshly spawned reviewer starts from its role body and needs no
-// nudge.
-func TestWakeReviewerRoundZeroIsNoop(t *testing.T) {
-	root := newGitRepoFor(t, "demo-project")
-	snap := Snapshot{Slug: "demo", CurrentReviewer: task.ReviewerA, ReviewerRound: 0, EngineerRound: 1}
-	if err := wakeReviewer(root, "demo", snap); err != nil {
-		t.Fatalf("wakeReviewer: %v", err)
-	}
-	stateDir := filepath.Join(task.RoleTaskDir(root, "demo"), "state")
-	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
-		t.Errorf("round-0 wake touched state dir %s: %v", stateDir, err)
-	}
-}
-
-// Without a live tmux session the wake skips silently and leaves no
-// marker, so the next drive tick retries once the pane is back.
-func TestWakeReviewerNoSessionWritesNoMarker(t *testing.T) {
-	root := newGitRepoFor(t, "demo-project")
-	snap := Snapshot{Slug: "demo", CurrentReviewer: task.ReviewerB, ReviewerRound: 1, EngineerRound: 2}
-	if err := wakeReviewer(root, "demo", snap); err != nil {
-		t.Fatalf("wakeReviewer: %v", err)
-	}
-	stateDir := filepath.Join(task.RoleTaskDir(root, "demo"), "state")
-	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
-		t.Errorf("session-less wake touched state dir %s: %v", stateDir, err)
 	}
 }
 

@@ -398,19 +398,6 @@ func SpawnRole(spec RoleSpawnSpec) (string, bool, error) {
 	return name, true, nil
 }
 
-// ReapRole kills the tmux session for spec. Idempotent.
-func ReapRole(spec RoleSpawnSpec) (bool, error) {
-	name, err := spec.SessionName()
-	if err != nil {
-		return false, err
-	}
-	if !hasSession(name) {
-		return false, nil
-	}
-	_ = exec.Command("tmux", "kill-session", "-t", name).Run()
-	return true, nil
-}
-
 // EngineerSpec builds the engineer pane spec for a task.
 func EngineerSpec(projectRoot, slug string) RoleSpawnSpec {
 	return RoleSpawnSpec{ProjectRoot: projectRoot, Slug: slug, Role: "engineer"}

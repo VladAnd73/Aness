@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/versality/spore/internal/task"
@@ -115,7 +116,7 @@ func bounceRoleFile(projectRoot, slug string, f task.RoleFile, reason string) er
 func quotedList(keys []string) string {
 	q := make([]string, len(keys))
 	for i, k := range keys {
-		q[i] = fmt.Sprintf("%q", k)
+		q[i] = strconv.Quote(k)
 	}
 	return strings.Join(q, ", ")
 }

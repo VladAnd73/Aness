@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,7 +268,7 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 			Field: cr.str("field"), Equals: cr.str("equals"),
 			Run: cr.str("run"), TimeoutSeconds: cr.timeoutSeconds("timeout"),
 		}
-		if err := cr.finish("[[steps.done]] of step " + strconvQuote(s.Name)); err != nil {
+		if err := cr.finish("[[steps.done]] of step " + strconv.Quote(s.Name)); err != nil {
 			return Step{}, err
 		}
 		if c.Kind == "verdict" && c.Field == "" {
@@ -281,7 +282,7 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 	for _, t := range ts.next {
 		nr := newTOMLReader(t)
 		tr := Transition{On: nr.str("on"), To: nr.str("to"), Return: nr.boolean("return"), Phase: nr.str("phase")}
-		if err := nr.finish("[[steps.next]] of step " + strconvQuote(s.Name)); err != nil {
+		if err := nr.finish("[[steps.next]] of step " + strconv.Quote(s.Name)); err != nil {
 			return Step{}, err
 		}
 		if tr.Return && tr.Phase == "" {
@@ -291,8 +292,6 @@ func stepFromTOML(ts tomlStep) (Step, error) {
 	}
 	return s, nil
 }
-
-func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
 
 // Validate checks the cross-field rules a parse cannot. Every error is
 // prefixed with d.Source.
