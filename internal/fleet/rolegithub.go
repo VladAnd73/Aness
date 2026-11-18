@@ -449,14 +449,29 @@ func (m *githubMirror) push() error {
 		}
 	}
 	if _, err := m.git(args...); err != nil {
-		if strings.Contains(err.Error(), "not allowed") {
-			return fmt.Errorf("a git url rewrite (pushInsteadOf) moves %s off https; the GitHub App pushes over https only: %w", m.pushURL, err)
+		if base := m.pushRewrite(); base != "" {
+			return fmt.Errorf("a git url rewrite (url.<base>.pushInsteadOf = %s) moves %s off https; the GitHub App pushes over https only: %w", base, m.pushURL, err)
 		}
 		return err
 	}
 	m.state.PushedSHA = sha
 	m.save()
 	return nil
+}
+
+// pushRewrite returns the pushInsteadOf value that rewrites m.pushURL,
+// or "". connect already refused an insteadOf rewrite, and the push
+// names m.pushURL, never origin, so only such a rule can move it off
+// https; any other push failure is the server's and is reported as is.
+func (m *githubMirror) pushRewrite() string {
+	out, _ := m.git("config", "--get-regexp", `^url\..*\.pushinsteadof$`)
+	for _, line := range strings.Split(out, "\n") {
+		_, base, ok := strings.Cut(line, " ")
+		if ok && base != "" && strings.HasPrefix(m.pushURL, base) {
+			return base
+		}
+	}
+	return ""
 }
 
 func (m *githubMirror) branch() (string, error) {

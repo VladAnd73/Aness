@@ -613,5 +613,38 @@ func TestGitHubMirrorDoneNoticeWithoutReady(t *testing.T) {
 	}
 }
 
+// TestGitHubMirrorServerRejectionIsNotARewrite: a pre-receive hook
+// refusing the push surfaces as git's own error, not as a url rewrite.
+func TestGitHubMirrorServerRejectionIsNotARewrite(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	hook := filepath.Join(f.bare, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'Pushing to this branch is not allowed' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	s := f.state(t)
+	if !strings.Contains(s.LastError, "git push") || strings.Contains(s.LastError, "pushInsteadOf") {
+		t.Fatalf("LastError = %q, want the raw push error without a rewrite claim", s.LastError)
+	}
+	var bodies []string
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		bodies = append(bodies, e.Body)
+	}
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "Pushing to this branch is not allowed") || strings.Contains(bodies[0], "pushInsteadOf") {
+		t.Fatalf("notices = %q", bodies)
+	}
+}
 
-
+// TestGitHubMirrorPushInsteadOfRewriteNamed: a pushInsteadOf rule that
+// moves the push URL off https is reported as the rewrite.
+func TestGitHubMirrorPushInsteadOfRewriteNamed(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	runGit(t, f.root, "config", "url.git@github.com:.pushInsteadOf", "https://github.com/")
+	trapSSH(t)
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	if s := f.state(t); !strings.Contains(s.LastError, "pushInsteadOf") {
+		t.Fatalf("LastError = %q, want the pushInsteadOf rewrite named", s.LastError)
+	}
+}
