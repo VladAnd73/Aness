@@ -295,3 +295,30 @@ func TestGitHubMirrorAcceptsDevOutputsUnderAnyName(t *testing.T) {
 	}
 }
 
+// TestLoadLoopRejectsMissingRoleBody: a project loop whose step names
+// a role with no body fails at load, not on every spawn tick.
+func TestLoadLoopRejectsMissingRoleBody(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "bootstrap", "loops")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "name = \"qa\"\n[[steps]]\nname = \"check\"\nkind = \"agent\"\nrole = \"qa\"\nslot = \"A\"\noutput = \"qa/round-{round}.json\"\nshape = \"json\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "qa.toml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadLoop(root, "qa")
+	if err == nil || !strings.Contains(err.Error(), "qa.md") {
+		t.Fatalf("LoadLoop err = %v, want a missing qa.md body", err)
+	}
+	roles := filepath.Join(root, "bootstrap", "roles")
+	if err := os.MkdirAll(roles, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roles, "qa.md"), []byte("QA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLoop(root, "qa"); err != nil {
+		t.Fatalf("LoadLoop with qa.md: %v", err)
+	}
+}

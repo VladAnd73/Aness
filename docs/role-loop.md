@@ -169,7 +169,9 @@ mode = "fleet"
   when no `mode` is set, but falls back to `fleet` when its agent
   (slot `agent`, else the task `agent:`, else the `[fleet.workers]`
   default) resolves to non-claude; an `effort` it set is then
-  ignored with a stderr warning, as on any fleet slot. The fallback
+  ignored with a stderr warning, as on any fleet slot. A loop step
+  on slot A whose role is not `reviewer` falls back to `fleet` the
+  same way, since only the reviewer has a code-review body. The fallback
   is re-evaluated at every spawn, like the agent, so changing the
   task agent or `[fleet.workers]` default mid-task can switch A
   between the two protocols across rounds; pin `mode` on A to rule
