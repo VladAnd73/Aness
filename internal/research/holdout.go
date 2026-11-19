@@ -101,7 +101,7 @@ type holdoutResult struct{ original, winner, cost float64 }
 // heldoutFile records a finished holdout, so a stop that failed after it
 // reuses the result instead of paying for it again.
 type heldoutFile struct {
-	Start, Best              string
+	Start, Best               string
 	Original, Winner, CostUSD float64
 }
 
