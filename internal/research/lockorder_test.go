@@ -251,11 +251,11 @@ func TestStopRetryReusesTheSpentHoldout(t *testing.T) {
 	}
 	toml := filepath.Join(f.store.Dir(f.name), "campaign.toml")
 	j := &fakeJudge{}
-	j.holdout = func([]byte) float64 {
+	j.holdout = func(b []byte) float64 {
 		if j.holdoutCalls == 4 {
 			os.WriteFile(toml, []byte("not a config\n"), 0o600)
 		}
-		return 70
+		return beatsOriginal(f)(b)
 	}
 	d := f.deps(&fakeEditor{}, j)
 	if err := Stop(context.Background(), f.store, f.name, "operator", d); err == nil {

@@ -41,6 +41,9 @@ func configFields(c *Config) []struct {
 		{"nights", &c.Nights}, {"no_gain_nights", &c.NoGainNights},
 		{"holdout_verdict", &c.HoldoutVerdict},
 		{"quota_used_points", &c.QuotaUsed}, {"judge_cost_usd", &c.JudgeCostUSD},
+		{"kind", &c.Kind}, {"loop", &c.Loop}, {"step", &c.Step}, {"step_output", &c.StepOutput},
+		{"step_shape", &c.StepShape}, {"step_author", &c.StepAuthor}, {"step_required", &c.StepRequired},
+		{"step_verdicts", &c.StepVerdicts}, {"step_skills", &c.StepSkills},
 	}
 }
 

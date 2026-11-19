@@ -21,6 +21,17 @@ func keptNight(t *testing.T, f fixture, holdout func([]byte) float64) (*fakeJudg
 	return j, d
 }
 
+// beatsOriginal scores the winner above the original on the holdout,
+// the least a passing holdout needs.
+func beatsOriginal(f fixture) func([]byte) float64 {
+	return func(b []byte) float64 {
+		if bytes.Equal(b, f.original) {
+			return 60
+		}
+		return 70
+	}
+}
+
 func TestStopNoKeptChangeSkipsHoldout(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	ed := &fakeEditor{edits: []func(string) error{appendBytes("worse\n")}}
@@ -87,7 +98,7 @@ func TestStopOverfitRecommendsNotAccepting(t *testing.T) {
 
 func TestStopNotifiesCoordinator(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
-	_, d := keptNight(t, f, func([]byte) float64 { return 70 })
+	_, d := keptNight(t, f, beatsOriginal(f))
 	if err := Stop(context.Background(), f.store, f.name, "operator", d); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}

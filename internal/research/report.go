@@ -44,8 +44,11 @@ func finalReport(s Store, cfg Config, h holdoutResult) (string, error) {
 	fmt.Fprintf(&b, "- tries: kept %d, reset %d, rejected-length %d, crash %d\n",
 		counts["kept"], counts["reset"], counts["rejected-length"], counts["crash"])
 	fmt.Fprintf(&b, "- quota used: %.1f points\n- judge cost: $%.2f\n\n", cfg.QuotaUsed, cfg.JudgeCostUSD)
-	if cfg.HoldoutVerdict == "overfit" {
+	switch cfg.HoldoutVerdict {
+	case "overfit":
 		b.WriteString("Recommendation: do not accept (overfit on holdout).\n\n")
+	case "no-headroom":
+		b.WriteString("Recommendation: do not accept (no headroom: the original already scores 100 on the holdout, so it cannot show a gain).\n\n")
 	}
 	if cfg.hasKeptChange() {
 		diff, err := s.repo(cfg.Name).git("diff", cfg.StartCommit, cfg.BestCommit, "--", cfg.targetRel())

@@ -33,6 +33,9 @@ func preflight(ctx context.Context, s Store, name string, d Deps) (*held, float6
 		}
 	}()
 	cfg := h.cfg
+	if cfg.BestCommit != "" && cfg.BestScore >= 100 {
+		return nil, 0, noHeadroom(cfg)
+	}
 	if d.Room == nil {
 		return refuse("budget room said: no room check configured")
 	}

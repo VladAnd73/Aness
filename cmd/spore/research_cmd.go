@@ -16,12 +16,16 @@ import (
 
 const researchUsage = `usage: spore research <subcommand> [flags]
 
-An overnight loop that edits one skill file, scores each edit with a
-locked judge, and keeps only confirmed improvements. See
-docs/autoresearch.md.
+An overnight loop that edits one skill file or loop role body, scores
+each edit with a locked judge, and keeps only confirmed improvements.
+See docs/autoresearch.md.
 
   new <c> --target PATH/SKILL.md --goal FILE [--objective maximize-score] [--model M]
          Create draft campaign c from the skill folder holding PATH.
+  new <c> --kind role --target PATH.md --step NAME [--loop NAME] --goal FILE [...]
+         Create draft campaign c on the role body PATH, run as loop step
+         NAME of the project's bootstrap/loops (--loop when two loops
+         have the step); the step's skills are frozen with it.
   judge draft <c>
          Mint a draft worker task (in ./tasks) that drafts the main and
          holdout scenario sets. Prints the slug; does not start it.
@@ -46,8 +50,9 @@ docs/autoresearch.md.
          End the campaign: run the sealed holdout on a kept change,
          write the final report, tell the coordinator.
   accept <c> [--force]
-         Land the winner of a stopped campaign (a branch when the skill
-         lives in the spore repo). --force overrides an overfit holdout.
+         Land the winner of a stopped campaign (a branch when the target
+         lives in a git checkout). --force overrides an overfit or
+         no-headroom holdout.
   reset <c>
          Put the campaign repo back on its best commit (after a kill -9
          left it dirty). Refused while a night runs.
@@ -146,6 +151,9 @@ func (c *researchCmd) new(args []string) error {
 	goal := fs.String("goal", "", "file stating what the skill should achieve")
 	objective := fs.String("objective", "maximize-score", "maximize-score or shrink-holding-score")
 	model := fs.String("model", "", "model for the editor and the agent under test")
+	kind := fs.String("kind", "skill", "skill or role")
+	step := fs.String("step", "", "role only: the loop step the role body runs as")
+	loop := fs.String("loop", "", "role only: the loop holding --step, when more than one does")
 	pos, err := parse(fs, args, 1, "<campaign> --target PATH --goal FILE")
 	if err != nil {
 		return err
@@ -153,12 +161,31 @@ func (c *researchCmd) new(args []string) error {
 	if *target == "" || *goal == "" {
 		return fmt.Errorf("%w: --target and --goal are required", errUsage)
 	}
-	if filepath.Base(*target) != "SKILL.md" {
-		return fmt.Errorf("v1 improves skills only: --target must be a file named SKILL.md, got %s", filepath.Base(*target))
-	}
-	cfg, err := c.store.Create(pos[0], *target, *goal, *objective)
-	if err != nil {
-		return err
+	var cfg research.Config
+	switch *kind {
+	case "skill":
+		if *step != "" || *loop != "" {
+			return fmt.Errorf("%w: --step and --loop need --kind role", errUsage)
+		}
+		if filepath.Base(*target) != "SKILL.md" {
+			return fmt.Errorf("v1 improves skills only: --target must be a file named SKILL.md, got %s", filepath.Base(*target))
+		}
+		if cfg, err = c.store.Create(pos[0], *target, *goal, *objective); err != nil {
+			return err
+		}
+	case "role":
+		if *step == "" {
+			return fmt.Errorf("%w: --kind role needs --step", errUsage)
+		}
+		var missing []string
+		if cfg, missing, err = c.store.CreateRole(pos[0], *target, *goal, *objective, research.RoleOptions{Step: *step, Loop: *loop}); err != nil {
+			return err
+		}
+		for _, m := range missing {
+			fmt.Fprintf(c.errOut, "warning: skill %s of step %s was not found in .claude/skills; the judge runs without it\n", m, cfg.Step)
+		}
+	default:
+		return fmt.Errorf("%w: --kind must be skill or role, got %q", errUsage, *kind)
 	}
 	if *model != "" {
 		if err := c.store.Set(cfg.Name, "model", *model); err != nil {

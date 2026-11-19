@@ -26,6 +26,7 @@ const evalUsage = `usage: spore eval <list|run|judge> [flags]
   judge --scenarios-root DIR --skill NAME --candidate PATH --set main|holdout --out PATH
         [--frozen DIR] [--model M] [--repeats 3] [--parallel 3] [--timeout 5m]
         [--agent-binary claude] [--isolation bwrap|none] [--keep DIR]
+  judge --kind role --frozen CONTEXT --scenarios-root DIR --candidate ROLE.md --set S --out PATH [...]
          Score a candidate SKILL.md on the scenario set DIR/<set>: every
          scenario runs --repeats times, each in its own sandbox with the
          candidate installed as skill NAME over the --frozen folder. Writes
@@ -35,6 +36,9 @@ const evalUsage = `usage: spore eval <list|run|judge> [flags]
          services; --isolation none runs it unsandboxed and needs
          SPORE_RESEARCH_ALLOW_UNSANDBOXED=1. Sandboxes are deleted unless
          --keep names a directory to leave them (transcripts included) in.
+         --kind role scores a loop role body on bug-replay scenarios
+         instead: CONTEXT holds step.json (the pinned loop step) and the
+         step's skills under skills/, as a role campaign's repo does.
 
 --brief-override replaces the embedded proposer or reviewer brief (the
 one the scenario's own Kind uses) with the file's contents, for
@@ -171,11 +175,30 @@ func evalJudge(out, errOut io.Writer, args []string, spawner evalharness.AgentSp
 	agentBinary := fs.String("agent-binary", "claude", "agent CLI to run")
 	isolation := fs.String("isolation", "bwrap", "bwrap or none")
 	keep := fs.String("keep", "", "leave every run's sandbox under this directory")
+	kind := fs.String("kind", "skill", "skill or role")
 	if err := fs.Parse(reorderFlagsFirst(fs, args)); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 || *root == "" || *candidate == "" || *skill == "" || *outPath == "" {
-		fmt.Fprint(errOut, "spore eval judge: --scenarios-root, --skill, --candidate, --set and --out are required\n\n"+evalUsage)
+	var role *evalharness.RoleStep
+	switch *kind {
+	case "skill":
+		if fs.NArg() != 0 || *root == "" || *candidate == "" || *skill == "" || *outPath == "" {
+			fmt.Fprint(errOut, "spore eval judge: --scenarios-root, --skill, --candidate, --set and --out are required\n\n"+evalUsage)
+			return 2
+		}
+	case "role":
+		if fs.NArg() != 0 || *root == "" || *candidate == "" || *frozen == "" || *outPath == "" {
+			fmt.Fprint(errOut, "spore eval judge: --kind role needs --scenarios-root, --frozen, --candidate, --set and --out\n\n"+evalUsage)
+			return 2
+		}
+		rs, err := evalharness.LoadRoleStep(filepath.Join(*frozen, evalharness.RoleStepFile))
+		if err != nil {
+			fmt.Fprintf(errOut, "spore eval judge: %v\n", err)
+			return 1
+		}
+		role = &rs
+	default:
+		fmt.Fprintf(errOut, "spore eval judge: --kind must be skill or role, got %q\n", *kind)
 		return 2
 	}
 	if *set != "main" && *set != "holdout" {
@@ -210,6 +233,7 @@ func evalJudge(out, errOut io.Writer, args []string, spawner evalharness.AgentSp
 		Parallel:      *parallel,
 		Timeout:       *timeout,
 		Spawner:       spawner,
+		Role:          role,
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "spore eval judge: %v\n", err)

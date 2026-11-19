@@ -13,6 +13,9 @@ import (
 )
 
 // DataScenario is one scenario loaded from <set>/<name>/scenario.json.
+// Kind "role" is a bug-replay scenario for a role body: spec.md, an
+// optional snapshot/ of the pre-fix code and grader/, which only the
+// grader reads; it has no prompt.
 // Files under <set>/<name>/files/ are copied into the run's working
 // directory before the skill is injected, so a fixture never overwrites
 // the candidate. Name is the directory name; a name in the JSON must
@@ -20,6 +23,7 @@ import (
 // grades by a model without saying so up front.
 type DataScenario struct {
 	Name     string          `json:"name"`
+	Kind     string          `json:"kind,omitempty"`
 	Dir      string          `json:"-"`
 	Prompt   string          `json:"prompt"`
 	Services []fakemcp.Tool  `json:"services,omitempty"`
@@ -32,14 +36,17 @@ type DataScenario struct {
 // or llm-judge; Negate flips file-exists, service-call, tool-used and
 // reply-contains into their "not" form.
 type ScenarioCheck struct {
-	Kind    string            `json:"kind"`
-	Path    string            `json:"path,omitempty"`
-	Pattern string            `json:"pattern,omitempty"`
-	Tool    string            `json:"tool,omitempty"`
-	Fields  map[string]string `json:"fields,omitempty"`
-	Text    string            `json:"text,omitempty"`
-	Rubric  string            `json:"rubric,omitempty"`
-	Negate  bool              `json:"negate,omitempty"`
+	Kind       string            `json:"kind"`
+	Path       string            `json:"path,omitempty"`
+	Pattern    string            `json:"pattern,omitempty"`
+	Tool       string            `json:"tool,omitempty"`
+	Fields     map[string]string `json:"fields,omitempty"`
+	Text       string            `json:"text,omitempty"`
+	Rubric     string            `json:"rubric,omitempty"`
+	Negate     bool              `json:"negate,omitempty"`
+	Repro      string            `json:"repro,omitempty"`
+	Reasonable int               `json:"reasonable,omitempty"`
+	Rules      []string          `json:"rules,omitempty"`
 }
 
 // LoadSet loads every scenario directory under dir, sorted by name.
@@ -84,8 +91,20 @@ func loadScenario(dir string) (DataScenario, error) {
 		return fail("name %q does not match its directory", sc.Name)
 	}
 	sc.Name, sc.Dir = name, dir
-	if strings.TrimSpace(sc.Prompt) == "" {
-		return fail("empty prompt")
+	switch sc.Kind {
+	case "":
+		if strings.TrimSpace(sc.Prompt) == "" {
+			return fail("empty prompt")
+		}
+	case "role":
+		if sc.Prompt != "" {
+			return fail("a role scenario has no prompt: the role body is the prompt")
+		}
+		if err := validateRoleScenario(sc); err != nil {
+			return fail("%v", err)
+		}
+	default:
+		return fail("unknown kind %q (want role, or none for a skill scenario)", sc.Kind)
 	}
 	if len(sc.Checks) == 0 {
 		return fail("no checks")
@@ -138,6 +157,8 @@ func validateCheck(sc DataScenario, c ScenarioCheck) error {
 		if _, err := os.Stat(filepath.Join(sc.Dir, c.Rubric)); err != nil {
 			return fmt.Errorf("rubric: %v", err)
 		}
+	case "output-valid", "bug-caught", "fluff", "code-quality":
+		return validateRoleCheck(sc, c)
 	default:
 		return fmt.Errorf("unknown check kind %q", c.Kind)
 	}

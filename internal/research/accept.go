@@ -14,12 +14,11 @@ import (
 
 type AcceptResult struct{ Written, Backup, Branch string }
 
-const sporeModule = "github.com/versality/spore"
-
-// Accept lands a stopped campaign's winner. Outside the spore repo it
-// overwrites the live target, keeping a backup beside it. Inside the
-// spore repo it commits the winner on a new research/<campaign> branch
-// through a temporary worktree, so the operator's checkout never moves.
+// Accept lands a stopped campaign's winner. Outside a git checkout it
+// overwrites the live target, keeping a backup beside it. Inside one
+// (spore's, or a role body's own project) it commits the winner on a
+// new research/<campaign> branch through a temporary worktree, so the
+// operator's checkout never moves.
 func Accept(s Store, name string, force bool) (AcceptResult, error) {
 	h, err := s.lockLoad(name, lockOp{what: "accept", scope: campaignNight})
 	if err != nil {
@@ -34,10 +33,10 @@ func Accept(s Store, name string, force bool) (AcceptResult, error) {
 		return AcceptResult{}, fmt.Errorf("research: campaign %s is %s, not stopped; run stop first", name, cfg.Status)
 	case !cfg.hasKeptChange():
 		return AcceptResult{}, fmt.Errorf("research: campaign %s has no kept change to accept", name)
-	case cfg.HoldoutVerdict == "overfit" && !force:
-		return AcceptResult{}, fmt.Errorf("research: campaign %s: the holdout said overfit; pass --force to accept anyway", name)
+	case (cfg.HoldoutVerdict == "overfit" || cfg.HoldoutVerdict == "no-headroom") && !force:
+		return AcceptResult{}, fmt.Errorf("research: campaign %s: the holdout said %s; pass --force to accept anyway", name, cfg.HoldoutVerdict)
 	}
-	top := sporeCheckout(filepath.Dir(cfg.Target))
+	top := gitCheckout(filepath.Dir(cfg.Target))
 	if top == "" {
 		if _, err := os.Lstat(cfg.backupPath()); err == nil {
 			return AcceptResult{}, fmt.Errorf("research: backup %s already exists; move it away first", cfg.backupPath())
@@ -72,6 +71,18 @@ func Accept(s Store, name string, force bool) (AcceptResult, error) {
 // firstLiveChange compares the live folder with the start commit, which
 // holds an exact copy of it, and names the first path that differs.
 func firstLiveChange(r repo, cfg Config) (string, error) {
+	if cfg.isRole() {
+		h, err := HashFile(cfg.Target)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return filepath.Base(cfg.Target) + " (missing)", nil
+		case err != nil:
+			return "", err
+		case h != cfg.LiveFolderHash:
+			return filepath.Base(cfg.Target), nil
+		}
+		return "", nil
+	}
 	liveDir := filepath.Dir(cfg.Target)
 	if h, err := HashTree(liveDir); err == nil && h == cfg.LiveFolderHash {
 		return "", nil
@@ -139,23 +150,14 @@ func firstLiveChange(r repo, cfg Config) (string, error) {
 	return diffs[0], nil
 }
 
-// sporeCheckout returns the toplevel of the git checkout holding dir
-// when its go.mod declares the spore module, else "".
-func sporeCheckout(dir string) string {
+// gitCheckout returns the toplevel of the git checkout holding dir,
+// else "".
+func gitCheckout(dir string) string {
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return ""
 	}
-	top := strings.TrimSpace(string(out))
-	mod, err := os.ReadFile(filepath.Join(top, "go.mod"))
-	if err != nil {
-		return ""
-	}
-	first, _, _ := strings.Cut(string(mod), "\n")
-	if path, ok := strings.CutPrefix(strings.TrimSpace(first), "module "); !ok || strings.TrimSpace(path) != sporeModule {
-		return ""
-	}
-	return top
+	return strings.TrimSpace(string(out))
 }
 
 // writeTargetAtomic replaces path with b at mode perm, set before the
@@ -229,8 +231,12 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 		return nil
 	}
 	// The branch is cut from HEAD, so the live folder must match HEAD or
-	// the branch would hold a folder the judge never scored.
+	// the branch would hold a folder the judge never scored. A role
+	// campaign scored only its target.
 	folder := filepath.Dir(rel)
+	if cfg.isRole() {
+		folder = rel
+	}
 	// Ignored files are left out: Create refused any, and one added since
 	// already failed firstLiveChange.
 	status, err := exec.Command("git", "-C", top, "status", "--porcelain", "--untracked-files=all", "--", folder).Output()

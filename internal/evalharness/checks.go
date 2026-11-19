@@ -13,11 +13,16 @@ import (
 	"github.com/versality/spore/internal/research/fakemcp"
 )
 
-// RunArtifacts is what one finished run left behind for grading.
+// RunArtifacts is what one finished run left behind for grading. A
+// role run also names its pinned step, its task dir, the step output
+// it was told to write and the snapshot it started from.
 type RunArtifacts struct {
 	RunWD  string
 	Stream StreamResult
 	Calls  []fakemcp.Call
+
+	Role                      *RoleStep
+	TaskDir, Output, Snapshot string
 }
 
 // GradeChecks runs every code check against a. failed names each
@@ -26,37 +31,43 @@ type RunArtifacts struct {
 // an error here, so no caller can skip one by accident.
 func GradeChecks(a RunArtifacts, checks []ScenarioCheck) (pass bool, failed []string, err error) {
 	for i, c := range checks {
-		ok, err := gradeCheck(a, c)
+		ok, detail, err := gradeCheck(a, c)
 		if err != nil {
 			return false, nil, fmt.Errorf("evalharness: check %d (%s): %w", i, c.Kind, err)
 		}
 		if !ok {
-			failed = append(failed, fmt.Sprintf("check %d (%s)", i, c.Kind))
+			label := c.Kind
+			if detail != "" {
+				label += ": " + detail
+			}
+			failed = append(failed, fmt.Sprintf("check %d (%s)", i, label))
 		}
 	}
 	return len(failed) == 0, failed, nil
 }
 
-func gradeCheck(a RunArtifacts, c ScenarioCheck) (bool, error) {
+// gradeCheck's detail names the rules a code-quality check found
+// broken; rule names are no scenario text.
+func gradeCheck(a RunArtifacts, c ScenarioCheck) (ok bool, detail string, err error) {
 	var hit bool
 	switch c.Kind {
 	case "file-exists":
 		_, err := os.Stat(filepath.Join(a.RunWD, c.Path))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return false, err
+			return false, "", err
 		}
 		hit = err == nil
 	case "file-matches":
 		b, err := os.ReadFile(filepath.Join(a.RunWD, c.Path))
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			return false, "", nil
 		}
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		re, err := regexp.Compile("(?m)" + c.Pattern)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		hit = re.Match(b)
 	case "service-call":
@@ -67,12 +78,27 @@ func gradeCheck(a RunArtifacts, c ScenarioCheck) (bool, error) {
 		hit = slices.Contains(a.Stream.ToolsUsed, c.Tool)
 	case "reply-contains":
 		hit = strings.Contains(a.Stream.FinalReply, c.Text)
-	case "llm-judge":
-		return false, errors.New("llm-judge is graded by the judge's grader, not by GradeChecks")
+	case "output-valid", "fluff", "code-quality":
+		if a.Role == nil {
+			return false, "", fmt.Errorf("%s grades a role run only", c.Kind)
+		}
+		switch c.Kind {
+		case "output-valid":
+			ok, err = outputValid(a)
+		case "fluff":
+			ok, err = fluffCap(a, c)
+		default:
+			var broken []string
+			broken, err = qualityFindings(a.Snapshot, a.RunWD, c.Rules)
+			ok, detail = len(broken) == 0, strings.Join(broken, ", ")
+		}
+		return ok, detail, err
+	case "llm-judge", "bug-caught":
+		return false, "", errors.New(c.Kind + " is graded by the judge's grader, not by GradeChecks")
 	default:
-		return false, fmt.Errorf("unknown check kind %q", c.Kind)
+		return false, "", fmt.Errorf("unknown check kind %q", c.Kind)
 	}
-	return hit != c.Negate, nil
+	return hit != c.Negate, "", nil
 }
 
 // argsMatch is a subset match: every wanted field is present and its

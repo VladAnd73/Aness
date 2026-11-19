@@ -44,8 +44,12 @@ type Config struct {
 	BestCommit, StartCommit                                                    string
 	MainHash, HoldoutHash, BinaryHash, LiveFolderHash                          string
 	Nights, NoGainNights                                                       int
-	HoldoutVerdict                                                             string // "", "pass", "overfit"
+	HoldoutVerdict                                                             string // "", "pass", "overfit", "no-headroom"
 	QuotaUsed, JudgeCostUSD                                                    float64
+	// Kind is "skill" (or "" from before roles) or "role"; the Step
+	// fields pin a role's loop step at creation.
+	Kind, Loop, Step, StepOutput, StepShape, StepAuthor string
+	StepRequired, StepVerdicts, StepSkills              []string
 }
 
 // Store is the directory holding every campaign, one folder each.
@@ -87,7 +91,13 @@ func checkName(name string) error {
 // Create starts a draft campaign: it copies the target's whole folder
 // into a fresh campaign repo and commits it as "start". The live folder
 // is only read.
-func (s Store) Create(name, target, goalFile, objective string) (_ Config, err error) {
+func (s Store) Create(name, target, goalFile, objective string) (Config, error) {
+	return s.create(name, target, goalFile, objective, nil)
+}
+
+// create is Create, or CreateRole when role is set: then the repo holds
+// only the target and its frozen context.
+func (s Store) create(name, target, goalFile, objective string, role *roleSetup) (_ Config, err error) {
 	if err := checkName(name); err != nil {
 		return Config{}, err
 	}
@@ -109,7 +119,11 @@ func (s Store) Create(name, target, goalFile, objective string) (_ Config, err e
 	if err != nil {
 		return Config{}, fmt.Errorf("research: goal: %w", err)
 	}
-	if ignored, err := firstIgnored(filepath.Dir(target)); err != nil {
+	if role != nil {
+		if gitIgnored(target) {
+			return Config{}, fmt.Errorf("research: %s is gitignored: the research branch accept cuts from HEAD would never hold it", target)
+		}
+	} else if ignored, err := firstIgnored(filepath.Dir(target)); err != nil {
 		return Config{}, err
 	} else if ignored != "" {
 		return Config{}, fmt.Errorf("research: %s in the skill folder is gitignored: the judge would score with it, but the research branch accept cuts from HEAD never holds it; remove it, or commit it with `git add -f`", ignored)
@@ -132,13 +146,22 @@ func (s Store) Create(name, target, goalFile, objective string) (_ Config, err e
 		}
 	}()
 	liveDir := filepath.Dir(target)
-	liveHash, err := HashTree(liveDir)
-	if err != nil {
-		return Config{}, err
-	}
 	r := s.repo(name)
-	if err := copyFolder(liveDir, r.dir); err != nil {
-		return Config{}, fmt.Errorf("research: copy skill folder: %w", err)
+	var liveHash string
+	if role != nil {
+		if liveHash, err = HashFile(target); err != nil {
+			return Config{}, err
+		}
+		if err := writeRoleRepo(r.dir, target, role); err != nil {
+			return Config{}, fmt.Errorf("research: role context: %w", err)
+		}
+	} else {
+		if liveHash, err = HashTree(liveDir); err != nil {
+			return Config{}, err
+		}
+		if err := copyFolder(liveDir, r.dir); err != nil {
+			return Config{}, fmt.Errorf("research: copy skill folder: %w", err)
+		}
 	}
 	if err := r.init(); err != nil {
 		return Config{}, err
@@ -157,14 +180,18 @@ func (s Store) Create(name, target, goalFile, objective string) (_ Config, err e
 		MaxTriesPerNight: 20, MaxHoursPerNight: 8, QuotaCeilingPoints: 15, MaxNights: 7,
 		StopAfterNightsWithoutGain: 3, Repeats: 3, Parallel: 3, RunTimeout: 5 * time.Minute,
 		StartBytes: int(fi.Size()), BestBytes: int(fi.Size()), StartCommit: start, LiveFolderHash: liveHash,
+		Kind: "skill",
+	}
+	if role != nil {
+		cfg.setRoleStep(role.step)
 	}
 	return cfg, s.Save(cfg)
 }
 
-// firstIgnored names the first gitignored file in dir when dir is in
-// the spore checkout, where accept lands the winner on a branch.
+// firstIgnored names the first gitignored file in dir when dir is in a
+// git checkout, where accept lands the winner on a branch.
 func firstIgnored(dir string) (string, error) {
-	if sporeCheckout(dir) == "" {
+	if gitCheckout(dir) == "" {
 		return "", nil
 	}
 	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ".").Output()
@@ -227,9 +254,19 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 	if cfg.Status != StatusDraft && cfg.Status != StatusReady {
 		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign", name, cfg.Status)
 	}
+	want := ""
+	if cfg.isRole() {
+		want = "role"
+	}
 	for _, set := range []string{"main", "holdout"} {
-		if _, err := evalharness.LoadSet(filepath.Join(draftsDir, set)); err != nil {
+		scs, err := evalharness.LoadSet(filepath.Join(draftsDir, set))
+		if err != nil {
 			return cfg, fmt.Errorf("research: judge approve: %s set: %w", set, err)
+		}
+		for _, sc := range scs {
+			if len(judgeArgv) == 0 && sc.Kind != want {
+				return cfg, fmt.Errorf("research: judge approve: %s/%s is kind %q; this %s campaign needs kind %q", set, sc.Name, sc.Kind, cfg.Kind, want)
+			}
 		}
 	}
 	dir := s.Dir(name)
@@ -274,9 +311,12 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 }
 
 func defaultJudgeArgv(cfg Config, pinned, judgeDir, repoDir string) []string {
-	argv := []string{pinned, "eval", "judge", "--scenarios-root", judgeDir, "--frozen", repoDir, "--skill", cfg.SkillName,
-		"--repeats", strconv.Itoa(cfg.Repeats), "--parallel", strconv.Itoa(cfg.Parallel),
-		"--timeout", cfg.RunTimeout.String(), "--isolation", cfg.Isolation}
+	argv := []string{pinned, "eval", "judge", "--scenarios-root", judgeDir, "--frozen", repoDir, "--skill", cfg.SkillName}
+	if cfg.isRole() {
+		argv = []string{pinned, "eval", "judge", "--kind", "role", "--scenarios-root", judgeDir, "--frozen", filepath.Join(repoDir, contextDir)}
+	}
+	argv = append(argv, "--repeats", strconv.Itoa(cfg.Repeats), "--parallel", strconv.Itoa(cfg.Parallel),
+		"--timeout", cfg.RunTimeout.String(), "--isolation", cfg.Isolation)
 	if cfg.Model != "" {
 		argv = append(argv, "--model", cfg.Model)
 	}

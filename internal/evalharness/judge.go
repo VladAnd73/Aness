@@ -34,6 +34,7 @@ type JudgeOptions struct {
 	Spawner                                                                               AgentSpawner
 	Grader                                                                                AgentSpawner
 	Services                                                                              ServiceStarter
+	Role                                                                                  *RoleStep
 }
 
 // ServiceStarter starts the fake MCP servers for one run, logging every
@@ -65,6 +66,9 @@ type RunReport struct {
 	TranscriptPath string `json:"transcript_path"`
 	CallsLog       string `json:"calls_log"`
 	SandboxRoot    string `json:"sandbox_root"`
+	// Quotes are the output lines a bug-caught grader matched, kept so a
+	// human can audit each catch.
+	Quotes []string `json:"quotes,omitempty"`
 }
 
 type runOutcome struct {
@@ -119,7 +123,7 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 	if err != nil {
 		return JudgeReport{}, err
 	}
-	if err := checkSkillName(o.SkillName); err != nil {
+	if err := checkJudgeKind(o, set); err != nil {
 		return JudgeReport{}, err
 	}
 	if _, err := os.ReadFile(o.Candidate); err != nil {
@@ -191,6 +195,26 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 	return rep, nil
 }
 
+// checkJudgeKind refuses a set of the other kind: a role run without
+// its step, or a skill run without its skill name, measures nothing.
+func checkJudgeKind(o JudgeOptions, set []DataScenario) error {
+	want := ""
+	if o.Role != nil {
+		want = "role"
+		if err := o.Role.validate(); err != nil {
+			return fmt.Errorf("evalharness: judge: role step: %w", err)
+		}
+	} else if err := checkSkillName(o.SkillName); err != nil {
+		return err
+	}
+	for _, sc := range set {
+		if sc.Kind != want {
+			return fmt.Errorf("evalharness: judge: scenario %s is kind %q, the judge runs kind %q", sc.Name, sc.Kind, want)
+		}
+	}
+	return nil
+}
+
 func checkIsolation(mode string) error {
 	switch mode {
 	case "none":
@@ -213,19 +237,15 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	if err != nil {
 		return runOutcome{}, err
 	}
-	// The run dir is its own repository so the agent's project root,
-	// where it looks for .claude/skills, is the run dir itself.
-	if err := gitInitNoRemote(sb.RunWD); err != nil {
-		return runOutcome{}, err
-	}
-	// Fixtures go in first so the injected skill always wins a collision.
-	files := filepath.Join(sc.Dir, "files")
-	if _, err := os.Stat(files); err == nil {
-		if err := copyTree(files, sb.RunWD); err != nil {
-			return runOutcome{}, fmt.Errorf("fixture files: %w", err)
+	prompt := sc.Prompt
+	var role roleRun
+	if o.Role != nil {
+		// No git init: a role run's snapshot must carry no history.
+		if role, err = prepareRoleRun(sb.RunWD, o, sc); err != nil {
+			return runOutcome{}, err
 		}
-	}
-	if err := InjectSkill(sb.RunWD, o.FrozenDir, o.SkillName, o.Candidate); err != nil {
+		prompt = role.prompt
+	} else if err := prepareSkillRun(sb.RunWD, o, sc); err != nil {
 		return runOutcome{}, err
 	}
 
@@ -251,9 +271,10 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 		return runOutcome{}, err
 	}
 	args = append(args, "--mcp-config", cfgPath)
-	req := SpawnRequest{Prompt: sc.Prompt, WorkDir: sb.RunWD, Env: sb.Env(), ExtraArgs: args}
+	req := SpawnRequest{Prompt: prompt, WorkDir: sb.RunWD, Env: append(sb.Env(), role.env...), ExtraArgs: args}
 	if o.Isolation != "none" {
 		spec := agentSpec(sb, cfgPath)
+		spec.Env = append(spec.Env, role.env...)
 		req.Env, req.Isolate = spec.Env, &spec
 	}
 
@@ -292,6 +313,13 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 
 	a := RunArtifacts{RunWD: sb.RunWD, Stream: stream}
+	material := stream.FinalReply
+	if o.Role != nil {
+		a.Role, a.TaskDir, a.Output, a.Snapshot = o.Role, role.taskDir, role.output, filepath.Join(sc.Dir, "snapshot")
+		if material, err = roleMaterial(a.Snapshot, sb.RunWD, role.taskDir); err != nil {
+			return runOutcome{}, err
+		}
+	}
 	if run.CallsLog != "" {
 		if a.Calls, err = fakemcp.ReadCalls(run.CallsLog); err != nil {
 			return runOutcome{}, err
@@ -299,7 +327,7 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 	var code, judged []ScenarioCheck
 	for _, c := range sc.Checks {
-		if c.Kind == "llm-judge" {
+		if c.Kind == "llm-judge" || c.Kind == "bug-caught" {
 			judged = append(judged, c)
 		} else {
 			code = append(code, c)
@@ -311,7 +339,17 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 	if pass {
 		for _, c := range judged {
-			ok, crash, err := gradeLLM(ctx, o, sb, filepath.Join(sc.Dir, c.Rubric), stream.FinalReply)
+			var ok bool
+			var crash string
+			if c.Kind == "bug-caught" {
+				var quote string
+				ok, quote, crash, err = gradeCaught(ctx, o, sb, filepath.Join(sc.Dir, c.Repro), material)
+				if ok {
+					run.Quotes = append(run.Quotes, quote)
+				}
+			} else {
+				ok, crash, err = gradeLLM(ctx, o, sb, filepath.Join(sc.Dir, c.Rubric), material)
+			}
 			if err != nil {
 				return runOutcome{}, err
 			}
@@ -322,7 +360,7 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 			}
 			if !ok {
 				pass = false
-				failed = append(failed, "llm-judge")
+				failed = append(failed, c.Kind)
 			}
 		}
 	}
@@ -333,6 +371,23 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 	out.report = run
 	return out, nil
+}
+
+// prepareSkillRun installs the candidate skill over its frozen folder.
+// The run dir is its own repository so the agent's project root, where
+// it looks for .claude/skills, is the run dir itself. Fixtures go in
+// first so the injected skill always wins a collision.
+func prepareSkillRun(runWD string, o JudgeOptions, sc DataScenario) error {
+	if err := gitInitNoRemote(runWD); err != nil {
+		return err
+	}
+	files := filepath.Join(sc.Dir, "files")
+	if _, err := os.Stat(files); err == nil {
+		if err := copyTree(files, runWD); err != nil {
+			return fmt.Errorf("fixture files: %w", err)
+		}
+	}
+	return InjectSkill(runWD, o.FrozenDir, o.SkillName, o.Candidate)
 }
 
 func WriteJudgeReport(path string, r JudgeReport) error {

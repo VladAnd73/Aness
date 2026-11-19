@@ -2,11 +2,14 @@ package research
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Stop ends a campaign for reason. With a kept change it first runs the
@@ -64,10 +67,7 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 	cfg = lk.cfg
 	if cfg.hasKeptChange() {
 		cfg.JudgeCostUSD += h.cost
-		cfg.HoldoutVerdict = "overfit"
-		if roundScore(h.winner) >= roundScore(h.original) {
-			cfg.HoldoutVerdict = "pass"
-		}
+		cfg.HoldoutVerdict = holdoutVerdict(h)
 	}
 	cfg.Status, cfg.StopReason = StatusStopped, reason
 	err = s.Save(cfg)
@@ -99,11 +99,32 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 
 type holdoutResult struct{ original, winner, cost float64 }
 
+// holdoutVerdict passes a winner only when it beats the original: a tie
+// is no evidence the edit generalises. An original already at 100 has
+// no headroom to show a gain.
+func holdoutVerdict(h holdoutResult) string {
+	switch {
+	case roundScore(h.original) >= 100:
+		return "no-headroom"
+	case roundScore(h.winner) > roundScore(h.original):
+		return "pass"
+	}
+	return "overfit"
+}
+
 // heldoutSide is one holdout side already paid for, kept in
-// holdout/result.json so a stop that fails later reuses it.
+// holdout/result.json so a stop that fails later reuses it. Judge keys
+// it to the judge that scored it.
 type heldoutSide struct {
-	Commit         string
+	Commit, Judge  string
 	Score, CostUSD float64
+}
+
+// judgeKey names the judge a holdout score came from: the sealed set,
+// the pinned binary and the command line.
+func (cfg Config) judgeKey() string {
+	sum := sha256.Sum256([]byte(strings.Join(append([]string{cfg.HoldoutHash, cfg.BinaryHash}, cfg.JudgeArgv...), "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
 func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResult, error) {
@@ -118,11 +139,12 @@ func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResul
 	if b, err := os.ReadFile(cache); err == nil {
 		json.Unmarshal(b, &done)
 	}
+	key := cfg.judgeKey()
 	for _, side := range []struct {
 		name, commit string
 		score        *float64
 	}{{"original", cfg.StartCommit, &h.original}, {"winner", cfg.BestCommit, &h.winner}} {
-		if c, ok := done[side.name]; ok && c.Commit == side.commit {
+		if c, ok := done[side.name]; ok && c.Commit == side.commit && c.Judge == key {
 			*side.score = c.Score
 			h.cost += c.CostUSD
 			continue
@@ -150,7 +172,7 @@ func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResul
 		*side.score = total / 2
 		h.cost += cost
 		// The cache only saves money, so a failed write is no failure.
-		done[side.name] = heldoutSide{Commit: side.commit, Score: *side.score, CostUSD: cost}
+		done[side.name] = heldoutSide{Commit: side.commit, Judge: key, Score: *side.score, CostUSD: cost}
 		if b, err := json.Marshal(done); err == nil {
 			os.WriteFile(cache, b, 0o600)
 		}

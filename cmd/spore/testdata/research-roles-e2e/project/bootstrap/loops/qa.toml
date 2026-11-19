@@ -1,0 +1,10 @@
+name = "qa"
+
+[[steps]]
+name = "intake"
+kind = "agent"
+role = "qa-analyst"
+output = "intake/round-{round}.json"
+shape = "json"
+required = ["summary", "plan_path"]
+skills = ["plan-skill", "builtin-skill"]

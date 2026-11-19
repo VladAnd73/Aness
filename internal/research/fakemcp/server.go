@@ -168,8 +168,17 @@ func (h *handler) call(w http.ResponseWriter, server string, req rpcRequest) {
 			tool = &h.tools[server][i]
 		}
 	}
-	if tool == nil {
+	var body json.RawMessage
+	switch {
+	case tool == nil:
 		c.Error = "unknown tool"
+	case tool.Key == "":
+		body = tool.Response
+	default:
+		var ok bool
+		if body, ok = tool.Responses[fmt.Sprint(p.Arguments[tool.Key])]; !ok {
+			c.Error = "not found"
+		}
 	}
 	if err := h.log(c); err != nil {
 		reply(w, req.ID, nil, &rpcError{Code: -32603, Message: "call log: " + err.Error()})
@@ -179,8 +188,15 @@ func (h *handler) call(w http.ResponseWriter, server string, req rpcRequest) {
 		reply(w, req.ID, nil, &rpcError{Code: -32601, Message: "unknown tool: " + p.Name})
 		return
 	}
+	if c.Error == "not found" {
+		reply(w, req.ID, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("not found: no %s %v", tool.Key, p.Arguments[tool.Key])}},
+			"isError": true,
+		}, nil)
+		return
+	}
 	reply(w, req.ID, map[string]any{
-		"content": []map[string]any{{"type": "text", "text": string(tool.Response)}},
+		"content": []map[string]any{{"type": "text", "text": string(body)}},
 	}, nil)
 }
 

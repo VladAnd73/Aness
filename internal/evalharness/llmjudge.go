@@ -33,24 +33,35 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 	if err != nil {
 		return false, "", err
 	}
+	out, crash, err := askGrader(ctx, o, sb, fmt.Sprintf(graderPrompt, rubric, reply))
+	if err != nil || crash != "" {
+		return false, crash, err
+	}
+	verdict := ""
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "VERDICT:") {
+			verdict = line
+		}
+	}
+	return verdict == "VERDICT: PASS", "", nil
+}
+
+// askGrader runs the grader model once on prompt and returns its output.
+func askGrader(ctx context.Context, o JudgeOptions, sb *Sandbox, prompt string) (out, crash string, err error) {
 	wd, home := filepath.Join(sb.Root, "grader"), filepath.Join(sb.Root, "grader-home")
 	for _, d := range []string{wd, home} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return false, "", err
+			return "", "", err
 		}
 	}
-	// The reply is untrusted text from the agent under test: the grader
-	// gets no tools to act on it and, unless unsandboxed, the same jail.
+	// The prompt holds untrusted text from the agent under test: the
+	// grader gets no tools to act on it and, unless unsandboxed, the
+	// same jail.
 	args := []string{"--tools", "", "--strict-mcp-config"}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
-	req := SpawnRequest{
-		Prompt:    fmt.Sprintf(graderPrompt, rubric, reply),
-		WorkDir:   wd,
-		Env:       sb.Env(),
-		ExtraArgs: args,
-	}
+	req := SpawnRequest{Prompt: prompt, WorkDir: wd, Env: sb.Env(), ExtraArgs: args}
 	if o.Isolation != "none" {
 		spec := isolate.Spec{Work: wd, Home: home, Credentials: isolate.CredentialsPath(), Env: isolate.BaseEnv(home)}
 		req.Env, req.Isolate = spec.Env, &spec
@@ -60,17 +71,11 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 	res, err := o.Grader.Spawn(rctx, req)
 	switch {
 	case errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
-		return false, "timeout", nil
+		return "", "timeout", nil
 	case res.ExitCode != 0:
-		return false, fmt.Sprintf("exit %d", res.ExitCode), nil
+		return "", fmt.Sprintf("exit %d", res.ExitCode), nil
 	case err != nil:
-		return false, "", fmt.Errorf("grader: %w", err)
+		return "", "", fmt.Errorf("grader: %w", err)
 	}
-	verdict := ""
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if line = strings.TrimSpace(line); strings.HasPrefix(line, "VERDICT:") {
-			verdict = line
-		}
-	}
-	return verdict == "VERDICT: PASS", "", nil
+	return res.Stdout, "", nil
 }

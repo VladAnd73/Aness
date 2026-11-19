@@ -18,6 +18,11 @@ type Tool struct {
 	Response json.RawMessage `json:"response"`
 	// InputSchema is advertised in tools/list; empty means any object.
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	// Key, when set, makes the tool a lookup: the call's Key argument
+	// picks one of Responses, and any other value is not found. A
+	// scenario lists only the tickets and pages the agent may read.
+	Key       string                     `json:"key,omitempty"`
+	Responses map[string]json.RawMessage `json:"responses,omitempty"`
 }
 
 type Call struct {

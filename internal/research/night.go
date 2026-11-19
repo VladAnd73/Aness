@@ -87,7 +87,18 @@ func RunNight(ctx context.Context, s Store, name string, d Deps) (NightSummary, 
 	n := &night{s: s, cfg: cfg, d: d, obj: obj, repo: s.repo(name), num: cfg.Nights + 1,
 		started: d.Now(), startUsed: startUsed, lastUsed: startUsed}
 	n.sum = NightSummary{Night: n.num, StartScore: cfg.BestScore}
-	return n.run(ctx)
+	sum, err := n.run(ctx)
+	if err == nil && sum.StopReason == "no-headroom" {
+		err = noHeadroom(n.cfg)
+	}
+	return sum, err
+}
+
+// noHeadroom refuses a night on a baseline that already scores 100 on
+// the main set: no edit can show a gain, so a night would only spend
+// quota.
+func noHeadroom(cfg Config) error {
+	return &RefusedError{Reason: fmt.Sprintf("no-headroom: campaign %s scores %.1f on the main set, so no edit can show a gain; add harder scenarios to the judge", cfg.Name, cfg.BestScore)}
 }
 
 func (n *night) run(ctx context.Context) (NightSummary, error) {
@@ -111,6 +122,9 @@ func (n *night) run(ctx context.Context) (NightSummary, error) {
 			return n.sum, err
 		}
 		n.sum.StopReason, n.sum.StartScore = reason, n.cfg.BestScore
+		if reason == "" && n.cfg.BestScore >= 100 {
+			n.sum.StopReason = "no-headroom"
+		}
 	}
 	for n.sum.StopReason == "" {
 		if n.sum.StopReason = n.capReached(ctx, n.sum.Tries > 0); n.sum.StopReason != "" {
@@ -199,7 +213,7 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 
 // cutShort stop reasons end a night before it could show whether the
 // target can still improve.
-var cutShort = []string{"interrupted", "quota-read-failed", "switched-off", "baseline-crash", "judge-failed"}
+var cutShort = []string{"interrupted", "quota-read-failed", "switched-off", "baseline-crash", "judge-failed", "no-headroom"}
 
 func (n *night) end(ctx context.Context) (NightSummary, error) {
 	used := max(n.lastUsed-n.startUsed, 0)
@@ -209,6 +223,9 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 		// max_nights. One cut short, or paused by an off, with nothing
 		// kept is no evidence of no gain.
 		cfg.Nights++
+		if n.sum.StopReason == "no-headroom" {
+			cfg.Status, cfg.StopReason = StatusOff, "no-headroom"
+		}
 		if n.sum.Kept > 0 {
 			cfg.NoGainNights = 0
 		} else if !slices.Contains(cutShort, n.sum.StopReason) && cfg.Status != StatusOff {
