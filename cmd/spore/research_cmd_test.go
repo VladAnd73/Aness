@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/versality/spore/internal/isolate"
 	"github.com/versality/spore/internal/research"
 )
 
@@ -107,8 +108,7 @@ func TestResearchNewRefusesNonSkillTarget(t *testing.T) {
 func TestResearchNightRefusedExitCode(t *testing.T) {
 	e := newResearchEnv(t)
 	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
-	e.must("new", "c", "--target", e.target, "--goal", e.goal)
-	e.must("set", "c", "isolation", "none")
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	code, out, errOut := e.run("night", "c")
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
@@ -121,8 +121,7 @@ func TestResearchNightRefusedExitCode(t *testing.T) {
 func TestResearchNightRefusesUnsandboxedWithoutOptIn(t *testing.T) {
 	e := newResearchEnv(t)
 	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "")
-	e.must("new", "c", "--target", e.target, "--goal", e.goal)
-	e.must("set", "c", "isolation", "none")
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	code, _, errOut := e.run("night", "c")
 	if code != 1 || !strings.Contains(errOut, "SPORE_RESEARCH_ALLOW_UNSANDBOXED") {
 		t.Errorf("exit %d, stderr %q; want 1 naming the opt-in variable", code, errOut)
@@ -131,7 +130,7 @@ func TestResearchNightRefusesUnsandboxedWithoutOptIn(t *testing.T) {
 
 func TestResearchJudgeDraftMintsDraftTask(t *testing.T) {
 	e := newResearchEnv(t)
-	e.must("new", "c", "--target", e.target, "--goal", e.goal)
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	project := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(project, "tasks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -156,8 +155,8 @@ func TestResearchJudgeDraftMintsDraftTask(t *testing.T) {
 
 func TestResearchStatusLists(t *testing.T) {
 	e := newResearchEnv(t)
-	e.must("new", "alpha", "--target", e.target, "--goal", e.goal)
-	e.must("new", "beta", "--target", e.target, "--goal", e.goal)
+	e.must("new", "alpha", "--target", e.target, "--goal", e.goal, "--isolation", "none")
+	e.must("new", "beta", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	lines := strings.Split(strings.TrimSpace(e.must("status")), "\n")
 	if len(lines) != 2 || !strings.HasPrefix(lines[0], "alpha") || !strings.HasPrefix(lines[1], "beta") {
 		t.Fatalf("status lines = %q, want alpha then beta", lines)
@@ -175,7 +174,7 @@ func TestResearchStatusLists(t *testing.T) {
 
 func TestResearchSetRejectsUnknownKey(t *testing.T) {
 	e := newResearchEnv(t)
-	e.must("new", "c", "--target", e.target, "--goal", e.goal)
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	if code, _, errOut := e.run("set", "c", "best_score", "100"); code != 1 || !strings.Contains(errOut, "not a settable key") {
 		t.Errorf("exit %d, stderr %q", code, errOut)
 	}
@@ -187,7 +186,7 @@ func TestResearchSetRejectsUnknownKey(t *testing.T) {
 
 func TestResearchResetCleansRepo(t *testing.T) {
 	e := newResearchEnv(t)
-	e.must("new", "c", "--target", e.target, "--goal", e.goal)
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
 	repoTarget := filepath.Join(e.store.Dir("c"), "repo", "SKILL.md")
 	if err := os.WriteFile(repoTarget, []byte("half\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -211,8 +210,7 @@ func TestResearchNightPrintsOneLinePerTry(t *testing.T) {
 	os.MkdirAll(filepath.Dir(live), 0o700)
 	orig, _ := os.ReadFile(filepath.Join(fixture, "skill", "SKILL.md"))
 	os.WriteFile(live, orig, 0o600)
-	e.must("new", "e2e", "--target", live, "--goal", e.goal)
-	e.must("set", "e2e", "isolation", "none")
+	e.must("new", "e2e", "--target", live, "--goal", e.goal, "--isolation", "none")
 	e.must("set", "e2e", "agent_binary", filepath.Join(fixture, "fake-claude.sh"))
 	e.must("set", "e2e", "max_tries_per_night", "2")
 	e.must("judge", "approve", "e2e", "--from", filepath.Join(fixture, "drafts"))
@@ -361,8 +359,45 @@ func TestResearchNewWithModelWhileAnotherNightRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--model", "haiku")
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--model", "haiku", "--isolation", "none")
 	if cfg, err := e.store.Load("c"); err != nil || cfg.Model != "haiku" {
 		t.Errorf("model = %q, %v; want haiku", cfg.Model, err)
+	}
+}
+
+func TestResearchNewRefusesBwrapOnUnsupportedHost(t *testing.T) {
+	e := newResearchEnv(t)
+	t.Setenv(isolate.ForceUnsupportedEnv, "1")
+	code, _, errOut := e.run("new", "c", "--target", e.target, "--goal", e.goal)
+	if code != 1 || !strings.Contains(errOut, isolate.ForceUnsupportedEnv) || !strings.Contains(errOut, "--isolation none") || !strings.Contains(errOut, "SPORE_RESEARCH_ALLOW_UNSANDBOXED") {
+		t.Errorf("exit %d, stderr %q; want 1 naming the reason, --isolation none and the opt-in variable", code, errOut)
+	}
+	if _, err := os.Stat(e.store.Dir("c")); err == nil {
+		t.Errorf("a refused new still created the campaign")
+	}
+}
+
+func TestResearchNewIsolationNoneOnUnsupportedHost(t *testing.T) {
+	e := newResearchEnv(t)
+	t.Setenv(isolate.ForceUnsupportedEnv, "1")
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
+	cfg, err := e.store.Load("c")
+	if err != nil || cfg.Isolation != "none" {
+		t.Errorf("Load = %+v, %v; want isolation none", cfg, err)
+	}
+	if code, _, errOut := e.run("new", "d", "--target", e.target, "--goal", e.goal, "--isolation", "chroot"); code != 2 || !strings.Contains(errOut, "chroot") {
+		t.Errorf("--isolation chroot: exit %d, stderr %q; want 2 naming the bad value", code, errOut)
+	}
+}
+
+func TestResearchNightRefusesBwrapOnUnsupportedHost(t *testing.T) {
+	e := newResearchEnv(t)
+	t.Setenv("SPORE_RESEARCH_ALLOW_UNSANDBOXED", "1")
+	e.must("new", "c", "--target", e.target, "--goal", e.goal, "--isolation", "none")
+	e.must("set", "c", "isolation", "bwrap")
+	t.Setenv(isolate.ForceUnsupportedEnv, "1")
+	code, _, errOut := e.run("night", "c")
+	if code != 1 || !strings.Contains(errOut, isolate.ForceUnsupportedEnv) || !strings.Contains(errOut, "isolation none") || !strings.Contains(errOut, "SPORE_RESEARCH_ALLOW_UNSANDBOXED") {
+		t.Errorf("exit %d, stderr %q; want 1 naming the reason, isolation none and the opt-in variable", code, errOut)
 	}
 }

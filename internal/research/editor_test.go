@@ -15,10 +15,19 @@ import (
 	"github.com/versality/spore/internal/isolate"
 )
 
+// requireBwrap is enough for a test that only inspects the bwrap argv.
 func requireBwrap(t *testing.T) {
 	t.Helper()
 	if err := isolate.Available(); err != nil {
 		t.Skipf("bwrap cannot run here: %v", err)
+	}
+}
+
+// requireSandbox skips a test that runs the real sandbox where the sandbox cannot work.
+func requireSandbox(t *testing.T) {
+	t.Helper()
+	if err := isolate.HostSupported(); err != nil {
+		t.Skipf("the bwrap sandbox cannot run here: %v", err)
 	}
 }
 
@@ -112,7 +121,7 @@ func bindTriples(args []string) [][3]string {
 }
 
 func TestClaudeEditorSpecBindsOnlyScratch(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	testCreds(t)
 	var cmds []*exec.Cmd
 	scratch := editorScratch(t)
@@ -191,7 +200,7 @@ func TestClaudeEditorRefusesUnsandboxedWithoutOptIn(t *testing.T) {
 }
 
 func TestClaudeEditorFrozenIsReadOnlyInsideBwrap(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	testCreds(t)
 	scratch := editorScratch(t)
 	agent := filepath.Join(scratch, "fake-editor")
@@ -226,7 +235,7 @@ func trueBin(t *testing.T) string {
 // The live acceptance run shows claude's permission layer refusing an
 // outside read; this proves the sandbox hides the file on its own.
 func TestClaudeEditorSandboxHidesOutsideFiles(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	testCreds(t)
 	planted := filepath.Join(t.TempDir(), "store", "planted.txt")
 	os.MkdirAll(filepath.Dir(planted), 0o700)

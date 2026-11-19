@@ -223,8 +223,8 @@ func checkIsolation(mode string) error {
 		}
 		return nil
 	case "", "bwrap":
-		if err := isolate.Available(); err != nil {
-			return fmt.Errorf("evalharness: judge: %w", err)
+		if err := isolate.HostSupported(); err != nil {
+			return fmt.Errorf("evalharness: judge: %w; to run unsandboxed pass --isolation none and set %s=1", err, AllowUnsandboxedEnv)
 		}
 		return nil
 	default:

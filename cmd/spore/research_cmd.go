@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/versality/spore/internal/evalharness"
+	"github.com/versality/spore/internal/isolate"
 	"github.com/versality/spore/internal/research"
 )
 
@@ -21,7 +23,9 @@ each edit with a locked judge, and keeps only confirmed improvements.
 See docs/autoresearch.md.
 
   new <c> --target PATH/SKILL.md --goal FILE [--objective maximize-score] [--model M]
+         [--isolation bwrap|none]
          Create draft campaign c from the skill folder holding PATH.
+         bwrap (the default) is NixOS-only and refused elsewhere.
   new <c> --kind role --target PATH.md --step NAME [--loop NAME] --goal FILE [...]
          Create draft campaign c on the role body PATH, run as loop step
          NAME of the project's bootstrap/loops (--loop when two loops
@@ -154,12 +158,25 @@ func (c *researchCmd) new(args []string) error {
 	kind := fs.String("kind", "skill", "skill or role")
 	step := fs.String("step", "", "role only: the loop step the role body runs as")
 	loop := fs.String("loop", "", "role only: the loop holding --step, when more than one does")
+	isolation := fs.String("isolation", "bwrap", "bwrap or none")
 	pos, err := parse(fs, args, 1, "<campaign> --target PATH --goal FILE")
 	if err != nil {
 		return err
 	}
 	if *target == "" || *goal == "" {
 		return fmt.Errorf("%w: --target and --goal are required", errUsage)
+	}
+	if *isolation != "bwrap" && *isolation != "none" {
+		return fmt.Errorf("%w: --isolation must be bwrap or none, got %q", errUsage, *isolation)
+	}
+	checkHost := func() error {
+		if *isolation != "bwrap" {
+			return nil
+		}
+		if err := isolate.HostSupported(); err != nil {
+			return fmt.Errorf("%w; pass --isolation none to run agents unsandboxed (night then needs %s=1)", err, evalharness.AllowUnsandboxedEnv)
+		}
+		return nil
 	}
 	var cfg research.Config
 	switch *kind {
@@ -170,12 +187,18 @@ func (c *researchCmd) new(args []string) error {
 		if filepath.Base(*target) != "SKILL.md" {
 			return fmt.Errorf("v1 improves skills only: --target must be a file named SKILL.md, got %s", filepath.Base(*target))
 		}
+		if err := checkHost(); err != nil {
+			return err
+		}
 		if cfg, err = c.store.Create(pos[0], *target, *goal, *objective); err != nil {
 			return err
 		}
 	case "role":
 		if *step == "" {
 			return fmt.Errorf("%w: --kind role needs --step", errUsage)
+		}
+		if err := checkHost(); err != nil {
+			return err
 		}
 		var missing []string
 		if cfg, missing, err = c.store.CreateRole(pos[0], *target, *goal, *objective, research.RoleOptions{Step: *step, Loop: *loop}); err != nil {
@@ -186,6 +209,11 @@ func (c *researchCmd) new(args []string) error {
 		}
 	default:
 		return fmt.Errorf("%w: --kind must be skill or role, got %q", errUsage, *kind)
+	}
+	if *isolation != cfg.Isolation {
+		if err := c.store.Set(cfg.Name, "isolation", *isolation); err != nil {
+			return err
+		}
 	}
 	if *model != "" {
 		if err := c.store.Set(cfg.Name, "model", *model); err != nil {

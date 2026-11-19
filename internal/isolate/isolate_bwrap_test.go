@@ -9,10 +9,13 @@ import (
 	"time"
 )
 
-func requireBwrap(t *testing.T) {
+// requireSandbox skips a test that runs the real sandbox where it
+// cannot work: off NixOS, or where bwrap cannot build a namespace (the
+// nix build sandbox).
+func requireSandbox(t *testing.T) {
 	t.Helper()
-	if err := Available(); err != nil {
-		t.Skipf("bwrap cannot run here (as in the nix build sandbox): %v", err)
+	if err := HostSupported(); err != nil {
+		t.Skipf("the bwrap sandbox cannot run here: %v", err)
 	}
 }
 
@@ -40,7 +43,7 @@ func run(t *testing.T, s Spec, argv ...string) (string, error) {
 }
 
 func TestBwrapHidesOutsidePaths(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	s := liveSpec(t)
 	sibling := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(sibling, []byte("outside\n"), 0o600); err != nil {
@@ -63,7 +66,7 @@ func TestBwrapHidesOutsidePaths(t *testing.T) {
 }
 
 func TestBwrapBlocksOutsideHosts(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	out, err := run(t, liveSpec(t), "getent", "ahosts", "api.notion.com")
 	if err != nil || strings.Fields(out + " x")[0] != "0.0.0.0" {
 		t.Errorf("getent ahosts api.notion.com = %q, %v; want 0.0.0.0 first", out, err)
@@ -76,7 +79,7 @@ func TestBwrapBlocksOutsideHosts(t *testing.T) {
 }
 
 func TestBwrapMountsCredentialsCopyNotHostFile(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	host := filepath.Join(t.TempDir(), ".credentials.json")
 	if err := os.WriteFile(host, []byte(`{"claudeAiOauth":{"accessToken":"at-1","refreshToken":"rt-1","expiresAt":9}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -105,7 +108,7 @@ func TestBwrapMountsCredentialsCopyNotHostFile(t *testing.T) {
 }
 
 func TestBwrapCancelKillsTheWholeTree(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	s := liveSpec(t)
 	tick := filepath.Join(s.Work, "tick")
 	ctx, cancel := context.WithCancel(context.Background())

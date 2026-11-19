@@ -130,7 +130,8 @@ is scored: the best score would be stale.
 ## Before a night starts
 
 `night` refuses, naming the reason, when: the campaign is not `on`;
-`isolation = none` without the opt-in, or bubblewrap is not usable;
+`isolation = none` without the opt-in, or bubblewrap is not usable
+(not NixOS, see below);
 another night holds the host-wide lock (`$XDG_RUNTIME_DIR/spore-research.lock`);
 `spore budget room` does not say room; a judge hash differs; the
 campaign repo has uncommitted changes; the goal file is missing or
@@ -231,6 +232,17 @@ holdout/             the holdout runs from stop; result.json once done
 
 Both agents run under bubblewrap with a private HOME, a read-only copy
 of fresh login credentials, and no user settings or hooks.
+
+The sandbox is NixOS-only for now. It binds `/nix`, `/etc` and
+`/run/current-system` but not `/usr/lib`, so on another distribution
+a host binary cannot load inside it. Without `/run/current-system`,
+`research new`, `night` and `eval judge` refuse `isolation = bwrap`
+and name the escape hatch: `research new --isolation none` (or
+`spore research set <c> isolation none`) plus
+`SPORE_RESEARCH_ALLOW_UNSANDBOXED=1`, which runs both agents
+unsandboxed. `SPORE_SANDBOX_FORCE_UNSUPPORTED=1` makes a NixOS host
+refuse too; the test suite uses it to rehearse the CI runner, where
+every test that runs the real sandbox skips.
 
 - The editor sees only its scratch folder: `SKILL.md` (writable),
   `goal.md`, a cut-down `results.tsv` (try, score, status, bytes,

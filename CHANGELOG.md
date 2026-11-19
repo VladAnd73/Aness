@@ -32,6 +32,10 @@
   reaches 100 ends the night with `max-score` and runs the holdout.
 - `accept` commits a role winner on `research/<campaign>` in the role's
   own git checkout; skills keep the spore-repo-only branch rule.
+- The bubblewrap sandbox is NixOS-only for now: `research new`, `night`
+  and `eval judge` refuse `isolation bwrap` elsewhere and name
+  `--isolation none` (`research new` gained the flag); tests that run
+  the real sandbox skip off NixOS.
 
 ## 1.0.10 - 2026-11-17
 

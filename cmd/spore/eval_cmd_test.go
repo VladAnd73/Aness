@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/versality/spore/internal/evalharness"
+	"github.com/versality/spore/internal/isolate"
 )
 
 // fakeSpawner lets these CLI tests exercise the whole eval_cmd wiring
@@ -202,5 +203,16 @@ func TestEvalJudgeCLIRejects(t *testing.T) {
 		if code := evalMain(&stdout, &stderr, append(append([]string{}, base...), c.args...), fakeSpawner{}); code != c.code {
 			t.Errorf("%s: exit %d, want %d (stderr %s)", name, code, c.code, stderr.String())
 		}
+	}
+}
+
+func TestEvalJudgeRefusesBwrapOnUnsupportedHost(t *testing.T) {
+	t.Setenv(isolate.ForceUnsupportedEnv, "1")
+	args := []string{"judge", "--scenarios-root", "testdata/research-e2e/drafts", "--skill", "e2e", "--set", "main",
+		"--out", filepath.Join(t.TempDir(), "r.json"), "--candidate", "testdata/research-e2e/skill/SKILL.md"}
+	var stdout, stderr bytes.Buffer
+	code := evalMain(&stdout, &stderr, args, fakeSpawner{})
+	if code != 1 || !strings.Contains(stderr.String(), isolate.ForceUnsupportedEnv) || !strings.Contains(stderr.String(), "--isolation none") || !strings.Contains(stderr.String(), "SPORE_RESEARCH_ALLOW_UNSANDBOXED") {
+		t.Errorf("exit %d, stderr %q; want 1 naming the reason, --isolation none and the opt-in variable", code, stderr.String())
 	}
 }

@@ -103,7 +103,7 @@ func TestLLMJudgeGraderSandboxRefusalFailsTheJudge(t *testing.T) {
 
 // Real bwrap, failing a mount after it reported the child's pid.
 func TestIsolatedSpawnerRealBwrapSetupFailureIsNoAgentRun(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	req := sandboxReq(t)
 	req.Isolate.Extra = []isolate.Bind{{Src: filepath.Join(t.TempDir(), "missing"), Dst: "/missing"}}
 	res, err := IsolatedSpawner{Binary: exitingAgentIn(t, req.WorkDir, "0")}.Spawn(context.Background(), req)
@@ -113,7 +113,7 @@ func TestIsolatedSpawnerRealBwrapSetupFailureIsNoAgentRun(t *testing.T) {
 }
 
 func TestIsolatedSpawnerRealBwrapAgentExitKeepsItsCode(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	req := sandboxReq(t)
 	res, err := IsolatedSpawner{Binary: exitingAgentIn(t, req.WorkDir, "3")}.Spawn(context.Background(), req)
 	if res.ExitCode != 3 {

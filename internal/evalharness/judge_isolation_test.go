@@ -16,10 +16,12 @@ import (
 	"github.com/versality/spore/internal/research/fakemcp"
 )
 
-func requireBwrap(t *testing.T) {
+// requireSandbox skips a test that runs the real sandbox, or goes
+// through the judge's host check, where the sandbox cannot work.
+func requireSandbox(t *testing.T) {
 	t.Helper()
-	if err := isolate.Available(); err != nil {
-		t.Skipf("bwrap cannot run here: %v", err)
+	if err := isolate.HostSupported(); err != nil {
+		t.Skipf("the bwrap sandbox cannot run here: %v", err)
 	}
 }
 
@@ -40,7 +42,7 @@ func longLivedCreds(t *testing.T) string {
 
 func isolatedOpts(t *testing.T, set string, sp AgentSpawner) JudgeOptions {
 	t.Helper()
-	requireBwrap(t)
+	requireSandbox(t)
 	longLivedCreds(t)
 	o := judgeOpts(t, set, sp)
 	t.Setenv(AllowUnsandboxedEnv, "")
@@ -189,7 +191,7 @@ func TestRunJudgeDefaultsToRealFakeServices(t *testing.T) {
 }
 
 func TestIsolatedSpawnerRunsTheAgentInsideBwrap(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	longLivedCreds(t)
 	root := t.TempDir()
 	work, home := filepath.Join(root, "run"), filepath.Join(root, "agent-home")
@@ -224,7 +226,7 @@ func TestIsolatedSpawnerRefusesNoSpec(t *testing.T) {
 }
 
 func TestProbeIsolatedSinksBlockedHosts(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	longLivedCreds(t)
 	o := JudgeOptions{Isolation: "bwrap", SandboxParent: t.TempDir()}
 	out, err := ProbeIsolated(context.Background(), o, []string{"getent", "ahosts", "api.notion.com"})
@@ -249,7 +251,7 @@ func callFake(t *testing.T, url, tool string, args map[string]any) {
 }
 
 func TestProbeIsolatedRemovesItsSandbox(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	longLivedCreds(t)
 	parent := t.TempDir()
 	if _, err := ProbeIsolated(context.Background(), JudgeOptions{Isolation: "bwrap", SandboxParent: parent}, []string{"true"}); err != nil {

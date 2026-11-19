@@ -73,7 +73,7 @@ func TestAcceptanceRole14EndToEnd(t *testing.T) {
 		return out.String()
 	}
 
-	run("new", "rc", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal)
+	run("new", "rc", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal, "--isolation", "none")
 	setCampaignKeys(t, filepath.Join(campaignDir, "campaign.toml"), map[string]string{
 		"max_tries_per_night": "3",
 		"repeats":             "1",

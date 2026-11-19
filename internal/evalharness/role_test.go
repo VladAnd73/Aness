@@ -108,7 +108,7 @@ func graderReply(reply string) *scriptSpawner {
 // the frozen skills, and neither grader/ nor any .git directory; the
 // grader, outside it, still reads grader/.
 func TestAcceptanceRole3SandboxHidesGraderAndGit(t *testing.T) {
-	requireBwrap(t)
+	requireSandbox(t)
 	longLivedCreds(t)
 	set := t.TempDir()
 	scDir := writeRoleScenario(t, set, "bug1",

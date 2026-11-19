@@ -76,8 +76,8 @@ func (c *researchCmd) night(args []string) error {
 			return &research.RefusedError{Reason: fmt.Sprintf("isolation is none; set %s=1 to run agents unsandboxed", evalharness.AllowUnsandboxedEnv)}
 		}
 	default:
-		if err := isolate.Available(); err != nil {
-			return &research.RefusedError{Reason: fmt.Sprintf("bubblewrap is not usable: %v", err)}
+		if err := isolate.HostSupported(); err != nil {
+			return &research.RefusedError{Reason: fmt.Sprintf("bubblewrap is not usable: %v; to run unsandboxed: spore research set %s isolation none, and set %s=1", err, cfg.Name, evalharness.AllowUnsandboxedEnv)}
 		}
 	}
 	d, err := c.engineDeps(cfg)

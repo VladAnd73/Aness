@@ -62,7 +62,7 @@ func TestAcceptanceRole1NewRoleCampaign(t *testing.T) {
 	store, goal := roleResearchEnv(t)
 	proj := copyFixtureProject(t)
 	target := filepath.Join(proj, "bootstrap", "roles", "qa-analyst.md")
-	code, out, errOut := runResearchCLI("new", "c", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal)
+	code, out, errOut := runResearchCLI("new", "c", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal, "--isolation", "none")
 	if code != 0 {
 		t.Fatalf("new: exit %d\n%s%s", code, out, errOut)
 	}
@@ -86,7 +86,7 @@ func TestAcceptanceRole1NewRoleCampaign(t *testing.T) {
 
 	notes := filepath.Join(proj, "notes.txt")
 	os.WriteFile(notes, []byte("x\n"), 0o600)
-	code, _, errOut = runResearchCLI("new", "d", "--target", notes, "--kind", "role", "--step", "intake", "--goal", goal)
+	code, _, errOut = runResearchCLI("new", "d", "--target", notes, "--kind", "role", "--step", "intake", "--goal", goal, "--isolation", "none")
 	if code == 0 || !strings.Contains(errOut, ".md") {
 		t.Errorf("a non-markdown role target: exit %d, stderr %q; want a refusal naming .md", code, errOut)
 	}
@@ -114,7 +114,7 @@ func TestAcceptanceRole13JudgeDraftRoleBrief(t *testing.T) {
 	_, goal := roleResearchEnv(t)
 	proj := copyFixtureProject(t)
 	target := filepath.Join(proj, "bootstrap", "roles", "qa-analyst.md")
-	if code, out, errOut := runResearchCLI("new", "c", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal); code != 0 {
+	if code, out, errOut := runResearchCLI("new", "c", "--target", target, "--kind", "role", "--step", "intake", "--goal", goal, "--isolation", "none"); code != 0 {
 		t.Fatalf("new: exit %d\n%s%s", code, out, errOut)
 	}
 	t.Chdir(t.TempDir())

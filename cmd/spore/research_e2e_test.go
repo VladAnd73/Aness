@@ -107,7 +107,7 @@ func TestAcceptance10EndToEndNight(t *testing.T) {
 		return out.String()
 	}
 
-	run("new", "e2e", "--target", liveTarget, "--goal", goal, "--objective", "maximize-score")
+	run("new", "e2e", "--target", liveTarget, "--goal", goal, "--objective", "maximize-score", "--isolation", "none")
 	setCampaignKeys(t, filepath.Join(campaignDir, "campaign.toml"), map[string]string{
 		"max_tries_per_night": "3",
 		"isolation":           `"none"`,
