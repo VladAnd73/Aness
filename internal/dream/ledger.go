@@ -57,6 +57,10 @@ func LoadLedger(project string) (*Ledger, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadLedgerAt(p)
+}
+
+func loadLedgerAt(p string) (*Ledger, error) {
 	l := &Ledger{Entries: map[string]*Entry{}, path: p}
 	b, err := os.ReadFile(p)
 	if err != nil {

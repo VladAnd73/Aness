@@ -49,8 +49,10 @@ Commands:
              transcripts into proposed harness changes
              (digest/gate/reviewer-brief/write/runs/revert/rewind).
   eval       Run a real, sandboxed Claude Code agent against a named
-             eval scenario and grade the result (list/run).
+             eval scenario and grade the result (list/run/judge).
   gh         Act on GitHub as the project's GitHub App (config, token, exec).
+  research   Overnight skill improvement: edit, judge, keep only
+             confirmed gains (new/judge/on/night/stop/accept...).
 `
 
 const lintUsage = `spore lint - run portable lints over the working tree
@@ -184,6 +186,8 @@ func main() {
 		os.Exit(runEval(args))
 	case "gh":
 		os.Exit(runGH(args))
+	case "research":
+		os.Exit(runResearch(args))
 	default:
 		fmt.Fprintf(os.Stderr, "spore: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

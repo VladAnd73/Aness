@@ -119,7 +119,7 @@ func TestAcceptance1EndpointRoom(t *testing.T) {
 	if rec.Source != "endpoint" {
 		t.Errorf("source: got %q want endpoint", rec.Source)
 	}
-	if code, line := roomVerdict(now); code != 0 {
+	if code, line := RoomCode(now); code != 0 {
 		t.Errorf("room code: got %d (%q) want 0", code, line)
 	}
 }
@@ -135,7 +135,7 @@ func TestAcceptance2EndpointNoRoom(t *testing.T) {
 	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictNoRoom {
 		t.Errorf("verdict: got %q want no-room", rec.Verdict)
 	}
-	if code, line := roomVerdict(now); code != 1 {
+	if code, line := RoomCode(now); code != 1 {
 		t.Errorf("room code: got %d (%q) want 1", code, line)
 	}
 }
@@ -170,7 +170,7 @@ func TestAcceptance4BothFail(t *testing.T) {
 	if rec := readDailyJSON(t, stateDir); rec.Verdict != VerdictUnknown {
 		t.Errorf("verdict: got %q want unknown", rec.Verdict)
 	}
-	if code, line := roomVerdict(now); code != 2 {
+	if code, line := RoomCode(now); code != 2 {
 		t.Errorf("room code: got %d (%q) want 2", code, line)
 	}
 }
@@ -182,7 +182,7 @@ func TestAcceptance5Stale(t *testing.T) {
 		TakenAt: now.Add(-27 * time.Hour), Source: "endpoint", Verdict: VerdictRoom,
 		WeeklyUsed: 10, WeeklyResetsAt: acceptResetsAt, Pace: 40, Headroom: 30, Margin: 10,
 	})
-	if code, line := roomVerdict(now); code != 2 {
+	if code, line := RoomCode(now); code != 2 {
 		t.Errorf("room code: got %d (%q) want 2", code, line)
 	}
 }
@@ -194,7 +194,7 @@ func TestAcceptance5bResetPassed(t *testing.T) {
 		TakenAt: now.Add(-12 * time.Hour), Source: "endpoint", Verdict: VerdictRoom,
 		WeeklyUsed: 50, WeeklyResetsAt: acceptResetsAt, Pace: 93, Headroom: 43, Margin: 10,
 	})
-	if code, line := roomVerdict(now); code != 1 {
+	if code, line := RoomCode(now); code != 1 {
 		t.Errorf("room code: got %d (%q) want 1", code, line)
 	}
 }
@@ -326,7 +326,7 @@ func TestAcceptance8ThreeDaysEndToEnd(t *testing.T) {
 		if _, err := runDaily(context.Background(), d.now, []ReadingSource{endpointReading}); err != nil {
 			t.Fatalf("day %d runDaily: %v", i+1, err)
 		}
-		if code, line := roomVerdict(d.now.Add(time.Hour)); code != d.code {
+		if code, line := RoomCode(d.now.Add(time.Hour)); code != d.code {
 			t.Errorf("day %d room code: got %d (%q) want %d", i+1, code, line, d.code)
 		}
 	}
