@@ -317,18 +317,54 @@ func TestAcceptFailedWriteLeavesNoBackup(t *testing.T) {
 	}
 }
 
-// A gitignored file can never be on the branch, and removing it would
-// trip the live-folder check, so it must not block accept.
-func TestAcceptBranchAllowsIgnoredFiles(t *testing.T) {
-	_, _, _, store, _ := sporeRepoWinnerWith(t, func(top, live string) {
+// A gitignored file in the skill folder would be scored with the
+// candidate but can never be on the branch, so the landed folder would
+// differ from the scored one: refuse it before any quota is spent.
+func TestCreateRefusesIgnoredFileInSporeCheckout(t *testing.T) {
+	root := t.TempDir()
+	top := filepath.Join(root, "spore")
+	live := filepath.Join(top, "skills", "demo")
+	os.MkdirAll(filepath.Join(live, "__pycache__"), 0o700)
+	gitT(t, root, "init", "-q", "-b", "main", top)
+	gitT(t, top, "config", "user.email", "t@localhost")
+	gitT(t, top, "config", "user.name", "t")
+	os.WriteFile(filepath.Join(top, "go.mod"), []byte("module "+sporeModule+"\n\ngo 1.25\n"), 0o600)
+	os.WriteFile(filepath.Join(top, ".gitignore"), []byte("__pycache__/\n"), 0o600)
+	target := filepath.Join(live, "SKILL.md")
+	os.WriteFile(target, []byte("skill\n"), 0o600)
+	gitT(t, top, "add", "-A")
+	gitT(t, top, "commit", "-qm", "init")
+	os.WriteFile(filepath.Join(live, "__pycache__", "x.pyc"), []byte("c"), 0o600)
+	goal := filepath.Join(root, "goal.md")
+	os.WriteFile(goal, []byte("g\n"), 0o600)
+	store := Store{Root: filepath.Join(root, "state")}
+	_, err := store.Create("demo", target, goal, "maximize-score")
+	if err == nil || !strings.Contains(err.Error(), "__pycache__/x.pyc") {
+		t.Fatalf("Create with an ignored file = %v; want a refusal naming it", err)
+	}
+	if _, err := os.Lstat(store.Dir("demo")); err == nil {
+		t.Errorf("refused Create left a campaign behind")
+	}
+	os.RemoveAll(filepath.Join(live, "__pycache__"))
+	if _, err := store.Create("demo", target, goal, "maximize-score"); err != nil {
+		t.Errorf("Create after removing the ignored file: %v", err)
+	}
+}
+
+// One added after Create was never scored either.
+func TestAcceptBranchRefusesIgnoredFileAddedLater(t *testing.T) {
+	top, _, _, store, f := sporeRepoWinnerWith(t, func(top, live string) {
 		os.WriteFile(filepath.Join(top, ".gitignore"), []byte("__pycache__/\n"), 0o600)
 		gitT(t, top, "add", ".gitignore")
 		gitT(t, top, "commit", "-qm", "ignore")
-		os.MkdirAll(filepath.Join(live, "__pycache__"), 0o700)
-		os.WriteFile(filepath.Join(live, "__pycache__", "x.pyc"), []byte("c"), 0o600)
 	})
-	if _, err := Accept(store, "demo", false); err != nil {
-		t.Errorf("Accept with an ignored file in the skill folder: %v", err)
+	os.MkdirAll(filepath.Join(f.liveDir, "__pycache__"), 0o700)
+	os.WriteFile(filepath.Join(f.liveDir, "__pycache__", "x.pyc"), []byte("c"), 0o600)
+	if _, err := Accept(store, "demo", false); err == nil {
+		t.Errorf("Accept with an unscored ignored file: want a refusal")
+	}
+	if out := gitT(t, top, "branch", "--list", "research/demo"); out != "" {
+		t.Errorf("refused accept left branch %q", out)
 	}
 }
 

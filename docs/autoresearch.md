@@ -76,8 +76,10 @@ spore research accept demo
   repo it never touches your checkout: it commits the winner on a new
   branch `research/<campaign>` through a temporary worktree. To turn it
   into a PR. The live skill folder must match `HEAD` (no uncommitted or
-  untracked files; ignored files are fine), since the branch is cut
-  from `HEAD`. A branch
+  untracked files), since the branch is cut from `HEAD`. For the same
+  reason `new` refuses a skill folder in the spore repo that holds a
+  gitignored file: the judge would score with it, but the branch never
+  holds it. Remove it, or commit it with `git add -f`. A branch
   `research/<campaign>` that already holds this winner (a run that died
   after committing) is reused; any other branch of that name is refused.
   To turn it into a PR:

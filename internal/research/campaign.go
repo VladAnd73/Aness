@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -108,6 +109,11 @@ func (s Store) Create(name, target, goalFile, objective string) (_ Config, err e
 	if err != nil {
 		return Config{}, fmt.Errorf("research: goal: %w", err)
 	}
+	if ignored, err := firstIgnored(filepath.Dir(target)); err != nil {
+		return Config{}, err
+	} else if ignored != "" {
+		return Config{}, fmt.Errorf("research: %s in the skill folder is gitignored: the judge would score with it, but the research branch accept cuts from HEAD never holds it; remove it, or commit it with `git add -f`", ignored)
+	}
 	dir := s.Dir(name)
 	if _, err := os.Lstat(dir); err == nil {
 		return Config{}, fmt.Errorf("research: campaign %s already exists at %s", name, dir)
@@ -153,6 +159,20 @@ func (s Store) Create(name, target, goalFile, objective string) (_ Config, err e
 		StartBytes: int(fi.Size()), BestBytes: int(fi.Size()), StartCommit: start, LiveFolderHash: liveHash,
 	}
 	return cfg, s.Save(cfg)
+}
+
+// firstIgnored names the first gitignored file in dir when dir is in
+// the spore checkout, where accept lands the winner on a branch.
+func firstIgnored(dir string) (string, error) {
+	if sporeCheckout(dir) == "" {
+		return "", nil
+	}
+	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ".").Output()
+	if err != nil {
+		return "", fmt.Errorf("research: git ls-files: %w", err)
+	}
+	first, _, _ := strings.Cut(string(out), "\x00")
+	return first, nil
 }
 
 // copyFolder copies regular files and directories, keeping only the

@@ -234,7 +234,8 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 	// The branch is cut from HEAD, so the live folder must match HEAD or
 	// the branch would hold a folder the judge never scored.
 	folder := filepath.Dir(rel)
-	// Ignored files are left out: they can never be on the branch.
+	// Ignored files are left out: Create refused any, and one added since
+	// already failed firstLiveChange.
 	status, err := exec.Command("git", "-C", top, "status", "--porcelain", "--untracked-files=all", "--", folder).Output()
 	if err != nil {
 		return AcceptResult{}, fmt.Errorf("research: accept: git status: %w", err)
