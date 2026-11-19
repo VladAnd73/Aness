@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -138,9 +139,17 @@ func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 			return "interrupted", nil
 		}
 		if err != nil {
+			// The same two-strike rule as a try's judge.
+			if errors.Is(err, ErrJudgeFailed) {
+				if n.judgeFailures++; n.judgeFailures < 2 {
+					i--
+					continue
+				}
+			}
 			os.WriteFile(filepath.Join(n.dir(), "baseline-crash.txt"), []byte(err.Error()+"\n"), 0o600)
 			return "baseline-crash", nil
 		}
+		n.judgeFailures = 0
 		cost += res.CostUSD
 		total += res.Score
 	}

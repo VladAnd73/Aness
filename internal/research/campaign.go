@@ -303,8 +303,8 @@ func (s Store) SetOn(name string, on bool) error {
 	defer h.release()
 	cfg := h.cfg
 	switch {
-	case on && cfg.holdoutPending():
-		return fmt.Errorf("research: campaign %s switched off (%s) with its holdout not run; run `spore research stop %s` to run it and end the campaign", name, cfg.StopReason, name)
+	case on && cfg.Status == StatusOff && cfg.hasKeptChange() && cfg.limitReached() != "":
+		return fmt.Errorf("research: campaign %s is off with a kept change and %s reached; run `spore research stop %s` to run the holdout and end it, or raise %s with `spore research set`", name, cfg.limitReached(), name, cfg.limitReached())
 	case on && cfg.Status == StatusReady, on && cfg.Status == StatusOff && cfg.Nights < cfg.MaxNights:
 		cfg.Status, cfg.StopReason = StatusOn, ""
 		if cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain {

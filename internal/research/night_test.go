@@ -606,3 +606,53 @@ func TestOffOnQuotaCeilingTryIsNotANoGainNight(t *testing.T) {
 		t.Errorf("stop %q, no-gain %d, status %s %q; want quota-ceiling, 0, off manual", sum.StopReason, cfg.NoGainNights, cfg.Status, cfg.StopReason)
 	}
 }
+
+// Only judge failures in a row count; a try lost to the editor breaks
+// the run.
+func TestEditorCrashBreaksAJudgeFailureRun(t *testing.T) {
+	f := newCampaign(t, func(c *Config) {
+		c.MaxTriesPerNight = 3
+		c.BestCommit, c.StartScore, c.BestScore, c.Nights = c.StartCommit, 50, 50, 1
+	})
+	script := filepath.Join(t.TempDir(), "judge")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o700)
+	broken := func(string) error { return errors.New("editor broke") }
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), broken, appendBytes("three\n")}}
+	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, CommandJudge{Argv: []string{script}}))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if sum.StopReason != "max-tries" || ed.calls != 3 {
+		t.Errorf("stop %q after %d tries; want max-tries after 3", sum.StopReason, ed.calls)
+	}
+}
+
+// The baseline follows the same two-strike rule as a try.
+func TestOneBaselineJudgeFailureIsRetried(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 0 })
+	dir := t.TempDir()
+	script := filepath.Join(dir, "judge")
+	os.WriteFile(script, []byte("#!/bin/sh\nm="+filepath.Join(dir, "failed-once")+"\n[ -e $m ] || { touch $m; exit 1; }\n"+
+		"while [ $# -gt 0 ]; do [ \"$1\" = --out ] && out=$2; shift; done\necho '{\"score\":60,\"runs\":3}' > \"$out\"\n"), 0o700)
+	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(&fakeEditor{}, CommandJudge{Argv: []string{script}}))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if cfg := f.load(t); sum.StopReason == "baseline-crash" || cfg.BestCommit != cfg.StartCommit || cfg.StartScore != 60 {
+		t.Errorf("stop %q, best %q, start score %v; want the baseline recorded after one retry", sum.StopReason, cfg.BestCommit, cfg.StartScore)
+	}
+}
+
+// Two in a row still end the baseline night.
+func TestTwoBaselineJudgeFailuresEndTheNight(t *testing.T) {
+	f := newCampaign(t, nil)
+	script := filepath.Join(t.TempDir(), "judge")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o700)
+	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(&fakeEditor{}, CommandJudge{Argv: []string{script}}))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if sum.StopReason != "baseline-crash" {
+		t.Errorf("stop %q, want baseline-crash", sum.StopReason)
+	}
+}

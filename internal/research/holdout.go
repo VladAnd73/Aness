@@ -21,10 +21,6 @@ func Stop(ctx context.Context, s Store, name, reason string, d Deps) error {
 		}
 		return fmt.Errorf("research: campaign %s is %s; only a ready, on or off campaign can be stopped", name, cfg.Status)
 	}})
-	var busy *BusyError
-	if errors.As(err, &busy) {
-		return &RefusedError{Reason: busy.Reason()}
-	}
 	if err != nil {
 		return err
 	}
@@ -37,11 +33,16 @@ func (cfg Config) hasKeptChange() bool {
 	return cfg.BestCommit != "" && cfg.BestCommit != cfg.StartCommit
 }
 
-// holdoutPending is the engine's own switch-off of a campaign with a
-// kept change whose stop never finished: the night was interrupted, or
-// the holdout failed. Only stop may end it.
-func (cfg Config) holdoutPending() bool {
-	return cfg.Status == StatusOff && cfg.hasKeptChange() && (cfg.StopReason == "no-gain" || cfg.StopReason == "max-nights")
+// limitReached names the setting whose limit has run out, or "". An
+// off campaign with a kept change at a limit can only end by stop.
+func (cfg Config) limitReached() string {
+	switch {
+	case cfg.Nights >= cfg.MaxNights:
+		return "max_nights"
+	case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
+		return "stop_after_nights_without_gain"
+	}
+	return ""
 }
 
 // stopCampaign runs with the night locks held, so best and counters
@@ -52,7 +53,7 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 	var h holdoutResult
 	if cfg.hasKeptChange() {
 		var err error
-		if h, err = spentHoldout(ctx, s, cfg, d.Judge); err != nil {
+		if h, err = runHoldout(ctx, s, cfg, d.Judge); err != nil {
 			return err
 		}
 	}
@@ -98,28 +99,11 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 
 type holdoutResult struct{ original, winner, cost float64 }
 
-// heldoutFile records a finished holdout, so a stop that failed after it
-// reuses the result instead of paying for it again.
-type heldoutFile struct {
-	Start, Best               string
-	Original, Winner, CostUSD float64
-}
-
-func spentHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResult, error) {
-	path := filepath.Join(s.Dir(cfg.Name), "holdout", "result.json")
-	var f heldoutFile
-	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &f) == nil && f.Start == cfg.StartCommit && f.Best == cfg.BestCommit {
-		return holdoutResult{original: f.Original, winner: f.Winner, cost: f.CostUSD}, nil
-	}
-	h, err := runHoldout(ctx, s, cfg, j)
-	if err != nil {
-		return h, err
-	}
-	b, err := json.Marshal(heldoutFile{Start: cfg.StartCommit, Best: cfg.BestCommit, Original: h.original, Winner: h.winner, CostUSD: h.cost})
-	if err != nil {
-		return h, err
-	}
-	return h, os.WriteFile(path, b, 0o600)
+// heldoutSide is one holdout side already paid for, kept in
+// holdout/result.json so a stop that fails later reuses it.
+type heldoutSide struct {
+	Commit         string
+	Score, CostUSD float64
 }
 
 func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResult, error) {
@@ -129,10 +113,20 @@ func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResul
 	var h holdoutResult
 	r := s.repo(cfg.Name)
 	dir := filepath.Join(s.Dir(cfg.Name), "holdout")
+	cache := filepath.Join(dir, "result.json")
+	done := map[string]heldoutSide{}
+	if b, err := os.ReadFile(cache); err == nil {
+		json.Unmarshal(b, &done)
+	}
 	for _, side := range []struct {
 		name, commit string
 		score        *float64
 	}{{"original", cfg.StartCommit, &h.original}, {"winner", cfg.BestCommit, &h.winner}} {
+		if c, ok := done[side.name]; ok && c.Commit == side.commit {
+			*side.score = c.Score
+			h.cost += c.CostUSD
+			continue
+		}
 		body, err := r.show(side.commit, cfg.targetRel())
 		if err != nil {
 			return h, err
@@ -144,16 +138,22 @@ func runHoldout(ctx context.Context, s Store, cfg Config, j Judge) (holdoutResul
 		if err := os.WriteFile(cand, body, 0o600); err != nil {
 			return h, err
 		}
-		var total float64
+		var total, cost float64
 		for i := 1; i <= 2; i++ {
 			res, err := j.Run(ctx, cand, "holdout", filepath.Join(dir, fmt.Sprintf("%s-%d.json", side.name, i)))
 			if err != nil {
 				return h, fmt.Errorf("research: holdout on the %s: %w", side.name, err)
 			}
-			h.cost += res.CostUSD
+			cost += res.CostUSD
 			total += res.Score
 		}
 		*side.score = total / 2
+		h.cost += cost
+		// The cache only saves money, so a failed write is no failure.
+		done[side.name] = heldoutSide{Commit: side.commit, Score: *side.score, CostUSD: cost}
+		if b, err := json.Marshal(done); err == nil {
+			os.WriteFile(cache, b, 0o600)
+		}
 	}
 	return h, nil
 }

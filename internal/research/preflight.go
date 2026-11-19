@@ -2,7 +2,6 @@ package research
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,10 +22,6 @@ func preflight(ctx context.Context, s Store, name string, d Deps) (*held, float6
 		}
 		return nil
 	}})
-	var busy *BusyError
-	if errors.As(err, &busy) {
-		return refuse("%s", busy.Reason())
-	}
 	if err != nil {
 		return nil, 0, err
 	}

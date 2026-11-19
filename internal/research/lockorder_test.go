@@ -269,3 +269,111 @@ func TestStopRetryReusesTheSpentHoldout(t *testing.T) {
 		t.Errorf("holdout calls %d, status %s, verdict %q; want 4 calls in all, stopped, pass", j.holdoutCalls, cfg.Status, cfg.HoldoutVerdict)
 	}
 }
+
+// The cache only saves money; failing to write it must not fail a stop
+// whose holdout was already paid for.
+func TestStopSucceedsWhenHoldoutCacheCannotBeWritten(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	f.store.Save(cfg)
+	if err := os.MkdirAll(filepath.Join(f.store.Dir(f.name), "holdout", "result.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	j := &fakeJudge{holdout: func([]byte) float64 { return 70 }}
+	if err := Stop(context.Background(), f.store, f.name, "operator", f.deps(&fakeEditor{}, j)); err != nil {
+		t.Errorf("Stop with an unwritable holdout cache: %v", err)
+	}
+	if cfg := f.load(t); cfg.Status != StatusStopped {
+		t.Errorf("status %s, want stopped", cfg.Status)
+	}
+}
+
+// sideJudge fails the first holdout run of the winner and counts runs
+// per side.
+type sideJudge struct {
+	winner        []byte
+	failed        bool
+	orig, winRuns int
+}
+
+func (j *sideJudge) Run(ctx context.Context, candidate, set, outPath string) (JudgeResult, error) {
+	b, err := os.ReadFile(candidate)
+	if err != nil {
+		return JudgeResult{}, err
+	}
+	if !bytes.Equal(b, j.winner) {
+		j.orig++
+		return JudgeResult{Score: 60, Runs: 3}, nil
+	}
+	if !j.failed {
+		j.failed = true
+		return JudgeResult{}, errors.New("winner judge broke")
+	}
+	j.winRuns++
+	return JudgeResult{Score: 70, Runs: 3}, nil
+}
+
+// A side already paid for is not paid again when the other side failed.
+func TestStopRetryReusesAFinishedHoldoutSide(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	f.store.Save(cfg)
+	j := &sideJudge{winner: []byte("better\n")}
+	d := f.deps(&fakeEditor{}, j)
+	if err := Stop(context.Background(), f.store, f.name, "operator", d); err == nil {
+		t.Fatal("Stop with a failing winner side: want an error")
+	}
+	if err := Stop(context.Background(), f.store, f.name, "operator", d); err != nil {
+		t.Fatalf("retried Stop: %v", err)
+	}
+	if cfg := f.load(t); j.orig != 2 || j.winRuns != 2 || cfg.HoldoutVerdict != "pass" {
+		t.Errorf("original runs %d, winner runs %d, verdict %q; want 2, 2, pass", j.orig, j.winRuns, cfg.HoldoutVerdict)
+	}
+}
+
+// Every quota spender refuses the same way when its locks are held.
+func TestHostLockBusyIsARefusal(t *testing.T) {
+	f := newCampaign(t, nil)
+	unlock, _, err := Lock(f.lockPath(), "night of other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	_, err = f.store.lockLoad(f.name, lockOp{what: "night", scope: hostNight, host: f.lockPath()})
+	var refused *RefusedError
+	if !errors.As(err, &refused) || !strings.Contains(refused.Reason, "night of other") {
+		t.Errorf("lockLoad with the host lock held = %v; want a RefusedError naming the holder", err)
+	}
+}
+
+// Raising the limit that switched the campaign off lifts the refusal.
+func TestOnAfterRaisingTheLimitThatSwitchedOff(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	cfg.Status, cfg.StopReason, cfg.Nights, cfg.MaxNights = StatusOff, "max-nights", 1, 1
+	f.store.Save(cfg)
+	if err := f.store.SetOn(f.name, true); err == nil {
+		t.Fatal("on at max-nights with the holdout pending: want a refusal")
+	}
+	if err := f.store.Set(f.name, "max_nights", "3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.SetOn(f.name, true); err != nil {
+		t.Errorf("on after raising max_nights: %v", err)
+	}
+}
+
+// A manual off whose nights are used up can only end by stop; say so.
+func TestOnWithNightsUsedUpPointsToStop(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	cfg.Status, cfg.StopReason, cfg.Nights, cfg.MaxNights = StatusOff, "manual", 2, 2
+	f.store.Save(cfg)
+	if err := f.store.SetOn(f.name, true); err == nil || !strings.Contains(err.Error(), "spore research stop "+f.name) {
+		t.Errorf("on with no nights left = %v; want advice naming spore research stop %s", err, f.name)
+	}
+}

@@ -12,6 +12,12 @@ import (
 // interrupted when ctx ended mid-try; the caller's cleanup then resets
 // the repo and no row is written.
 func (n *night) try(ctx context.Context) (interrupted bool, err error) {
+	judgeFailed := false
+	defer func() {
+		if !judgeFailed {
+			n.judgeFailures = 0
+		}
+	}()
 	n.sum.Tries++
 	k := n.sum.Tries
 	tdir := filepath.Join(n.dir(), fmt.Sprintf("try-%d", k))
@@ -90,13 +96,13 @@ func (n *night) try(ctx context.Context) (interrupted bool, err error) {
 			// One outright failure may be an OOM kill or a blip; two in a
 			// row is a judge that will fail every try the same way.
 			if errors.Is(err, ErrJudgeFailed) {
+				judgeFailed = true
 				if n.judgeFailures++; n.judgeFailures >= 2 {
 					n.sum.StopReason = "judge-failed"
 				}
 			}
 			return crash("judge failed", nil)
 		}
-		n.judgeFailures = 0
 		n.cfg.JudgeCostUSD += jr.CostUSD
 		total += jr.Score
 		row.Score = roundScore(total / float64(i))

@@ -131,7 +131,9 @@ night takes effect after the current try and stays off), the try cap,
 the hour cap. A judge that fails outright, before scoring anything (a
 missing grader, a sandbox that will not start, credentials too short),
 logs a `crash` try; two such tries in a row end the night with
-`judge-failed`. A judge whose runs merely crashed is a `crash` try. Every night counts toward `max_nights`,
+`judge-failed` (a try that fails before the judge breaks the run). The
+baseline retries one such failure; two in a row end its night with
+`baseline-crash`. A judge whose runs merely crashed is a `crash` try. Every night counts toward `max_nights`,
 including one whose baseline crashed (`baseline-crash`; the next night
 retries the baseline). A night stopped by `interrupted`,
 `quota-read-failed`, `switched-off`, `baseline-crash` or `judge-failed`,
@@ -143,9 +145,11 @@ night that reaches a limit with a kept change cannot run the holdout:
 it leaves the campaign `off`, and the report and the coordinator notice
 say to run `spore research stop <campaign>`, which runs the holdout and
 ends it. Until then `on` is refused with the same advice, as it is after
-a holdout that failed. A finished holdout is kept in
-`holdout/result.json`, so a `stop` retried after a later failure does
-not run and pay for it again.
+a holdout that failed and for any `off` campaign with a kept change
+whose `max_nights` or `stop_after_nights_without_gain` is reached;
+raising that setting with `set` lets it go back `on`. Each holdout side
+(original, winner) is kept in `holdout/result.json` once paid for, so a
+`stop` retried after a later failure does not run and pay for it again.
 
 Nights spend the one shared weekly quota, so only one night or `stop`
 runs at a time on the host (`$XDG_RUNTIME_DIR/spore-research.lock`); a

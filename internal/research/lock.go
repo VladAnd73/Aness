@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +72,8 @@ type lockOp struct {
 	check func(Config) error
 }
 
-// BusyError is a night lock held by another writer.
+// BusyError is a night lock held by another writer. For an op that
+// spends quota, lockLoad returns it as a RefusedError instead.
 type BusyError struct{ Campaign, Holder string }
 
 func (e *BusyError) Reason() string { return "the " + e.Holder + " holds the lock" }
@@ -111,23 +113,33 @@ func (h *held) release() {
 // always taken last among the blocking ones, so the order cannot
 // deadlock.
 func (s Store) lockLoad(name string, op lockOp) (_ *held, err error) {
-	if _, err := os.Stat(s.configPath(name)); err != nil {
-		_, err = s.Load(name)
-		return nil, err
-	}
 	h := &held{}
 	defer func() {
 		if err != nil {
 			h.release()
 		}
 	}()
+	// A lock file cannot be created in a campaign folder that does not
+	// exist; say what is missing instead.
+	notFound := func(err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			if _, lerr := s.Load(name); lerr != nil {
+				return lerr
+			}
+		}
+		return err
+	}
 	take := func(path string) error {
 		unlock, holder, err := Lock(path, op.what+" of "+name)
 		if err != nil {
-			if holder != "" {
-				return &BusyError{Campaign: name, Holder: holder}
+			if holder == "" {
+				return notFound(err)
 			}
-			return err
+			busy := &BusyError{Campaign: name, Holder: holder}
+			if op.scope == hostNight {
+				return &RefusedError{Reason: busy.Reason()}
+			}
+			return busy
 		}
 		h.unlockNight = append(h.unlockNight, unlock)
 		return nil
@@ -139,7 +151,7 @@ func (s Store) lockLoad(name string, op lockOp) (_ *held, err error) {
 		}
 	}
 	if h.unlockConfig, err = s.lockConfig(name); err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
 	if h.cfg, err = s.Load(name); err != nil {
 		return nil, err
