@@ -158,6 +158,9 @@ func sporeCheckout(dir string) string {
 	return top
 }
 
+// writeTargetAtomic is a seam so a test can fail the live write.
+var writeTargetAtomic = statefile.WriteFileAtomic
+
 func (cfg Config) backupPath() string { return cfg.Target + ".research-" + cfg.Name + ".bak" }
 
 // acceptInPlace creates the backup with O_EXCL, so a backup that
@@ -183,10 +186,16 @@ func acceptInPlace(cfg Config, winner []byte) (AcceptResult, error) {
 	if err := f.Close(); err != nil {
 		return AcceptResult{}, fmt.Errorf("research: backup: %w", err)
 	}
-	if err := statefile.WriteFileAtomic(cfg.Target, ".research-accept-*", winner); err != nil {
+	// A backup left by a failed write would block every retry; the live
+	// file is the original again once the backup goes.
+	if err := writeTargetAtomic(cfg.Target, ".research-accept-*", winner); err != nil {
+		os.Remove(backup)
 		return AcceptResult{}, err
 	}
 	if err := os.Chmod(cfg.Target, fi.Mode().Perm()); err != nil {
+		if writeTargetAtomic(cfg.Target, ".research-accept-*", orig) == nil {
+			os.Remove(backup)
+		}
 		return AcceptResult{}, err
 	}
 	return AcceptResult{Written: cfg.Target, Backup: backup}, nil
@@ -204,6 +213,26 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 			return fmt.Errorf("research: accept: git %s: %v: %s", args[0], err, strings.TrimSpace(string(out)))
 		}
 		return nil
+	}
+	// The branch is cut from HEAD, so the live folder must match HEAD or
+	// the branch would hold a folder the judge never scored.
+	folder := filepath.Dir(rel)
+	status, err := exec.Command("git", "-C", top, "status", "--porcelain", "--untracked-files=all", "--ignored", "--", folder).Output()
+	if err != nil {
+		return AcceptResult{}, fmt.Errorf("research: accept: git status: %w", err)
+	}
+	if first, _, _ := strings.Cut(strings.TrimSpace(string(status)), "\n"); first != "" {
+		return AcceptResult{}, fmt.Errorf("research: accept: the live skill folder differs from HEAD (%s); commit or remove it first", first)
+	}
+	res := AcceptResult{Written: branch + ":" + filepath.ToSlash(rel), Branch: branch}
+	// A run that committed but died before saving the status left the
+	// branch; finish instead of failing on it.
+	if exec.Command("git", "-C", top, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil {
+		have, err := exec.Command("git", "-C", top, "show", branch+":"+filepath.ToSlash(rel)).Output()
+		if err != nil || !bytes.Equal(have, winner) {
+			return AcceptResult{}, fmt.Errorf("research: accept: branch %s already exists without this winner; delete or rename it first", branch)
+		}
+		return res, nil
 	}
 	wt := filepath.Join(s.Dir(cfg.Name), "accept-worktree")
 	os.RemoveAll(wt)
@@ -231,7 +260,7 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 		return AcceptResult{}, err
 	}
 	committed = true
-	return AcceptResult{Written: branch + ":" + filepath.ToSlash(rel), Branch: branch}, nil
+	return res, nil
 }
 
 // pruneTries drops editor scratch folders and transcripts, keeping the

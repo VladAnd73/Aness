@@ -3,6 +3,7 @@ package research
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,6 +126,13 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // with a stopped campaign on its skill whose winner passed holdout.
 func sporeRepoWinner(t *testing.T) (top, target, headBefore string, store Store, f fixture) {
 	t.Helper()
+	return sporeRepoWinnerWith(t, nil)
+}
+
+// sporeRepoWinnerWith runs beforeCreate on the committed checkout just
+// before the campaign copies the live folder.
+func sporeRepoWinnerWith(t *testing.T, beforeCreate func(top, live string)) (top, target, headBefore string, store Store, f fixture) {
+	t.Helper()
 	root := t.TempDir()
 	top = filepath.Join(root, "spore")
 	live := filepath.Join(top, "skills", "demo")
@@ -139,6 +147,9 @@ func sporeRepoWinner(t *testing.T) (top, target, headBefore string, store Store,
 	gitT(t, top, "add", "-A")
 	gitT(t, top, "commit", "-qm", "init")
 	headBefore = gitT(t, top, "rev-parse", "HEAD")
+	if beforeCreate != nil {
+		beforeCreate(top, live)
+	}
 
 	store = Store{Root: filepath.Join(root, "state")}
 	goal := filepath.Join(root, "goal.md")
@@ -239,5 +250,69 @@ func TestAcceptBranchSurvivesStaleWorktree(t *testing.T) {
 	os.RemoveAll(wt)
 	if _, err := Accept(store, "demo", false); err != nil {
 		t.Errorf("Accept after a killed run left a registered worktree: %v", err)
+	}
+}
+
+// The branch is cut from HEAD, so a live folder that differs from HEAD
+// would land a folder the judge never scored.
+func TestAcceptBranchRefusesUncommittedLiveFolder(t *testing.T) {
+	top, _, _, store, _ := sporeRepoWinnerWith(t, func(top, live string) {
+		os.WriteFile(filepath.Join(live, "notes.md"), []byte("untracked\n"), 0o600)
+	})
+	_, err := Accept(store, "demo", false)
+	if err == nil || !strings.Contains(err.Error(), "notes.md") {
+		t.Errorf("Accept = %v, want a refusal naming the uncommitted notes.md", err)
+	}
+	if out, _ := exec.Command("git", "-C", top, "branch", "--list", "research/demo").Output(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("a refused accept left branch research/demo behind")
+	}
+}
+
+// A run that committed the branch but died before saving the status
+// must be finishable by running accept again.
+func TestAcceptBranchRetryAfterCommitFinishes(t *testing.T) {
+	top, _, _, store, f := sporeRepoWinner(t)
+	if _, err := Accept(store, "demo", false); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	branchHead := gitT(t, top, "rev-parse", "research/demo")
+	cfg, _ := store.Load("demo")
+	cfg.Status = StatusStopped
+	store.Save(cfg)
+	res, err := Accept(store, "demo", false)
+	if err != nil {
+		t.Fatalf("retry Accept: %v", err)
+	}
+	if res.Branch != "research/demo" || gitT(t, top, "rev-parse", "research/demo") != branchHead {
+		t.Errorf("retry res = %+v, branch moved from %s", res, branchHead)
+	}
+	if f.load(t).Status != StatusAccepted {
+		t.Errorf("status after retry = %s, want accepted", f.load(t).Status)
+	}
+}
+
+func TestAcceptBranchRefusesForeignBranch(t *testing.T) {
+	top, _, _, store, _ := sporeRepoWinner(t)
+	gitT(t, top, "branch", "research/demo")
+	if _, err := Accept(store, "demo", false); err == nil || !strings.Contains(err.Error(), "research/demo") {
+		t.Errorf("Accept over a branch without the winner = %v, want a refusal naming it", err)
+	}
+}
+
+func TestAcceptFailedWriteLeavesNoBackup(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
+	stoppedWinner(t, f)
+	orig := writeTargetAtomic
+	writeTargetAtomic = func(string, string, []byte) error { return errors.New("disk full") }
+	_, err := Accept(f.store, f.name, false)
+	writeTargetAtomic = orig
+	if err == nil {
+		t.Fatal("Accept succeeded through a failing write")
+	}
+	if _, err := os.Lstat(f.liveTarget + ".research-demo.bak"); err == nil {
+		t.Errorf("a failed write left the backup behind, blocking every retry")
+	}
+	if _, err := Accept(f.store, f.name, false); err != nil {
+		t.Errorf("retry after the write failure: %v", err)
 	}
 }
