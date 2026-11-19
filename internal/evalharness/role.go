@@ -3,7 +3,9 @@ package evalharness
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -197,12 +199,15 @@ func roleMaterial(snapshot, runWD, taskDir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		was, wasErr := os.ReadFile(filepath.Join(snapshot, rel))
+		same, inSnapshot, err := sameFile(filepath.Join(snapshot, rel), path, fi.Size())
+		if err != nil || same {
+			return err
+		}
 		e := entry{rel: filepath.ToSlash(rel), rank: 2}
 		switch {
 		case strings.HasPrefix(path, taskDir+string(filepath.Separator)):
 			e.rank = 0
-		case wasErr != nil:
+		case !inSnapshot:
 			e.rank = 1
 		}
 		if fi.Size() > maxMaterial {
@@ -213,9 +218,6 @@ func roleMaterial(snapshot, runWD, taskDir string) (string, error) {
 		now, err := os.ReadFile(path)
 		if err != nil {
 			return err
-		}
-		if wasErr == nil && bytes.Equal(was, now) {
-			return nil
 		}
 		e.body = string(now)
 		entries = append(entries, e)
@@ -235,4 +237,42 @@ func roleMaterial(snapshot, runWD, taskDir string) (string, error) {
 		b.WriteString(section)
 	}
 	return b.String(), nil
+}
+
+// sameFile compares the snapshot's copy with the run's file of size n,
+// a chunk at a time, so a large unchanged file is never held in memory.
+func sameFile(snapPath, runPath string, n int64) (same, inSnapshot bool, err error) {
+	sfi, err := os.Stat(snapPath)
+	if err != nil || !sfi.Mode().IsRegular() {
+		return false, false, nil
+	}
+	if sfi.Size() != n {
+		return false, true, nil
+	}
+	a, err := os.Open(snapPath)
+	if err != nil {
+		return false, true, err
+	}
+	defer a.Close()
+	b, err := os.Open(runPath)
+	if err != nil {
+		return false, true, err
+	}
+	defer b.Close()
+	bufA, bufB := make([]byte, 64<<10), make([]byte, 64<<10)
+	for {
+		na, errA := io.ReadFull(a, bufA)
+		nb, errB := io.ReadFull(b, bufB)
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false, true, nil
+		}
+		for _, e := range []error{errA, errB} {
+			if e != nil && !errors.Is(e, io.EOF) && !errors.Is(e, io.ErrUnexpectedEOF) {
+				return false, true, e
+			}
+		}
+		if errA != nil {
+			return true, true, nil
+		}
+	}
 }

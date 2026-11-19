@@ -251,14 +251,18 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 	}
 	defer h.release()
 	cfg := h.cfg
-	// A no-headroom campaign kept nothing; a harder judge starts it over
-	// from a fresh baseline.
-	retry := cfg.Status == StatusOff && cfg.StopReason == "no-headroom" && !cfg.hasKeptChange()
+	// A campaign whose baseline left no headroom kept nothing; a harder
+	// judge starts it over, limits included. Spend stays on the books.
+	retry := (cfg.Status == StatusOn || cfg.Status == StatusOff) && cfg.atMaxScore() && !cfg.hasKeptChange()
 	if cfg.Status != StatusDraft && cfg.Status != StatusReady && !retry {
-		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign, or one stopped as no-headroom", name, cfg.Status)
+		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign, or one left without headroom", name, cfg.Status)
 	}
 	if retry {
 		cfg.BestCommit, cfg.BestScore, cfg.StartScore, cfg.StopReason = "", 0, 0, ""
+		cfg.Nights, cfg.NoGainNights, cfg.HoldoutVerdict = 0, 0, ""
+		if err := appendReport(s, name, "## Judge re-approved\n\nThe baseline left no headroom; the next night scores a fresh baseline and the night counts restart.\n\n"); err != nil {
+			return cfg, err
+		}
 	}
 	want := ""
 	if cfg.isRole() {
@@ -349,6 +353,8 @@ func (s Store) SetOn(name string, on bool) error {
 	defer h.release()
 	cfg := h.cfg
 	switch {
+	case on && cfg.Status == StatusOff && cfg.hasKeptChange() && cfg.StopReason == "max-score":
+		return fmt.Errorf("research: campaign %s reached the top score and its holdout has not run; run `spore research stop %s` to run it and end the campaign", name, name)
 	case on && cfg.Status == StatusOff && cfg.hasKeptChange() && cfg.limitReached() != "":
 		return fmt.Errorf("research: campaign %s is off with a kept change and %s reached; run `spore research stop %s` to run the holdout and end it, or raise %s with `spore research set`", name, cfg.limitReached(), name, cfg.limitReached())
 	case on && cfg.Status == StatusReady, on && cfg.Status == StatusOff && cfg.Nights < cfg.MaxNights:

@@ -50,3 +50,37 @@ func TestRoleMaterialKeepsNewTestsUnderTheCap(t *testing.T) {
 		t.Errorf("material keeps the new spec %v, skips node_modules %v", strings.Contains(m, "NEW-SPEC-BODY"), !strings.Contains(m, "NODE-MODULES-BODY"))
 	}
 }
+
+// A json step with transitions wants a verdict the loop can route on;
+// any other value would stall the loop.
+func TestOutputValidWantsARoutableVerdict(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "round-1.json")
+	rs := &RoleStep{Step: "check", Role: "checker", Output: "check/round-{round}.json", Shape: "json",
+		Required: []string{"summary"}, Verdicts: []string{"pass", "fail"}}
+	for body, want := range map[string]bool{
+		`{"summary":"s","verdict":"pass"}`:  true,
+		`{"summary":"s","verdict":"maybe"}`: false,
+		`{"summary":"s"}`:                   false,
+	} {
+		os.WriteFile(out, []byte(body), 0o644)
+		if ok, err := outputValid(RunArtifacts{Role: rs, Output: out}); err != nil || ok != want {
+			t.Errorf("%s: ok %v err %v, want %v", body, ok, err, want)
+		}
+	}
+}
+
+// A large file the agent never touched is not the agent's output.
+func TestRoleMaterialSkipsUnchangedLargeFiles(t *testing.T) {
+	snap, run := t.TempDir(), t.TempDir()
+	big := strings.Repeat("y", maxMaterial+10)
+	for _, root := range []string{snap, run} {
+		os.WriteFile(filepath.Join(root, "package-lock.json"), []byte(big), 0o644)
+	}
+	m, err := roleMaterial(snap, run, filepath.Join(run, ".spore", "replay"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(m, "package-lock.json") {
+		t.Errorf("material lists the unchanged lock file:\n%.200s", m)
+	}
+}

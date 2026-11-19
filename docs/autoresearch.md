@@ -138,10 +138,13 @@ When the first night's baseline scores 100 on the main set under
 `maximize-score`, the night ends right after it with `no-headroom`,
 before any edit: it switches the campaign `off` and exits 1. Nothing can
 show a gain there. Draft harder scenarios and run `judge approve` again:
-it is allowed on such a campaign, sets it back to `ready`, and the next
-night scores a fresh baseline. A kept try that reaches 100 under
-`maximize-score` ends the night with `max-score` and ends the campaign
-like a limit does: the holdout runs and the coordinator is told.
+it is allowed on any on or off campaign whose baseline is 100 with
+nothing kept, sets it back to `ready`, restarts the night and no-gain
+counts (quota and cost stay on the books), and the next night scores a
+fresh baseline. A kept try that reaches 100 under `maximize-score` ends
+the night with `max-score` and ends the campaign like a limit does: the
+holdout runs and the coordinator is told. If that night was interrupted
+before the holdout, `on` is refused; run `spore research stop`.
 `shrink-holding-score` is not capped: it can still shorten a file at
 100.
 

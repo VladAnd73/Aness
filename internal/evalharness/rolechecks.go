@@ -24,11 +24,19 @@ func outputValid(a RunArtifacts) (bool, error) {
 		return false, err
 	}
 	sf := task.StepFiles{Step: a.Role.Step, Output: a.Role.Output, Shape: a.Role.Shape, Author: a.Role.Author, Role: a.Role.Role, Required: a.Role.Required}
-	_, err = task.ParseStepOutput(a.Output, b, sf, false)
+	verdict, err := task.ParseStepOutput(a.Output, b, sf, false)
 	if errors.Is(err, task.ErrInvalidRoleFile) {
 		return false, nil
 	}
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	// The parser leaves routing to the loop; a json verdict that no
+	// transition names would stall it.
+	if a.Role.Shape == "json" && len(a.Role.Verdicts) > 0 {
+		return slices.Contains(a.Role.Verdicts, verdict), nil
+	}
+	return true, nil
 }
 
 // fluffCap fails a plan holding more than 1.5 times the scenario count

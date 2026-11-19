@@ -119,3 +119,54 @@ func TestNightRefusesStepDrift(t *testing.T) {
 		t.Errorf("night = %v, want a refusal naming step.json", err)
 	}
 }
+
+// The retry keys on the campaign's state, not its stop reason: an on and
+// an off after the no-headroom night must not lock it out. It also
+// starts the night and no-gain counts over.
+func TestNoHeadroomRetrySurvivesOnOff(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxNights = 2 })
+	d := f.deps(&fakeEditor{}, &fakeJudge{scores: []float64{100}})
+	RunNight(context.Background(), f.store, f.name, d)
+	if err := f.store.SetOn(f.name, true); err != nil {
+		t.Fatalf("on: %v", err)
+	}
+	if err := f.store.SetOn(f.name, false); err != nil {
+		t.Fatalf("off: %v", err)
+	}
+	binary := f.load(t).JudgeArgv[0]
+	if _, err := f.store.ApproveJudge(f.name, "testdata/drafts", binary, []string{binary, "eval", "judge"}); err != nil {
+		t.Fatalf("ApproveJudge after on and off: %v", err)
+	}
+	if cfg := f.load(t); cfg.Status != StatusReady || cfg.Nights != 0 || cfg.NoGainNights != 0 {
+		t.Errorf("status %s nights %d no-gain %d, want ready with counts reset", cfg.Status, cfg.Nights, cfg.NoGainNights)
+	}
+}
+
+// A campaign switched off at max-score whose holdout never ran can only
+// end by stop; on would spend a night with no tries.
+func TestOnRefusesMaxScoreAwaitingHoldout(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit, cfg.BestScore, cfg.Status, cfg.StopReason = newBest(t, f, "winner\n"), 100, StatusOff, "max-score"
+	f.store.Save(cfg)
+	if err := f.store.SetOn(f.name, true); err == nil || !strings.Contains(err.Error(), "research stop") {
+		t.Errorf("on = %v, want a refusal naming spore research stop", err)
+	}
+}
+
+// A try that ties the best score but is longer is reset, not kept.
+func TestEqualScoreLongerTryIsReset(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 2 })
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("better\n"), appendBytes("longer\n")}}
+	j := &fakeJudge{scores: []float64{50, 50, 80, 80, 80}}
+	if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j)); err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	rows := f.resultRows(t)
+	if len(rows) != 3 || rows[1]["status"] != "kept" || rows[2]["status"] != "reset" {
+		t.Errorf("rows %v, want baseline, kept, reset", rows)
+	}
+	if cfg := f.load(t); cfg.BestBytes != 107 {
+		t.Errorf("best bytes %d, want the shorter kept try's 107", cfg.BestBytes)
+	}
+}

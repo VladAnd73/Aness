@@ -120,7 +120,7 @@ func TestAcceptance10EndToEndNight(t *testing.T) {
 
 	results, _ := os.ReadFile(filepath.Join(campaignDir, "results.tsv"))
 	if got := tryStatuses(string(results)); strings.Join(got, ",") != "reset,kept" {
-		t.Errorf("results.tsv statuses for tries 1..3 = %v, want [reset kept]\n%s", got, results)
+		t.Errorf("results.tsv statuses for tries 1 and 2 = %v, want [reset kept]\n%s", got, results)
 	}
 	if editor.calls != 2 {
 		t.Errorf("editor calls = %d, want 2", editor.calls)
