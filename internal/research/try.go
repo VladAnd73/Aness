@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,6 +87,10 @@ func (n *night) try(ctx context.Context) (interrupted bool, err error) {
 		}
 		if err != nil {
 			os.WriteFile(filepath.Join(tdir, "crash.txt"), []byte(err.Error()+"\n"), 0o600)
+			// A judge that failed outright would fail every try the same way.
+			if errors.Is(err, ErrJudgeFailed) {
+				n.sum.StopReason = "judge-failed"
+			}
 			return crash("judge failed", nil)
 		}
 		n.cfg.JudgeCostUSD += jr.CostUSD
@@ -103,9 +108,9 @@ func (n *night) try(ctx context.Context) (interrupted bool, err error) {
 // keep saves the try's commit as best before logging it, so a crash in
 // between leaves a consistent config and only a missing log line.
 func (n *night) keep(row Row) error {
-	cfg := n.cfg
-	cfg.BestCommit, cfg.BestScore, cfg.BestBytes = row.Commit, row.Score, row.Bytes
-	if err := n.save(cfg); err != nil {
+	if err := n.update(func(cfg *Config) {
+		cfg.BestCommit, cfg.BestScore, cfg.BestBytes = row.Commit, row.Score, row.Bytes
+	}); err != nil {
 		return err
 	}
 	n.sum.Kept++
@@ -118,22 +123,27 @@ func (n *night) reset(row Row) error {
 	if err := n.repo.ResetHard(n.bestCommit()); err != nil {
 		return err
 	}
-	if err := n.save(n.cfg); err != nil {
+	if err := n.update(nil); err != nil {
 		return err
 	}
 	return n.log(row)
 }
 
-// save writes cfg as the night's state, except that an off switched on
-// disk while the night ran wins over the night's in-memory "on".
-func (n *night) save(cfg Config) error {
-	unlock, err := n.s.lockConfig(cfg.Name)
+// update saves the night's state with apply's changes. The night holds
+// its night locks, so only an off can change the config on disk; that
+// off wins over the night's in-memory "on" before apply sees it.
+func (n *night) update(apply func(*Config)) error {
+	h, _, err := n.s.lockLoad(n.cfg.Name, noNight, "")
 	if err != nil {
 		return err
 	}
-	defer unlock()
-	if disk, err := n.s.Load(cfg.Name); err == nil && disk.Status == StatusOff && cfg.Status == StatusOn {
-		cfg.Status, cfg.StopReason = disk.Status, disk.StopReason
+	defer h.release()
+	cfg := n.cfg
+	if h.cfg.Status == StatusOff && cfg.Status == StatusOn {
+		cfg.Status, cfg.StopReason = h.cfg.Status, h.cfg.StopReason
+	}
+	if apply != nil {
+		apply(&cfg)
 	}
 	if err := n.s.Save(cfg); err != nil {
 		return err

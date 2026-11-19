@@ -10,35 +10,34 @@ import (
 
 // Stop ends a campaign for reason. With a kept change it first runs the
 // sealed holdout set on the original and the winner. It takes the night
-// lock, since the holdout spawns judges.
+// locks, host-wide included, since the holdout spends quota.
 func Stop(ctx context.Context, s Store, name, reason string, d Deps) error {
 	d = d.withDefaults()
-	cfg, err := s.Load(name)
-	if err != nil {
-		return err
-	}
-	switch cfg.Status {
-	case StatusReady, StatusOn, StatusOff:
-	default:
-		return fmt.Errorf("research: campaign %s is %s; only a ready, on or off campaign can be stopped", name, cfg.Status)
-	}
-	unlock, holder, err := Lock(d.LockPath, name)
+	h, holder, err := s.lockLoad(name, hostNight, d.LockPath)
 	if err != nil {
 		if holder != "" {
 			return &RefusedError{Reason: "another night holds the lock: " + holder}
 		}
 		return err
 	}
-	defer unlock()
-	return stopCampaign(ctx, s, cfg, reason, d)
+	defer h.release()
+	switch h.cfg.Status {
+	case StatusReady, StatusOn, StatusOff:
+	default:
+		return fmt.Errorf("research: campaign %s is %s; only a ready, on or off campaign can be stopped", name, h.cfg.Status)
+	}
+	h.releaseConfig()
+	return stopCampaign(ctx, s, h.cfg, reason, d)
 }
 
 func (cfg Config) hasKeptChange() bool {
 	return cfg.BestCommit != "" && cfg.BestCommit != cfg.StartCommit
 }
 
-// stopCampaign runs with the lock held. A holdout failure leaves the
-// status untouched, so the stop can be retried.
+// stopCampaign runs with the night locks held, so best and counters
+// cannot move under it; only an off can, and stopped replaces it. A
+// holdout failure leaves the status untouched, so the stop can be
+// retried.
 func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Deps) error {
 	var h holdoutResult
 	if cfg.hasKeptChange() {
@@ -46,6 +45,13 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 		if h, err = runHoldout(ctx, s, cfg, d.Judge); err != nil {
 			return err
 		}
+	}
+	lk, _, err := s.lockLoad(cfg.Name, noNight, "")
+	if err != nil {
+		return err
+	}
+	cfg = lk.cfg
+	if cfg.hasKeptChange() {
 		cfg.JudgeCostUSD += h.cost
 		cfg.HoldoutVerdict = "overfit"
 		if roundScore(h.winner) >= roundScore(h.original) {
@@ -53,7 +59,9 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 		}
 	}
 	cfg.Status, cfg.StopReason = StatusStopped, reason
-	if err := s.saveLocked(cfg); err != nil {
+	err = s.Save(cfg)
+	lk.release()
+	if err != nil {
 		return err
 	}
 	report, err := finalReport(s, cfg, h)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -70,19 +71,16 @@ func (n *night) bestCommit() string {
 
 func RunNight(ctx context.Context, s Store, name string, d Deps) (NightSummary, error) {
 	d = d.withDefaults()
-	cfg, err := s.Load(name)
+	h, startUsed, err := preflight(ctx, s, name, d)
 	if err != nil {
 		return NightSummary{}, err
 	}
+	defer h.release()
+	cfg := h.cfg
 	obj, err := LookupObjective(cfg.Objective)
 	if err != nil {
 		return NightSummary{}, err
 	}
-	unlock, startUsed, err := preflight(ctx, s, cfg, d)
-	if err != nil {
-		return NightSummary{}, err
-	}
-	defer unlock()
 	n := &night{s: s, cfg: cfg, d: d, obj: obj, repo: s.repo(name), num: cfg.Nights + 1,
 		started: d.Now(), startUsed: startUsed, lastUsed: startUsed}
 	n.sum = NightSummary{Night: n.num, StartScore: cfg.BestScore}
@@ -104,15 +102,12 @@ func (n *night) run(ctx context.Context) (NightSummary, error) {
 	if err := os.MkdirAll(n.dir(), 0o700); err != nil {
 		return n.sum, err
 	}
-	if n.cfg.Nights == 0 && n.cfg.BestCommit == "" {
-		if reason, err := n.baseline(ctx); reason != "" || err != nil {
-			n.sum.StopReason = reason
-			if err == nil {
-				err = appendReport(n.s, n.cfg.Name, fmt.Sprintf("## Night %d (not counted)\n\n- stop reason: %s\n\n", n.num, reason))
-			}
+	if n.cfg.BestCommit == "" {
+		reason, err := n.baseline(ctx)
+		if err != nil {
 			return n.sum, err
 		}
-		n.sum.StartScore = n.cfg.BestScore
+		n.sum.StopReason, n.sum.StartScore = reason, n.cfg.BestScore
 	}
 	for n.sum.StopReason == "" {
 		if n.sum.StopReason = n.capReached(ctx, n.sum.Tries > 0); n.sum.StopReason != "" {
@@ -130,11 +125,11 @@ func (n *night) run(ctx context.Context) (NightSummary, error) {
 }
 
 // baseline judges the start file twice and records the mean as both
-// start and best. A crash ends the night without counting it.
+// start and best. A crash ends the night, which still counts: it spent
+// quota. The next night retries the baseline.
 func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 	cand := filepath.Join(n.repo.dir, n.cfg.targetRel())
-	cfg := n.cfg
-	var total float64
+	var total, cost float64
 	for i := 1; i <= 2; i++ {
 		res, err := n.d.Judge.Run(ctx, cand, "main", filepath.Join(n.dir(), fmt.Sprintf("baseline-%d.json", i)))
 		if ctx.Err() != nil {
@@ -144,18 +139,20 @@ func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 			os.WriteFile(filepath.Join(n.dir(), "baseline-crash.txt"), []byte(err.Error()+"\n"), 0o600)
 			return "baseline-crash", nil
 		}
-		cfg.JudgeCostUSD += res.CostUSD
+		cost += res.CostUSD
 		total += res.Score
 	}
-	cfg.StartScore = roundScore(total / 2)
-	cfg.BestScore = cfg.StartScore
-	cfg.BestCommit = cfg.StartCommit
-	cfg.BestBytes = cfg.StartBytes
-	if err := n.save(cfg); err != nil {
+	if err := n.update(func(cfg *Config) {
+		cfg.JudgeCostUSD += cost
+		cfg.StartScore = roundScore(total / 2)
+		cfg.BestScore = cfg.StartScore
+		cfg.BestCommit = cfg.StartCommit
+		cfg.BestBytes = cfg.StartBytes
+	}); err != nil {
 		return "", err
 	}
-	return "", n.log(Row{Try: 0, Score: cfg.BestScore, Status: "baseline",
-		Bytes: cfg.StartBytes, Commit: cfg.StartCommit, Description: "baseline"})
+	return "", n.log(Row{Try: 0, Score: n.cfg.BestScore, Status: "baseline",
+		Bytes: n.cfg.StartBytes, Commit: n.cfg.StartCommit, Description: "baseline"})
 }
 
 // capReached is checked before every try. afterTry adds the live quota
@@ -189,34 +186,40 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 	return ""
 }
 
+// cutShort stop reasons end a night before it could show whether the
+// target can still improve.
+var cutShort = []string{"interrupted", "quota-read-failed", "switched-off", "baseline-crash", "judge-failed"}
+
 func (n *night) end(ctx context.Context) (NightSummary, error) {
-	cfg := n.cfg
-	// Every night spent quota, so every night counts toward max_nights.
-	// One cut short with nothing kept is no evidence of no gain.
-	cfg.Nights++
-	cutShort := n.sum.StopReason == "interrupted" || n.sum.StopReason == "quota-read-failed" || n.sum.StopReason == "switched-off"
-	if n.sum.Kept > 0 {
-		cfg.NoGainNights = 0
-	} else if !cutShort {
-		cfg.NoGainNights++
-	}
-	// A limit ends the campaign even after a manual off, which would
-	// otherwise leave it unable to go back on with no holdout run.
-	autoOff := true
-	switch {
-	case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
-		cfg.Status, cfg.StopReason = StatusOff, "no-gain"
-	case cfg.Nights >= cfg.MaxNights:
-		cfg.Status, cfg.StopReason = StatusOff, "max-nights"
-	default:
-		autoOff = false
-	}
 	used := max(n.lastUsed-n.startUsed, 0)
-	cfg.QuotaUsed += used
-	if err := n.save(cfg); err != nil {
+	autoOff := false
+	err := n.update(func(cfg *Config) {
+		// Every night spent quota, so every night counts toward
+		// max_nights. One cut short, or paused by an off, with nothing
+		// kept is no evidence of no gain.
+		cfg.Nights++
+		if n.sum.Kept > 0 {
+			cfg.NoGainNights = 0
+		} else if !slices.Contains(cutShort, n.sum.StopReason) && cfg.Status != StatusOff {
+			cfg.NoGainNights++
+		}
+		// A limit ends the campaign even after a manual off, which would
+		// otherwise leave it unable to go back on with no holdout run.
+		autoOff = true
+		switch {
+		case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
+			cfg.Status, cfg.StopReason = StatusOff, "no-gain"
+		case cfg.Nights >= cfg.MaxNights:
+			cfg.Status, cfg.StopReason = StatusOff, "max-nights"
+		default:
+			autoOff = false
+		}
+		cfg.QuotaUsed += used
+	})
+	if err != nil {
 		return n.sum, err
 	}
-	cfg = n.cfg
+	cfg := n.cfg
 	n.sum.EndScore = cfg.BestScore
 	section := fmt.Sprintf("## Night %d\n\n- started: %s\n- ended: %s\n- stop reason: %s\n- tries: %d\n- kept: %d\n- score: %.1f -> %.1f\n- quota used: %.1f points\n- judge cost so far: $%.2f\n\n",
 		n.num, n.started.UTC().Format(time.RFC3339), n.d.Now().UTC().Format(time.RFC3339), n.sum.StopReason,
@@ -226,10 +229,32 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 	}
 	// A manual off is a pause; only the engine's own switch-off ends the
 	// campaign.
-	if autoOff && cfg.Status == StatusOff && cfg.hasKeptChange() && ctx.Err() == nil {
-		if err := stopCampaign(ctx, n.s, cfg, cfg.StopReason, n.d); err != nil {
-			return n.sum, fmt.Errorf("research: night %d switched the campaign off, but stopping it failed: %w", n.num, err)
-		}
+	if !autoOff || !cfg.hasKeptChange() {
+		return n.sum, nil
+	}
+	if ctx.Err() != nil {
+		return n.sum, n.holdoutPending(cfg)
+	}
+	if err := stopCampaign(ctx, n.s, cfg, cfg.StopReason, n.d); err != nil {
+		return n.sum, fmt.Errorf("research: night %d switched the campaign off, but stopping it failed: %w", n.num, err)
 	}
 	return n.sum, nil
+}
+
+// holdoutPending is an interrupted night that reached a limit: the
+// holdout cannot run on a cancelled context, so the operator is told how
+// to finish the campaign.
+func (n *night) holdoutPending(cfg Config) error {
+	msg := fmt.Sprintf("research %s switched off (%s) but the night was interrupted before the holdout; run `spore research stop %s` to run it and end the campaign",
+		cfg.Name, cfg.StopReason, cfg.Name)
+	if err := appendReport(n.s, cfg.Name, msg+"\n\n"); err != nil {
+		return err
+	}
+	if n.d.Notify == nil {
+		return appendReport(n.s, cfg.Name, "Warning: no coordinator notice configured.\n\n")
+	}
+	if err := n.d.Notify(msg); err != nil {
+		return appendReport(n.s, cfg.Name, fmt.Sprintf("Warning: the coordinator notice failed: %v\n\n", err))
+	}
+	return nil
 }

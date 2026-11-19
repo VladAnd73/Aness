@@ -16,8 +16,7 @@ func TestResetMovesRepoToBestCommit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.repoDir(), "stray.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(t.TempDir(), "research.lock")
-	commit, err := Reset(f.store, f.name, lock)
+	commit, err := Reset(f.store, f.name)
 	if err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
@@ -38,13 +37,12 @@ func TestResetRefusesWhileLockHeld(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.repoDir(), "SKILL.md"), []byte("mid try\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(t.TempDir(), "research.lock")
-	unlock, _, err := Lock(lock, "other")
+	unlock, _, err := Lock(f.store.nightLockPath(f.name), "other")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if _, err := Reset(f.store, f.name, lock); err == nil || !strings.Contains(err.Error(), "other") {
+	if _, err := Reset(f.store, f.name); err == nil || !strings.Contains(err.Error(), "other") {
 		t.Errorf("Reset under a held lock: err = %v, want a refusal naming the holder", err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(f.repoDir(), "SKILL.md")); string(b) != "mid try\n" {

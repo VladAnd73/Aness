@@ -19,7 +19,7 @@ func TestSetRebuildsDefaultJudgeArgv(t *testing.T) {
 		t.Fatalf("ApproveJudge: %v", err)
 	}
 	for _, kv := range [][2]string{{"model", "haiku"}, {"repeats", "1"}, {"run_timeout", "2m"}} {
-		if err := f.store.Set(f.name, kv[0], kv[1], testLock(t)); err != nil {
+		if err := f.store.Set(f.name, kv[0], kv[1]); err != nil {
 			t.Fatalf("Set %s: %v", kv[0], err)
 		}
 	}
@@ -38,7 +38,7 @@ func TestSetRebuildsDefaultJudgeArgv(t *testing.T) {
 func TestSetKeepsCustomJudgeArgv(t *testing.T) {
 	f := newCampaign(t, nil)
 	before := f.load(t).JudgeArgv
-	if err := f.store.Set(f.name, "model", "haiku", testLock(t)); err != nil {
+	if err := f.store.Set(f.name, "model", "haiku"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	if got := f.load(t).JudgeArgv; !slices.Equal(got, before) {
@@ -52,36 +52,34 @@ func TestSetRefusesBadInput(t *testing.T) {
 		{"best_score", "100"}, {"bogus", "1"}, {"repeats", "abc"}, {"repeats", "0"},
 		{"isolation", "docker"}, {"run_timeout", "soon"}, {"max_hours_per_night", "-1"},
 	} {
-		if err := f.store.Set(f.name, kv[0], kv[1], testLock(t)); err == nil {
+		if err := f.store.Set(f.name, kv[0], kv[1]); err == nil {
 			t.Errorf("Set %s=%s: want an error", kv[0], kv[1])
 		}
 	}
-	if err := f.store.Set(f.name, "max_tries_per_night", "4", testLock(t)); err != nil {
+	if err := f.store.Set(f.name, "max_tries_per_night", "4"); err != nil {
 		t.Errorf("Set max_tries_per_night: %v", err)
 	}
 }
 
 func TestSetRefusesStoppedCampaign(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.Status = StatusStopped })
-	if err := f.store.Set(f.name, "model", "haiku", testLock(t)); err == nil {
+	if err := f.store.Set(f.name, "model", "haiku"); err == nil {
 		t.Errorf("Set on a stopped campaign: want an error")
 	}
 }
 
 func TestSetRefusesWhileNightRuns(t *testing.T) {
 	f := newCampaign(t, nil)
-	lock := filepath.Join(t.TempDir(), "research.lock")
-	unlock, _, err := Lock(lock, f.name)
+	unlock, _, err := Lock(f.store.nightLockPath(f.name), f.name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if err := f.store.Set(f.name, "model", "haiku", lock); err == nil || !strings.Contains(err.Error(), f.name) {
+	if err := f.store.Set(f.name, "model", "haiku"); err == nil || !strings.Contains(err.Error(), f.name) {
 		t.Errorf("Set while the lock is held: err = %v, want a refusal naming %s", err, f.name)
 	}
 }
 
-func testLock(t *testing.T) string { return filepath.Join(t.TempDir(), "research.lock") }
 
 // The best score was measured by the old judge; a changed judge would
 // compare tries against a stale number.
@@ -90,11 +88,11 @@ func TestSetRefusesJudgeKeysAfterBaseline(t *testing.T) {
 	for _, kv := range [][2]string{
 		{"model", "opus"}, {"repeats", "5"}, {"parallel", "1"}, {"run_timeout", "9m"}, {"isolation", "none"}, {"agent_binary", "/bin/x"},
 	} {
-		if err := f.store.Set(f.name, kv[0], kv[1], testLock(t)); err == nil || !strings.Contains(err.Error(), "baseline") {
+		if err := f.store.Set(f.name, kv[0], kv[1]); err == nil || !strings.Contains(err.Error(), "baseline") {
 			t.Errorf("Set %s after the baseline = %v, want a refusal naming the baseline", kv[0], err)
 		}
 	}
-	if err := f.store.Set(f.name, "max_tries_per_night", "4", testLock(t)); err != nil {
+	if err := f.store.Set(f.name, "max_tries_per_night", "4"); err != nil {
 		t.Errorf("Set max_tries_per_night after the baseline: %v", err)
 	}
 }

@@ -134,7 +134,7 @@ func newCampaign(t *testing.T, cfgEdits func(*Config)) fixture {
 	if err != nil {
 		t.Fatalf("ApproveJudge: %v", err)
 	}
-	if err := store.SetOn(fixtureName, true, filepath.Join(root, "state", "spore", "research.lock")); err != nil {
+	if err := store.SetOn(fixtureName, true); err != nil {
 		t.Fatalf("SetOn: %v", err)
 	}
 	cfg, err := store.Load(fixtureName)

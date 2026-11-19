@@ -8,28 +8,32 @@ import (
 	"strings"
 )
 
-// preflight refuses a night that must not start, in the spec's order,
-// and returns the held lock and the weekly usage at night start.
-func preflight(ctx context.Context, s Store, cfg Config, d Deps) (unlock func(), startUsed float64, err error) {
-	refuse := func(format string, a ...any) (func(), float64, error) {
+// preflight refuses a night that must not start, in the spec's order.
+// It takes the night locks and loads the config under them, and returns
+// both, with the config lock already released, and the weekly usage at
+// night start.
+func preflight(ctx context.Context, s Store, name string, d Deps) (*held, float64, error) {
+	refuse := func(format string, a ...any) (*held, float64, error) {
 		return nil, 0, &RefusedError{Reason: fmt.Sprintf(format, a...)}
 	}
-	if cfg.Status != StatusOn {
-		return refuse("campaign %s is %s, not on", cfg.Name, cfg.Status)
-	}
-	release, holder, err := Lock(d.LockPath, cfg.Name)
+	h, holder, err := s.lockLoad(name, hostNight, d.LockPath)
 	if err != nil {
 		if holder != "" {
 			return refuse("another night holds the lock: %s", holder)
 		}
 		return nil, 0, err
 	}
+	h.releaseConfig()
 	ok := false
 	defer func() {
 		if !ok {
-			release()
+			h.release()
 		}
 	}()
+	cfg := h.cfg
+	if cfg.Status != StatusOn {
+		return refuse("campaign %s is %s, not on", cfg.Name, cfg.Status)
+	}
 	if d.Room == nil {
 		return refuse("budget room said: no room check configured")
 	}
@@ -66,5 +70,5 @@ func preflight(ctx context.Context, s Store, cfg Config, d Deps) (unlock func(),
 		return refuse("quota-read-failed: %v", err)
 	}
 	ok = true
-	return release, used, nil
+	return h, used, nil
 }

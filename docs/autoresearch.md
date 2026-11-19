@@ -90,7 +90,7 @@ spore research accept demo
 ## Settings
 
 `spore research set <c> <key> <value>` changes one setting while no
-night runs (refused on a stopped or accepted campaign). Values are
+night or stop of that campaign runs (refused on a stopped or accepted campaign). Values are
 plain: `set demo model haiku`, `set demo run_timeout 3m`.
 
 | Key | Default | Meaning |
@@ -126,14 +126,29 @@ Between tries the night stops for, in this order: interrupted, a failed
 usage read (`quota-read-failed`, it never continues blind), the quota
 ceiling, the campaign switched `off` (`switched-off`; `off` during a
 night takes effect after the current try and stays off), the try cap,
-the hour cap. Every night counts toward `max_nights`. A night stopped
-by `interrupted`, `quota-read-failed` or `switched-off` with no kept
-try does not add to the no-gain count. A manual `off` is a pause and
+the hour cap. A judge that fails outright, before scoring anything (a
+missing grader, a sandbox that will not start, credentials too short),
+ends the night at once with `judge-failed`; a judge whose runs merely
+crashed is a `crash` try. Every night counts toward `max_nights`,
+including one whose baseline crashed (`baseline-crash`; the next night
+retries the baseline). A night stopped by `interrupted`,
+`quota-read-failed`, `switched-off`, `baseline-crash` or `judge-failed`,
+or switched `off` during the night whatever stopped it, does not add to
+the no-gain count when nothing was kept. A manual `off` is a pause and
 does not run the holdout, unless that night reached `max_nights` or
-the no-gain limit: then the campaign ends as usual. `on` is refused
-while a night or a `stop` holds the night lock. The first night of a campaign first
-judges the starting file twice and records the mean as the baseline
-(try 0).
+the no-gain limit: then the campaign ends as usual. An interrupted
+night that reaches a limit with a kept change cannot run the holdout:
+it leaves the campaign `off`, and the report and the coordinator notice
+say to run `spore research stop <campaign>`, which runs the holdout and
+ends it.
+
+Nights spend the one shared weekly quota, so only one night or `stop`
+runs at a time on the host (`$XDG_RUNTIME_DIR/spore-research.lock`).
+Settings are per campaign: `on`, `set`, `reset`, `judge approve` and
+`accept` are refused only while a night or `stop` of that same campaign
+runs (its `night.lock`), never because another campaign's night runs.
+The first night of a campaign first judges the starting file twice and
+records the mean as the baseline (try 0).
 
 ### Recovering from a kill -9
 
@@ -146,7 +161,7 @@ spore research reset demo
 ```
 
 It puts the repo back on the best commit recorded in `campaign.toml`
-and is refused while any night holds the lock.
+and is refused while a night or stop of that campaign runs.
 
 ## Storage
 
@@ -158,6 +173,8 @@ which a throwaway `XDG_STATE_HOME` would also move:
 
 ```
 campaign.toml        settings and progress (flat key = value)
+campaign.lock        held for each read-modify-write of campaign.toml
+night.lock           held by this campaign's night or stop
 goal.md              copy of the goal
 repo/                git repo of the skill folder; "start" is commit 1
 judge/main/          the approved main set (hashed)

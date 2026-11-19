@@ -21,30 +21,22 @@ var SettableKeys = []string{
 // baseline is scored.
 var judgeKeys = []string{"model", "agent_binary", "isolation", "parallel", "repeats", "run_timeout"}
 
-// Set changes one operator key of a campaign that is not running. A
-// judge argv that is still the default one is rebuilt, so model,
-// repeats and the like reach the judge as well.
-func (s Store) Set(name, key, value, lockPath string) error {
+// Set changes one operator key of a campaign none of whose nights or
+// stops is running. A judge argv that is still the default one is
+// rebuilt, so model, repeats and the like reach the judge as well.
+func (s Store) Set(name, key, value string) error {
 	if !slices.Contains(SettableKeys, key) {
 		return fmt.Errorf("research: %q is not a settable key (want one of %s)", key, strings.Join(SettableKeys, ", "))
 	}
-	unlock, holder, err := Lock(lockPath, name)
+	h, holder, err := s.lockLoad(name, campaignNight, "")
 	if err != nil {
 		if holder != "" {
-			return fmt.Errorf("research: campaign %s: a night is running (lock held by %s); set it after the night ends", name, holder)
+			return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); set it after that ends", name, holder)
 		}
 		return err
 	}
-	defer unlock()
-	unlockCfg, err := s.lockConfig(name)
-	if err != nil {
-		return err
-	}
-	defer unlockCfg()
-	cfg, err := s.Load(name)
-	if err != nil {
-		return err
-	}
+	defer h.release()
+	cfg := h.cfg
 	switch cfg.Status {
 	case StatusDraft, StatusReady, StatusOn, StatusOff:
 	default:

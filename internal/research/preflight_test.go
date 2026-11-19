@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,11 +60,13 @@ func TestPreflightReleasesLockOnRefusal(t *testing.T) {
 	d := f.deps(&fakeEditor{}, &fakeJudge{})
 	d.Room = func() (int, string) { return 1, "no room" }
 	RunNight(context.Background(), f.store, f.name, d)
-	unlock, _, err := Lock(d.LockPath, "next")
-	if err != nil {
-		t.Fatalf("lock still held after a refused night: %v", err)
+	for _, p := range []string{d.LockPath, f.store.nightLockPath(f.name)} {
+		unlock, _, err := Lock(p, "next")
+		if err != nil {
+			t.Fatalf("lock %s still held after a refused night: %v", p, err)
+		}
+		unlock()
 	}
-	unlock()
 }
 
 func TestBaselineRunsJudgeTwiceAndRecordsMean(t *testing.T) {
@@ -85,14 +88,52 @@ func TestBaselineRunsJudgeTwiceAndRecordsMean(t *testing.T) {
 	}
 }
 
-func TestBaselineCrashEndsNight(t *testing.T) {
+// A judge that cannot score the start file still spent quota: the
+// night counts toward max_nights and keeps its own folder, and the next
+// night retries the baseline.
+func TestBaselineCrashCountsTheNight(t *testing.T) {
 	f := newCampaign(t, nil)
-	ed, j := &fakeEditor{}, &fakeJudge{err: errors.New("judge broke")}
-	sum, _ := RunNight(context.Background(), f.store, f.name, f.deps(ed, j))
-	cfg := f.load(t)
-	if sum.StopReason != "baseline-crash" || cfg.Nights != 0 || cfg.BestCommit != "" || ed.calls != 0 {
-		t.Errorf("stop %q, nights %d, best commit %q, editor calls %d", sum.StopReason, cfg.Nights, cfg.BestCommit, ed.calls)
+	for night := 1; night <= 2; night++ {
+		ed, j := &fakeEditor{}, &fakeJudge{err: errors.New("judge broke")}
+		sum, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j))
+		if err != nil {
+			t.Fatalf("night %d: RunNight: %v", night, err)
+		}
+		cfg := f.load(t)
+		if sum.StopReason != "baseline-crash" || cfg.Nights != night || cfg.NoGainNights != 0 || cfg.BestCommit != "" || ed.calls != 0 {
+			t.Errorf("night %d: stop %q, nights %d, no-gain %d, best commit %q, editor calls %d", night, sum.StopReason, cfg.Nights, cfg.NoGainNights, cfg.BestCommit, ed.calls)
+		}
+		if _, err := os.Stat(filepath.Join(f.store.Dir(f.name), "nights", fmt.Sprint(night), "baseline-crash.txt")); err != nil {
+			t.Errorf("night %d has no crash note of its own: %v", night, err)
+		}
 	}
+	ed, j := &fakeEditor{}, &fakeJudge{scores: []float64{60}}
+	if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j)); err != nil {
+		t.Fatalf("night 3: %v", err)
+	}
+	if cfg := f.load(t); cfg.BestCommit != cfg.StartCommit || cfg.StartScore != 60 || cfg.Nights != 3 {
+		t.Errorf("night 3: best %q start score %v nights %d; want the baseline recorded", cfg.BestCommit, cfg.StartScore, cfg.Nights)
+	}
+}
+
+func TestInterruptedBaselineCountsTheNight(t *testing.T) {
+	f := newCampaign(t, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	j := &cancelJudge{cancel: cancel}
+	sum, err := RunNight(ctx, f.store, f.name, f.deps(&fakeEditor{}, j))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if cfg := f.load(t); sum.StopReason != "interrupted" || cfg.Nights != 1 || cfg.NoGainNights != 0 || cfg.BestCommit != "" {
+		t.Errorf("stop %q, nights %d, no-gain %d, best %q", sum.StopReason, cfg.Nights, cfg.NoGainNights, cfg.BestCommit)
+	}
+}
+
+type cancelJudge struct{ cancel func() }
+
+func (j *cancelJudge) Run(ctx context.Context, candidate, set, outPath string) (JudgeResult, error) {
+	j.cancel()
+	return JudgeResult{}, ctx.Err()
 }
 
 func TestNightResetsHeadAheadOfBestCommit(t *testing.T) {

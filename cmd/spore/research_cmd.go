@@ -161,9 +161,7 @@ func (c *researchCmd) new(args []string) error {
 		return err
 	}
 	if *model != "" {
-		// Not Set: its lock is host-wide, and a draft cannot be in a night.
-		cfg.Model = *model
-		if err := c.store.Save(cfg); err != nil {
+		if err := c.store.Set(cfg.Name, "model", *model); err != nil {
 			return err
 		}
 	}
@@ -206,7 +204,7 @@ func (c *researchCmd) onOff(on bool) func([]string) error {
 		if err != nil {
 			return err
 		}
-		if err := c.store.SetOn(pos[0], on, c.lockPath); err != nil {
+		if err := c.store.SetOn(pos[0], on); err != nil {
 			return err
 		}
 		cfg, err := c.store.Load(pos[0])
@@ -223,7 +221,7 @@ func (c *researchCmd) set(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := c.store.Set(pos[0], pos[1], pos[2], c.lockPath); err != nil {
+	if err := c.store.Set(pos[0], pos[1], pos[2]); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.out, "%s: %s = %s\n", pos[0], pos[1], pos[2])
@@ -314,7 +312,7 @@ func (c *researchCmd) reset(args []string) error {
 	if err != nil {
 		return err
 	}
-	commit, err := research.Reset(c.store, pos[0], c.lockPath)
+	commit, err := research.Reset(c.store, pos[0])
 	if err != nil {
 		return err
 	}

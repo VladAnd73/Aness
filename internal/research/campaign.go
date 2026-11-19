@@ -198,10 +198,15 @@ func copyFolder(src, dst string) error {
 // judgeArgv means `<pinned spore> eval judge` with the campaign's
 // flags; a non-empty one is a different judge command used verbatim.
 func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) (Config, error) {
-	cfg, err := s.Load(name)
+	h, holder, err := s.lockLoad(name, campaignNight, "")
 	if err != nil {
-		return cfg, err
+		if holder != "" {
+			return Config{}, fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s)", name, holder)
+		}
+		return Config{}, err
 	}
+	defer h.release()
+	cfg := h.cfg
 	if cfg.Status != StatusDraft && cfg.Status != StatusReady {
 		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign", name, cfg.Status)
 	}
@@ -265,35 +270,32 @@ func defaultJudgeArgv(cfg Config, pinned, judgeDir, repoDir string) []string {
 }
 
 // SetOn switches a campaign on (from ready, or from off while nights
-// remain) or off (reason "manual"). Switching on takes the night lock first: a night or stop holding it
-// would overwrite the new status with its own save. Off needs no night
-// lock, since it is how a running night is stopped.
-func (s Store) SetOn(name string, on bool, lockPath string) error {
+// remain) or off (reason "manual"). On takes the campaign's night lock:
+// a night or stop holding it would overwrite the new status with its
+// own save. Off takes no night lock, since it is how a running night is
+// stopped; the night's saves keep an off they find on disk.
+func (s Store) SetOn(name string, on bool) error {
+	scope := noNight
 	if on {
-		release, holder, err := Lock(lockPath, name)
-		if err != nil {
-			if holder != "" {
-				return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); switch it on after that ends", name, holder)
-			}
-			return err
+		scope = campaignNight
+	}
+	h, holder, err := s.lockLoad(name, scope, "")
+	if err != nil {
+		if holder != "" {
+			return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); switch it on after that ends", name, holder)
 		}
-		defer release()
-	}
-	unlock, err := s.lockConfig(name)
-	if err != nil {
 		return err
 	}
-	defer unlock()
-	cfg, err := s.Load(name)
-	if err != nil {
-		return err
-	}
+	defer h.release()
+	cfg := h.cfg
 	switch {
 	case on && cfg.Status == StatusReady, on && cfg.Status == StatusOff && cfg.Nights < cfg.MaxNights:
 		cfg.Status, cfg.StopReason = StatusOn, ""
 		if cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain {
 			cfg.NoGainNights = 0
 		}
+	case on && cfg.Status == StatusOff && cfg.hasKeptChange():
+		return fmt.Errorf("research: campaign %s used all %d nights; run `spore research stop %s` to run the holdout and end it", name, cfg.MaxNights, name)
 	case on:
 		return fmt.Errorf("research: campaign %s is %s (nights %d of %d); it cannot be switched on", name, cfg.Status, cfg.Nights, cfg.MaxNights)
 	case cfg.Status == StatusOn:
@@ -307,7 +309,8 @@ func (s Store) SetOn(name string, on bool, lockPath string) error {
 }
 
 // lockConfig serialises read-modify-write of one campaign.toml between
-// SetOn and a running night, which do not share the night lock.
+// off and a running night, which do not share a night lock. Only
+// lockLoad calls it.
 func (s Store) lockConfig(name string) (unlock func(), err error) {
 	f, err := os.OpenFile(filepath.Join(s.Dir(name), "campaign.lock"), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -321,13 +324,4 @@ func (s Store) lockConfig(name string) (unlock func(), err error) {
 		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
-}
-
-func (s Store) saveLocked(cfg Config) error {
-	unlock, err := s.lockConfig(cfg.Name)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return s.Save(cfg)
 }

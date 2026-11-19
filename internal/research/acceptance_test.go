@@ -31,7 +31,7 @@ func wantRefused(t *testing.T, err error, ed *fakeEditor, j *fakeJudge, want ...
 
 func TestAcceptance01NightRefusesWhenOff(t *testing.T) {
 	f := newCampaign(t, nil)
-	if err := f.store.SetOn(f.name, false, f.lockPath()); err != nil {
+	if err := f.store.SetOn(f.name, false); err != nil {
 		t.Fatalf("SetOn(false): %v", err)
 	}
 	ed, j := &fakeEditor{}, &fakeJudge{scores: []float64{50}}

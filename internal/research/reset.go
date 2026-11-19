@@ -4,23 +4,19 @@ import "fmt"
 
 // Reset puts a campaign repo back on its best commit, dropping any
 // half-made try, for when a killed night left it dirty. It refuses
-// while any night holds the host lock.
-func Reset(s Store, name, lockPath string) (string, error) {
-	cfg, err := s.Load(name)
-	if err != nil {
-		return "", err
-	}
-	unlock, holder, err := Lock(lockPath, name)
+// while a night or stop of the campaign runs.
+func Reset(s Store, name string) (string, error) {
+	h, holder, err := s.lockLoad(name, campaignNight, "")
 	if err != nil {
 		if holder != "" {
-			return "", fmt.Errorf("research: reset %s: a night is running (lock held by %s)", name, holder)
+			return "", fmt.Errorf("research: reset %s: a night or stop is running (lock held by %s)", name, holder)
 		}
 		return "", err
 	}
-	defer unlock()
-	best := cfg.BestCommit
+	defer h.release()
+	best := h.cfg.BestCommit
 	if best == "" {
-		best = cfg.StartCommit
+		best = h.cfg.StartCommit
 	}
 	return best, s.repo(name).ResetHard(best)
 }

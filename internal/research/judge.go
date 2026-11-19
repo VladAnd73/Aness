@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -24,6 +25,11 @@ type JudgeResult struct {
 type Judge interface {
 	Run(ctx context.Context, candidate, set, outPath string) (JudgeResult, error)
 }
+
+// ErrJudgeFailed is a judge command that failed outright, before it
+// could score the candidate: a missing grader, a sandbox that would not
+// start, credentials too short for the night.
+var ErrJudgeFailed = errors.New("the judge itself failed")
 
 // CommandJudge runs Argv + --candidate P --set S --out R and reads R.
 // Its stdout and stderr go to R.log, never into the result.
@@ -52,7 +58,7 @@ func (j CommandJudge) Run(ctx context.Context, candidate, set, outPath string) (
 		return JudgeResult{}, fmt.Errorf("research: judge: %w", err)
 	}
 	if runErr != nil {
-		return JudgeResult{}, fmt.Errorf("research: judge: %w (see %s.log)", runErr, outPath)
+		return JudgeResult{}, fmt.Errorf("research: judge: %w: %w (see %s.log)", ErrJudgeFailed, runErr, outPath)
 	}
 	b, err := os.ReadFile(outPath)
 	if err != nil {

@@ -162,7 +162,7 @@ func sporeRepoWinnerWith(t *testing.T, beforeCreate func(top, live string)) (top
 	if _, err := store.ApproveJudge("demo", "testdata/drafts", bin, []string{bin}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetOn("demo", true, testLock(t)); err != nil {
+	if err := store.SetOn("demo", true); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := store.Load("demo")
