@@ -65,5 +65,8 @@ func (j CommandJudge) Run(ctx context.Context, candidate, set, outPath string) (
 	if math.IsNaN(res.Score) || res.Score < 0 || res.Score > 100 {
 		return JudgeResult{}, fmt.Errorf("research: judge: score %v is outside 0..100", res.Score)
 	}
+	if res.Runs > 0 && res.Crashes == res.Runs {
+		return JudgeResult{}, fmt.Errorf("research: judge: all %d runs crashed (see %s)", res.Runs, outPath)
+	}
 	return res, nil
 }

@@ -105,10 +105,9 @@ func (n *night) try(ctx context.Context) (interrupted bool, err error) {
 func (n *night) keep(row Row) error {
 	cfg := n.cfg
 	cfg.BestCommit, cfg.BestScore, cfg.BestBytes = row.Commit, row.Score, row.Bytes
-	if err := n.s.Save(cfg); err != nil {
+	if err := n.save(cfg); err != nil {
 		return err
 	}
-	n.cfg = cfg
 	n.sum.Kept++
 	return n.log(row)
 }
@@ -119,10 +118,28 @@ func (n *night) reset(row Row) error {
 	if err := n.repo.ResetHard(n.bestCommit()); err != nil {
 		return err
 	}
-	if err := n.s.Save(n.cfg); err != nil {
+	if err := n.save(n.cfg); err != nil {
 		return err
 	}
 	return n.log(row)
+}
+
+// save writes cfg as the night's state, except that an off switched on
+// disk while the night ran wins over the night's in-memory "on".
+func (n *night) save(cfg Config) error {
+	unlock, err := n.s.lockConfig(cfg.Name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if disk, err := n.s.Load(cfg.Name); err == nil && disk.Status == StatusOff && cfg.Status == StatusOn {
+		cfg.Status, cfg.StopReason = disk.Status, disk.StopReason
+	}
+	if err := n.s.Save(cfg); err != nil {
+		return err
+	}
+	n.cfg = cfg
+	return nil
 }
 
 func (n *night) log(row Row) error {

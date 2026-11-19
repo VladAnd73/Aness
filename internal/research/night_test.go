@@ -383,3 +383,63 @@ func TestNightReportsEachRowToProgress(t *testing.T) {
 		t.Errorf("progress = %v, want %s", got, want)
 	}
 }
+
+// off while a night runs must stop the night and stay off, and it is a
+// pause: a kept change does not trigger the end-of-campaign holdout.
+func TestOffDuringNightStopsItAndSticks(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 3 })
+	off := func(path string) error {
+		if err := f.store.SetOn(f.name, false); err != nil {
+			return err
+		}
+		return appendBytes("better\n")(path)
+	}
+	ed := &fakeEditor{edits: []func(string) error{off, appendBytes("two\n"), appendBytes("three\n")}}
+	j := &fakeJudge{scores: []float64{50, 50, 80, 90}, holdout: func([]byte) float64 { return 70 }}
+	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	cfg := f.load(t)
+	if cfg.Status != StatusOff || cfg.StopReason != "manual" {
+		t.Errorf("status %q reason %q after off mid-night, want off manual", cfg.Status, cfg.StopReason)
+	}
+	if ed.calls != 1 || sum.StopReason != "switched-off" {
+		t.Errorf("night ran %d editor calls, stop %q; want 1 and switched-off", ed.calls, sum.StopReason)
+	}
+	if cfg.BestScore != 85 || j.holdoutCalls != 0 {
+		t.Errorf("best %v, holdout calls %d; want the kept 85 and no holdout", cfg.BestScore, j.holdoutCalls)
+	}
+}
+
+func TestInterruptedNightsWithoutGainAreNotCounted(t *testing.T) {
+	for _, reason := range []string{"interrupted", "quota-read-failed"} {
+		t.Run(reason, func(t *testing.T) {
+			f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 5 })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n")}}
+			d := f.deps(ed, &fakeJudge{scores: []float64{50}})
+			reads := 0
+			d.WeeklyUsed = func(context.Context) (float64, error) {
+				reads++
+				if reads == 1 {
+					return 20, nil
+				}
+				if reason == "interrupted" {
+					cancel()
+					return 0, ctx.Err()
+				}
+				return 0, errors.New("token expired")
+			}
+			sum, err := RunNight(ctx, f.store, f.name, d)
+			if err != nil {
+				t.Fatalf("RunNight: %v", err)
+			}
+			cfg := f.load(t)
+			if sum.StopReason != reason || cfg.Nights != 0 || cfg.NoGainNights != 0 {
+				t.Errorf("stop %q, nights %d, no-gain %d; want %s with neither counted", sum.StopReason, cfg.Nights, cfg.NoGainNights, reason)
+			}
+		})
+	}
+}

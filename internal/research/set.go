@@ -17,6 +17,10 @@ var SettableKeys = []string{
 	"parallel", "repeats", "run_timeout",
 }
 
+// judgeKeys change what the judge measures, so they are fixed once the
+// baseline is scored.
+var judgeKeys = []string{"model", "agent_binary", "isolation", "parallel", "repeats", "run_timeout"}
+
 // Set changes one operator key of a campaign that is not running. A
 // judge argv that is still the default one is rebuilt, so model,
 // repeats and the like reach the judge as well.
@@ -60,6 +64,9 @@ func (s Store) Set(name, key, value, lockPath string) error {
 	}
 	if err := checkSetting(cfg, key); err != nil {
 		return err
+	}
+	if slices.Contains(judgeKeys, key) && cfg.BestCommit != "" {
+		return fmt.Errorf("research: %s: the baseline was scored by the current judge; changing it now would compare tries against a stale best score", key)
 	}
 	if wasDefault {
 		cfg.JudgeArgv = defaultJudgeArgv(cfg, s.pinnedBinary(name), filepath.Join(s.Dir(name), "judge"), s.repo(name).dir)

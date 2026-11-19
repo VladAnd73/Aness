@@ -151,10 +151,9 @@ func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 	cfg.BestScore = cfg.StartScore
 	cfg.BestCommit = cfg.StartCommit
 	cfg.BestBytes = cfg.StartBytes
-	if err := n.s.Save(cfg); err != nil {
+	if err := n.save(cfg); err != nil {
 		return "", err
 	}
-	n.cfg = cfg
 	return "", n.log(Row{Try: 0, Score: cfg.BestScore, Status: "baseline",
 		Bytes: cfg.StartBytes, Commit: cfg.StartCommit, Description: "baseline"})
 }
@@ -164,6 +163,9 @@ func (n *night) baseline(ctx context.Context) (stopReason string, err error) {
 func (n *night) capReached(ctx context.Context, afterTry bool) string {
 	if ctx.Err() != nil {
 		return "interrupted"
+	}
+	if n.cfg.Status != StatusOn {
+		return "switched-off"
 	}
 	if afterTry {
 		used, err := n.d.WeeklyUsed(ctx)
@@ -189,32 +191,46 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 
 func (n *night) end(ctx context.Context) (NightSummary, error) {
 	cfg := n.cfg
-	cfg.Nights++
-	if n.sum.Kept > 0 {
-		cfg.NoGainNights = 0
-	} else {
-		cfg.NoGainNights++
+	// A night cut short by a signal or a failed quota read, with nothing
+	// kept, is no evidence about the campaign and uses no night.
+	counted := n.sum.Kept > 0 || (n.sum.StopReason != "interrupted" && n.sum.StopReason != "quota-read-failed")
+	autoOff := false
+	if counted {
+		cfg.Nights++
+		if n.sum.Kept > 0 {
+			cfg.NoGainNights = 0
+		} else {
+			cfg.NoGainNights++
+		}
+		if cfg.Status == StatusOn {
+			switch {
+			case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
+				cfg.Status, cfg.StopReason, autoOff = StatusOff, "no-gain", true
+			case cfg.Nights >= cfg.MaxNights:
+				cfg.Status, cfg.StopReason, autoOff = StatusOff, "max-nights", true
+			}
+		}
 	}
 	used := max(n.lastUsed-n.startUsed, 0)
 	cfg.QuotaUsed += used
-	switch {
-	case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
-		cfg.Status, cfg.StopReason = StatusOff, "no-gain"
-	case cfg.Nights >= cfg.MaxNights:
-		cfg.Status, cfg.StopReason = StatusOff, "max-nights"
-	}
-	if err := n.s.Save(cfg); err != nil {
+	if err := n.save(cfg); err != nil {
 		return n.sum, err
 	}
-	n.cfg = cfg
+	cfg = n.cfg
 	n.sum.EndScore = cfg.BestScore
-	section := fmt.Sprintf("## Night %d\n\n- started: %s\n- ended: %s\n- stop reason: %s\n- tries: %d\n- kept: %d\n- score: %.1f -> %.1f\n- quota used: %.1f points\n- judge cost so far: $%.2f\n\n",
-		n.num, n.started.UTC().Format(time.RFC3339), n.d.Now().UTC().Format(time.RFC3339), n.sum.StopReason,
+	heading := fmt.Sprintf("Night %d", n.num)
+	if !counted {
+		heading += " (not counted)"
+	}
+	section := fmt.Sprintf("## %s\n\n- started: %s\n- ended: %s\n- stop reason: %s\n- tries: %d\n- kept: %d\n- score: %.1f -> %.1f\n- quota used: %.1f points\n- judge cost so far: $%.2f\n\n",
+		heading, n.started.UTC().Format(time.RFC3339), n.d.Now().UTC().Format(time.RFC3339), n.sum.StopReason,
 		n.sum.Tries, n.sum.Kept, n.sum.StartScore, n.sum.EndScore, used, cfg.JudgeCostUSD)
 	if err := appendReport(n.s, cfg.Name, section); err != nil {
 		return n.sum, err
 	}
-	if cfg.Status == StatusOff && cfg.hasKeptChange() && ctx.Err() == nil {
+	// A manual off is a pause; only the engine's own switch-off ends the
+	// campaign.
+	if autoOff && cfg.Status == StatusOff && cfg.hasKeptChange() && ctx.Err() == nil {
 		if err := stopCampaign(ctx, n.s, cfg, cfg.StopReason, n.d); err != nil {
 			return n.sum, fmt.Errorf("research: night %d switched the campaign off, but stopping it failed: %w", n.num, err)
 		}

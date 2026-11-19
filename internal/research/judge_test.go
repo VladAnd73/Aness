@@ -104,3 +104,12 @@ func TestCommandJudgeCancelKillsProcessGroup(t *testing.T) {
 		}
 	}
 }
+
+// Every run crashing means the judge could not run the agent (an
+// expired login, say); a 0 from it is no score.
+func TestCommandJudgeAllRunsCrashedIsError(t *testing.T) {
+	j := scriptJudge(t, argsThenOut+`echo '{"score": 0, "runs": 3, "passed": 0, "crashes": 3}' > "$out"`+"\n")
+	if res, err := j.Run(context.Background(), "c", "main", filepath.Join(t.TempDir(), "r.json")); err == nil {
+		t.Errorf("Run = %+v, nil error; want every run crashed as an error", res)
+	}
+}

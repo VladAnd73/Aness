@@ -151,3 +151,23 @@ func TestDefaultStoreResearchDirWinsOverXDG(t *testing.T) {
 		t.Errorf("DefaultStore without the override = %q", s.Root)
 	}
 }
+
+func TestCreateFailureLeavesNoCampaignDir(t *testing.T) {
+	s := Store{Root: t.TempDir()}
+	live := filepath.Join(t.TempDir(), "demo")
+	os.MkdirAll(filepath.Join(live, ".git"), 0o700)
+	target := filepath.Join(live, "SKILL.md")
+	os.WriteFile(target, []byte("x\n"), 0o600)
+	goal := filepath.Join(t.TempDir(), "goal.md")
+	os.WriteFile(goal, []byte("g\n"), 0o600)
+	if _, err := s.Create("demo", target, goal, "maximize-score"); err == nil {
+		t.Fatal("Create copied a nested .git")
+	}
+	if _, err := os.Lstat(s.Dir("demo")); err == nil {
+		t.Errorf("failed Create left %s behind", s.Dir("demo"))
+	}
+	os.RemoveAll(filepath.Join(live, ".git"))
+	if _, err := s.Create("demo", target, goal, "maximize-score"); err != nil {
+		t.Errorf("retry after fixing the folder: %v", err)
+	}
+}

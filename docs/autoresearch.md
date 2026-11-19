@@ -75,7 +75,11 @@ spore research accept demo
   beside it as `SKILL.md.research-<campaign>.bak`. Inside the spore
   repo it never touches your checkout: it commits the winner on a new
   branch `research/<campaign>` through a temporary worktree. To turn it
-  into a PR:
+  into a PR. The live skill folder must match `HEAD` (no uncommitted or
+  untracked files), since the branch is cut from `HEAD`. A branch
+  `research/<campaign>` that already holds this winner (a run that died
+  after committing) is reused; any other branch of that name is refused.
+  To turn it into a PR:
 
   ```
   git push -u origin research/demo
@@ -104,7 +108,9 @@ plain: `set demo model haiku`, `set demo run_timeout 3m`.
 
 A change to `model`, `agent_binary`, `isolation`, `repeats`,
 `parallel` or `run_timeout` also rebuilds the judge command, as long as
-it is still the default `<pinned spore> eval judge ...` one.
+it is still the default `<pinned spore> eval judge ...` one. These six
+change what the judge measures, so they are refused once the baseline
+is scored: the best score would be stale.
 
 ## Before a night starts
 
@@ -115,9 +121,15 @@ another night holds the host-wide lock (`$XDG_RUNTIME_DIR/spore-research.lock`);
 campaign repo has uncommitted changes; the goal file is missing or
 empty; the weekly usage cannot be read.
 
-Between tries the night stops for, in this order: interrupted, a failed
-usage read (`quota-read-failed`, it never continues blind), the quota
-ceiling, the try cap, the hour cap. The first night of a campaign first
+Between tries the night stops for, in this order: interrupted, the
+campaign switched `off` (`switched-off`; `off` during a night takes
+effect after the current try and stays off), a failed usage read
+(`quota-read-failed`, it never continues blind), the quota ceiling, the
+try cap, the hour cap. A night stopped by `interrupted` or
+`quota-read-failed` with no kept try is not counted: it adds to neither
+the night count nor the no-gain count. A manual `off` never runs the
+holdout; only the engine's own switch-off (`no-gain`, `max-nights`)
+ends the campaign. The first night of a campaign first
 judges the starting file twice and records the mean as the baseline
 (try 0).
 
@@ -185,6 +197,8 @@ Statuses: `baseline`; `kept` (better on two judgings in a row);
 `rejected-length` (more than 70% longer than the starting file, not
 judged); `crash` (the editor failed, broke the target, touched a frozen
 file, or the judge failed; the repo is reset and the night goes on).
+A judging where every run crashed (an expired login, say) is a judge
+failure, never a score of 0.
 
 `report.md` gets a section per night (stop reason, tries, kept, score
 change, quota points used, judge cost so far) and, at `stop`, a final
@@ -216,7 +230,9 @@ an optional `files/` folder copied into the run first:
 Check kinds: `file-exists`, `file-matches`, `service-call` (tool plus
 `fields`), `tool-used`, `reply-contains`, each negatable with
 `"negate": true`, and `llm-judge` with a `rubric`, allowed only when
-the scenario sets `"llm_judge": true`. Try a set by hand with
+the scenario sets `"llm_judge": true`. The grader model gets no tools
+and, unless `isolation = none`, runs in the same sandbox as the agent
+under test, since it reads that agent's untrusted reply. Try a set by hand with
 `spore eval judge --scenarios-root DIR --skill NAME --candidate SKILL.md --set main --out r.json`.
 
 ## Extending

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/versality/spore/internal/evalharness"
@@ -85,14 +86,14 @@ func checkName(name string) error {
 // Create starts a draft campaign: it copies the target's whole folder
 // into a fresh campaign repo and commits it as "start". The live folder
 // is only read.
-func (s Store) Create(name, target, goalFile, objective string) (Config, error) {
+func (s Store) Create(name, target, goalFile, objective string) (_ Config, err error) {
 	if err := checkName(name); err != nil {
 		return Config{}, err
 	}
 	if _, err := LookupObjective(objective); err != nil {
 		return Config{}, err
 	}
-	target, err := filepath.Abs(target)
+	target, err = filepath.Abs(target)
 	if err != nil {
 		return Config{}, err
 	}
@@ -117,6 +118,13 @@ func (s Store) Create(name, target, goalFile, objective string) (Config, error) 
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return Config{}, fmt.Errorf("research: %w", err)
 	}
+	// A half-made campaign has no campaign.toml, so status cannot list
+	// it and every retry would hit "already exists".
+	defer func() {
+		if err != nil {
+			os.RemoveAll(dir)
+		}
+	}()
 	liveDir := filepath.Dir(target)
 	liveHash, err := HashTree(liveDir)
 	if err != nil {
@@ -259,6 +267,11 @@ func defaultJudgeArgv(cfg Config, pinned, judgeDir, repoDir string) []string {
 // SetOn switches a campaign on (from ready, or from off while nights
 // remain) or off (reason "manual").
 func (s Store) SetOn(name string, on bool) error {
+	unlock, err := s.lockConfig(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	cfg, err := s.Load(name)
 	if err != nil {
 		return err
@@ -279,4 +292,21 @@ func (s Store) SetOn(name string, on bool) error {
 		return fmt.Errorf("research: campaign %s is %s, not on", name, cfg.Status)
 	}
 	return s.Save(cfg)
+}
+
+// lockConfig serialises read-modify-write of one campaign.toml between
+// SetOn and a running night, which do not share the night lock.
+func (s Store) lockConfig(name string) (unlock func(), err error) {
+	f, err := os.OpenFile(filepath.Join(s.Dir(name), "campaign.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("research: campaign %s: %w", name, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("research: campaign %s: lock: %w", name, err)
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }

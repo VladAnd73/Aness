@@ -82,3 +82,19 @@ func TestSetRefusesWhileNightRuns(t *testing.T) {
 }
 
 func testLock(t *testing.T) string { return filepath.Join(t.TempDir(), "research.lock") }
+
+// The best score was measured by the old judge; a changed judge would
+// compare tries against a stale number.
+func TestSetRefusesJudgeKeysAfterBaseline(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.BestCommit, c.BestScore = c.StartCommit, 50 })
+	for _, kv := range [][2]string{
+		{"model", "opus"}, {"repeats", "5"}, {"parallel", "1"}, {"run_timeout", "9m"}, {"isolation", "none"}, {"agent_binary", "/bin/x"},
+	} {
+		if err := f.store.Set(f.name, kv[0], kv[1], testLock(t)); err == nil || !strings.Contains(err.Error(), "baseline") {
+			t.Errorf("Set %s after the baseline = %v, want a refusal naming the baseline", kv[0], err)
+		}
+	}
+	if err := f.store.Set(f.name, "max_tries_per_night", "4", testLock(t)); err != nil {
+		t.Errorf("Set max_tries_per_night after the baseline: %v", err)
+	}
+}
