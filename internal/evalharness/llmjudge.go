@@ -2,6 +2,7 @@ package evalharness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,16 +25,18 @@ Judge only the reply against the rubric. End your answer with exactly one line: 
 `
 
 // gradeLLM asks the grader model whether reply meets the rubric. Only a
-// last VERDICT line reading exactly "VERDICT: PASS" passes.
-func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, reply string) (bool, error) {
+// last VERDICT line reading exactly "VERDICT: PASS" passes. crash names
+// a grader run that failed; err is a grader that never ran, which fails
+// the whole judge like the agent's own setup errors.
+func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, reply string) (pass bool, crash string, err error) {
 	rubric, err := os.ReadFile(rubricPath)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	wd, home := filepath.Join(sb.Root, "grader"), filepath.Join(sb.Root, "grader-home")
 	for _, d := range []string{wd, home} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return false, err
+			return false, "", err
 		}
 	}
 	// The reply is untrusted text from the agent under test: the grader
@@ -55,11 +58,13 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 	rctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
 	res, err := o.Grader.Spawn(rctx, req)
-	if err != nil {
-		return false, err
-	}
-	if res.ExitCode != 0 {
-		return false, fmt.Errorf("exit %d", res.ExitCode)
+	switch {
+	case errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
+		return false, "timeout", nil
+	case res.ExitCode != 0:
+		return false, fmt.Sprintf("exit %d", res.ExitCode), nil
+	case err != nil:
+		return false, "", fmt.Errorf("grader: %w", err)
 	}
 	verdict := ""
 	for _, line := range strings.Split(res.Stdout, "\n") {
@@ -67,5 +72,5 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 			verdict = line
 		}
 	}
-	return verdict == "VERDICT: PASS", nil
+	return verdict == "VERDICT: PASS", "", nil
 }

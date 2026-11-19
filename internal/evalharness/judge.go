@@ -126,6 +126,10 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 		return JudgeReport{}, fmt.Errorf("evalharness: judge: candidate: %w", err)
 	}
 
+	// The first judge error cancels the runs still waiting: they could
+	// only spend quota on a judgement that is already void.
+	jctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	outcomes := make([][]runOutcome, len(set))
 	var (
 		wg       sync.WaitGroup
@@ -141,11 +145,15 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				out, err := runOnce(ctx, o, sc)
+				if jctx.Err() != nil {
+					return
+				}
+				out, err := runOnce(jctx, o, sc)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil && firstErr == nil {
 					firstErr = fmt.Errorf("evalharness: judge: scenario %s run %d: %w", sc.Name, ri+1, err)
+					cancel()
 				}
 				outcomes[si][ri] = out
 			}()
@@ -303,9 +311,12 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	}
 	if pass {
 		for _, c := range judged {
-			ok, err := gradeLLM(ctx, o, sb, filepath.Join(sc.Dir, c.Rubric), stream.FinalReply)
+			ok, crash, err := gradeLLM(ctx, o, sb, filepath.Join(sc.Dir, c.Rubric), stream.FinalReply)
 			if err != nil {
-				run.Crashed, run.Reason = true, "grader: "+err.Error()
+				return runOutcome{}, err
+			}
+			if crash != "" {
+				run.Crashed, run.Reason = true, "grader: "+crash
 				out.report = run
 				return out, nil
 			}

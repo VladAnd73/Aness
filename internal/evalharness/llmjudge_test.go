@@ -2,6 +2,7 @@ package evalharness
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -122,5 +123,21 @@ func TestLLMJudgeGraderRunsInsideTheSandbox(t *testing.T) {
 	}
 	if !slices.Equal(greq.Env, greq.Isolate.Env) {
 		t.Errorf("grader env = %v, want the sandbox's own env", greq.Env)
+	}
+}
+
+// A grader that never started is the judge failing, like the agent's
+// own setup errors; a crashed run would score the candidate down.
+func TestLLMJudgeGraderSetupErrorFailsTheJudge(t *testing.T) {
+	grader := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("isolated spawn: credentials expire too soon")
+	}}
+	agent := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{Stdout: resultLine("reply", 0)}, nil
+	}}
+	o := judgeOpts(t, writeJudgedSet(t), agent)
+	o.Repeats, o.Grader = 1, grader
+	if rep, err := RunJudge(context.Background(), o); err == nil {
+		t.Errorf("RunJudge = %+v, nil error; want the grader setup failure as an error", rep)
 	}
 }

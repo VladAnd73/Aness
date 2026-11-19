@@ -420,3 +420,17 @@ func TestJudgeWithoutSandboxParentLeavesNoSandbox(t *testing.T) {
 		t.Errorf("TMPDIR holds %v after the judge, want nothing left behind", names)
 	}
 }
+
+func TestJudgeFirstSpawnErrorCancelsRemainingRuns(t *testing.T) {
+	sp := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("no login")
+	}}
+	o := judgeOpts(t, writeSet(t, "pass a", "pass b"), sp)
+	o.Repeats, o.Parallel = 3, 1
+	if _, err := RunJudge(context.Background(), o); err == nil {
+		t.Fatal("RunJudge: want an error")
+	}
+	if n := len(sp.reqs); n != 1 {
+		t.Errorf("spawned %d runs after the first failed, want 1: the rest only spend quota", n)
+	}
+}
