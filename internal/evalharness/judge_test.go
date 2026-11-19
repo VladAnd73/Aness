@@ -3,6 +3,7 @@ package evalharness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -385,5 +386,37 @@ func TestRunJudgeFakeServiceFailureIsCrash(t *testing.T) {
 	}
 	if run := firstRun(t, rep); run.Pass || !run.Crashed {
 		t.Errorf("fake services failed mid-run: run = %+v, want a crash", run)
+	}
+}
+
+// A spawn that never started an agent (no binary, no login, bwrap
+// refused) is the judge failing, not a run the candidate lost.
+func TestJudgeSpawnSetupErrorFailsTheJudge(t *testing.T) {
+	sp := &scriptSpawner{fn: func(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("isolated spawn: exec: \"claude\": executable file not found in $PATH")
+	}}
+	o := judgeOpts(t, writeSet(t, "pass a"), sp)
+	o.Repeats = 1
+	rep, err := RunJudge(context.Background(), o)
+	if err == nil {
+		t.Fatalf("RunJudge = %+v, nil error; want the setup failure as an error, never a score", rep)
+	}
+}
+
+func TestJudgeWithoutSandboxParentLeavesNoSandbox(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	o := judgeOpts(t, writeSet(t, "pass a"), &scriptSpawner{fn: replyOK})
+	o.Repeats, o.SandboxParent = 2, ""
+	if _, err := RunJudge(context.Background(), o); err != nil {
+		t.Fatalf("RunJudge: %v", err)
+	}
+	left, _ := os.ReadDir(tmp)
+	var names []string
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	if len(names) != 0 {
+		t.Errorf("TMPDIR holds %v after the judge, want nothing left behind", names)
 	}
 }

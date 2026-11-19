@@ -22,9 +22,11 @@ const AllowUnsandboxedEnv = "SPORE_RESEARCH_ALLOW_UNSANDBOXED"
 
 // JudgeOptions configures one judge run over one scenario set. Zero
 // Repeats, Parallel and Timeout take the defaults 3, 3 and 5 minutes.
-// Spawner defaults to IsolatedSpawner on AgentBinary (ClaudeSpawner for
-// Isolation "none"); Grader defaults to ClaudeSpawner. Services starts
-// a scenario's fake services and defaults to FakeServices.
+// Spawner and Grader default to IsolatedSpawner on AgentBinary
+// (ClaudeSpawner for Isolation "none"). An empty SandboxParent means a
+// temp dir removed when the judge returns, transcripts included.
+// Services starts a scenario's fake services and defaults to
+// FakeServices.
 type JudgeOptions struct {
 	SetDir, Candidate, FrozenDir, SkillName, Model, AgentBinary, Isolation, SandboxParent string
 	Repeats, Parallel                                                                     int
@@ -86,7 +88,12 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 		o.Timeout = 5 * time.Minute
 	}
 	if o.SandboxParent == "" {
-		o.SandboxParent = os.TempDir()
+		tmp, err := os.MkdirTemp("", "spore-judge-")
+		if err != nil {
+			return JudgeReport{}, fmt.Errorf("evalharness: judge: %w", err)
+		}
+		defer os.RemoveAll(tmp)
+		o.SandboxParent = tmp
 	}
 	if o.Spawner == nil {
 		if o.Isolation == "none" {
@@ -99,7 +106,11 @@ func RunJudge(ctx context.Context, o JudgeOptions) (JudgeReport, error) {
 		o.Services = FakeServices()
 	}
 	if o.Grader == nil {
-		o.Grader = ClaudeSpawner{Binary: o.AgentBinary}
+		if o.Isolation == "none" {
+			o.Grader = ClaudeSpawner{Binary: o.AgentBinary}
+		} else {
+			o.Grader = IsolatedSpawner{Binary: o.AgentBinary}
+		}
 	}
 	if err := checkIsolation(o.Isolation); err != nil {
 		return JudgeReport{}, err
@@ -258,7 +269,9 @@ func runOnce(ctx context.Context, o JudgeOptions, sc DataScenario) (runOutcome, 
 	case res.ExitCode != 0:
 		run.Reason = fmt.Sprintf("exit %d", res.ExitCode)
 	case spawnErr != nil:
-		run.Reason = "spawn: " + spawnErr.Error()
+		// Exit 0 with an error means no agent ever ran: a missing binary,
+		// login or sandbox fails the judge instead of scoring a loss.
+		return runOutcome{}, fmt.Errorf("spawn: %w", spawnErr)
 	case !stream.SawResult:
 		run.Reason = "no result line"
 	case servicesErr != nil:

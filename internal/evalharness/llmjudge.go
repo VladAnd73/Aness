@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/versality/spore/internal/isolate"
 )
 
 const graderPrompt = `You grade one reply from an AI agent against a rubric.
@@ -28,22 +30,31 @@ func gradeLLM(ctx context.Context, o JudgeOptions, sb *Sandbox, rubricPath, repl
 	if err != nil {
 		return false, err
 	}
-	wd := filepath.Join(sb.Root, "grader")
-	if err := os.MkdirAll(wd, 0o755); err != nil {
-		return false, err
+	wd, home := filepath.Join(sb.Root, "grader"), filepath.Join(sb.Root, "grader-home")
+	for _, d := range []string{wd, home} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return false, err
+		}
 	}
-	args := []string{"--strict-mcp-config"}
+	// The reply is untrusted text from the agent under test: the grader
+	// gets no tools to act on it and, unless unsandboxed, the same jail.
+	args := []string{"--tools", "", "--strict-mcp-config"}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
-	rctx, cancel := context.WithTimeout(ctx, o.Timeout)
-	defer cancel()
-	res, err := o.Grader.Spawn(rctx, SpawnRequest{
+	req := SpawnRequest{
 		Prompt:    fmt.Sprintf(graderPrompt, rubric, reply),
 		WorkDir:   wd,
 		Env:       sb.Env(),
 		ExtraArgs: args,
-	})
+	}
+	if o.Isolation != "none" {
+		spec := isolate.Spec{Work: wd, Home: home, Credentials: isolate.CredentialsPath(), Env: isolate.BaseEnv(home)}
+		req.Env, req.Isolate = spec.Env, &spec
+	}
+	rctx, cancel := context.WithTimeout(ctx, o.Timeout)
+	defer cancel()
+	res, err := o.Grader.Spawn(rctx, req)
 	if err != nil {
 		return false, err
 	}
