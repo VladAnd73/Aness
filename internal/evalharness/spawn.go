@@ -157,7 +157,7 @@ func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResu
 	if err != nil {
 		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
 	}
-	cmd, started, err := isolate.WatchedCommand(ctx, *req.Isolate, append([]string{path}, claudeArgs(req)...))
+	cmd, ran, err := isolate.WatchedCommand(ctx, *req.Isolate, append([]string{path}, claudeArgs(req)...))
 	if err != nil {
 		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
 	}
@@ -169,7 +169,7 @@ func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResu
 	stdout, code, err := RunCommand(cmd)
 	// bwrap's own exit code is no agent's: exit 0 with an error tells the
 	// caller that nothing ran, so it fails the judge instead of scoring.
-	if !started() && ctx.Err() == nil {
+	if !ran() && ctx.Err() == nil {
 		return SpawnResult{Stdout: stdout}, fmt.Errorf("evalharness: isolated spawn: the sandbox did not start (bwrap exit %d): %s", code, strings.TrimSpace(stdout))
 	}
 	if err != nil {

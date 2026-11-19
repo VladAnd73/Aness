@@ -1,6 +1,7 @@
 package isolate
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -173,5 +174,33 @@ func TestCredentialsPathLookup(t *testing.T) {
 	t.Setenv("AGENT_BUDGET_CREDS", "/x.json")
 	if got := CredentialsPath(); got != "/x.json" {
 		t.Errorf("override: %q", got)
+	}
+}
+
+// The status-fd flag belongs before the separator Args ends with; argv
+// and env values may hold their own "--".
+func TestWatchedCommandPutsStatusFlagBeforeArgsSeparator(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bwrap"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	s := Spec{Work: dir, Home: dir, Env: []string{"X=--"}}
+	argv := []string{"/bin/agent", "-p", "--", "prompt"}
+	cmd, _, err := WatchedCommand(context.Background(), s, argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, f := range cmd.ExtraFiles {
+			f.Close()
+		}
+	}()
+	base := Args(s)
+	got := cmd.Args[1:]
+	n := len(base) - 1
+	if len(got) != len(base)+2+len(argv) || !slices.Equal(got[:n], base[:n]) || got[n] != "--json-status-fd" ||
+		!slices.Equal(got[n+2:], append([]string{"--"}, argv...)) {
+		t.Errorf("args = %q\nwant Args up to its final --, then --json-status-fd FD, then -- and argv", got)
 	}
 }

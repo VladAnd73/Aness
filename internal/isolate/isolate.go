@@ -141,11 +141,12 @@ func Command(ctx context.Context, s Spec, argv []string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// WatchedCommand is Command plus started, which, once the command has
-// run, reports whether bwrap built the sandbox and started argv. bwrap
-// writes its child's pid to --info-fd only then, so a bwrap that
-// refused (no user namespaces, a bad mount) exits without writing it.
-func WatchedCommand(ctx context.Context, s Spec, argv []string) (cmd *exec.Cmd, started func() bool, err error) {
+// WatchedCommand is Command plus ran, which, once the command has run,
+// reports whether bwrap started argv at all. bwrap writes "exit-code" to
+// --json-status-fd only for a command it started (a signal kill too,
+// as 128+n); a refused uid map, a missing mount source or a failed exec
+// leaves only the "child-pid" line it writes right after clone.
+func WatchedCommand(ctx context.Context, s Spec, argv []string) (cmd *exec.Cmd, ran func() bool, err error) {
 	if cmd, err = Command(ctx, s, argv); err != nil {
 		return nil, nil, err
 	}
@@ -158,8 +159,9 @@ func WatchedCommand(ctx context.Context, s Spec, argv []string) (cmd *exec.Cmd, 
 	}
 	fd := fmt.Sprint(3 + len(cmd.ExtraFiles))
 	cmd.ExtraFiles = append(cmd.ExtraFiles, w)
-	sep := slices.Index(cmd.Args, "--")
-	cmd.Args = slices.Concat(cmd.Args[:sep], []string{"--info-fd", fd}, cmd.Args[sep:])
+	// Args ends with its own "--"; argv and env values may hold another.
+	base := Args(s)
+	cmd.Args = slices.Concat(cmd.Args[:1], base[:len(base)-1], []string{"--json-status-fd", fd, "--"}, argv)
 	return cmd, func() bool {
 		defer r.Close()
 		w.Close()
@@ -167,7 +169,7 @@ func WatchedCommand(ctx context.Context, s Spec, argv []string) (cmd *exec.Cmd, 
 		// wrote is already buffered.
 		r.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		b, _ := io.ReadAll(r)
-		return strings.Contains(string(b), "child-pid")
+		return strings.Contains(string(b), `"exit-code"`)
 	}, nil
 }
 

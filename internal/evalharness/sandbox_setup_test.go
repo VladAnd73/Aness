@@ -9,10 +9,11 @@ import (
 	"github.com/versality/spore/internal/isolate"
 )
 
-// fakeBwrap puts a bwrap on PATH. A refusing one fails a real sandbox
-// the way an unprivileged host does at runtime (the Available probe
-// still passes); a working one reports the sandbox started on
-// --info-fd, then runs the command after "--".
+// fakeBwrap puts a bwrap on PATH that reports like real bwrap 0.12:
+// child-pid on the status fd right after clone, before any setup, and
+// exit-code only once the command ran. A refusing one then fails setup
+// the way an unprivileged host does at runtime (the Available probe,
+// which has no --unshare-pid, still passes).
 func fakeBwrap(t *testing.T, refuse bool) {
 	t.Helper()
 	dir := t.TempDir()
@@ -23,10 +24,15 @@ func fakeBwrap(t *testing.T, refuse bool) {
 done
 `
 	}
-	script := "#!/bin/sh\n" + refusal + `while [ $# -gt 0 ]; do
+	script := "#!/bin/sh\n" + `fd=
+for a in "$@"; do
+  [ "$prev" = --json-status-fd ] || [ "$prev" = --info-fd ] && fd=$a
+  prev=$a
+done
+[ -n "$fd" ] && eval "echo '{ \"child-pid\": 2 }' >&$fd"
+` + refusal + `while [ $# -gt 0 ]; do
   case "$1" in
-    --info-fd) eval "echo '{\"child-pid\": 2}' >&$2"; shift 2 ;;
-    --) shift; exec "$@" ;;
+    --) shift; "$@"; code=$?; [ -n "$fd" ] && eval "echo '{ \"exit-code\": $code }' >&$fd"; exit $code ;;
     *) shift ;;
   esac
 done
@@ -39,7 +45,14 @@ done
 
 func exitingAgent(t *testing.T, code string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "agent")
+	return exitingAgentIn(t, t.TempDir(), code)
+}
+
+// exitingAgentIn writes the agent into dir; a real sandbox sees only
+// its work dir, not the host's /tmp.
+func exitingAgentIn(t *testing.T, dir, code string) string {
+	t.Helper()
+	p := filepath.Join(dir, "agent")
 	if err := os.WriteFile(p, []byte("#!/bin/sh\necho reply\nexit "+code+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +63,9 @@ func sandboxReq(t *testing.T) SpawnRequest {
 	t.Helper()
 	root := t.TempDir()
 	spec := isolate.Spec{Work: root, Home: filepath.Join(root, "home"), Env: []string{"PATH=/bin"}}
+	if err := os.MkdirAll(spec.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	return SpawnRequest{Prompt: "x", WorkDir: root, Env: spec.Env, Isolate: &spec}
 }
 
@@ -82,5 +98,25 @@ func TestLLMJudgeGraderSandboxRefusalFailsTheJudge(t *testing.T) {
 	o.Grader = IsolatedSpawner{Binary: exitingAgent(t, "0")}
 	if rep, err := RunJudge(context.Background(), o); err == nil {
 		t.Errorf("RunJudge = %+v, nil error; want the grader's sandbox refusal as an error", rep)
+	}
+}
+
+// Real bwrap, failing a mount after it reported the child's pid.
+func TestIsolatedSpawnerRealBwrapSetupFailureIsNoAgentRun(t *testing.T) {
+	requireBwrap(t)
+	req := sandboxReq(t)
+	req.Isolate.Extra = []isolate.Bind{{Src: filepath.Join(t.TempDir(), "missing"), Dst: "/missing"}}
+	res, err := IsolatedSpawner{Binary: exitingAgentIn(t, req.WorkDir, "0")}.Spawn(context.Background(), req)
+	if err == nil || res.ExitCode != 0 {
+		t.Errorf("Spawn with a missing bind source = exit %d, err %v; want exit 0 and an error", res.ExitCode, err)
+	}
+}
+
+func TestIsolatedSpawnerRealBwrapAgentExitKeepsItsCode(t *testing.T) {
+	requireBwrap(t)
+	req := sandboxReq(t)
+	res, err := IsolatedSpawner{Binary: exitingAgentIn(t, req.WorkDir, "3")}.Spawn(context.Background(), req)
+	if res.ExitCode != 3 {
+		t.Errorf("agent exit code %d (err %v), want 3", res.ExitCode, err)
 	}
 }
