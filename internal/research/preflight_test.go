@@ -13,13 +13,13 @@ func TestPreflightRefusesWhenLockHeld(t *testing.T) {
 	f := newCampaign(t, nil)
 	ed, j := &fakeEditor{}, &fakeJudge{scores: []float64{50}}
 	d := f.deps(ed, j)
-	unlock, _, err := Lock(d.LockPath, "other-campaign")
+	unlock, _, err := Lock(d.LockPath, "night of other-campaign")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 	_, err = RunNight(context.Background(), f.store, f.name, d)
-	wantRefused(t, err, ed, j, "another night holds the lock", "other-campaign")
+	wantRefused(t, err, ed, j, "the night of other-campaign holds the lock")
 }
 
 func TestPreflightRefusesDirtyRepo(t *testing.T) {

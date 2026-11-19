@@ -28,11 +28,8 @@ func (s Store) Set(name, key, value string) error {
 	if !slices.Contains(SettableKeys, key) {
 		return fmt.Errorf("research: %q is not a settable key (want one of %s)", key, strings.Join(SettableKeys, ", "))
 	}
-	h, holder, err := s.lockLoad(name, campaignNight, "")
+	h, err := s.lockLoad(name, lockOp{what: "set", scope: campaignNight})
 	if err != nil {
-		if holder != "" {
-			return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); set it after that ends", name, holder)
-		}
 		return err
 	}
 	defer h.release()

@@ -21,11 +21,8 @@ const sporeModule = "github.com/versality/spore"
 // spore repo it commits the winner on a new research/<campaign> branch
 // through a temporary worktree, so the operator's checkout never moves.
 func Accept(s Store, name string, force bool) (AcceptResult, error) {
-	h, holder, err := s.lockLoad(name, campaignNight, "")
+	h, err := s.lockLoad(name, lockOp{what: "accept", scope: campaignNight})
 	if err != nil {
-		if holder != "" {
-			return AcceptResult{}, fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s)", name, holder)
-		}
 		return AcceptResult{}, err
 	}
 	defer h.release()

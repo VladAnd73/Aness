@@ -165,3 +165,107 @@ func TestNightLocksAreHostWideOnlyForSpending(t *testing.T) {
 		t.Errorf("B after A's night: status %s, max nights %d; want on and 9", cfg.Status, cfg.MaxNights)
 	}
 }
+
+// A night or stop of a campaign that may not run must not take the
+// host-wide lock even briefly: another campaign's night would be refused.
+func TestNightAndStopCheckStatusBeforeHostLock(t *testing.T) {
+	f := newCampaign(t, nil)
+	unlock, _, err := Lock(f.lockPath(), "night of other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if err := f.store.SetOn(f.name, false); err != nil {
+		t.Fatal(err)
+	}
+	_, err = RunNight(context.Background(), f.store, f.name, f.deps(&fakeEditor{}, &fakeJudge{}))
+	if err == nil || !strings.Contains(err.Error(), "not on") {
+		t.Errorf("night of an off campaign = %v; want it refused for being off, before the host lock", err)
+	}
+	cfg := f.load(t)
+	cfg.Status = StatusStopped
+	f.store.Save(cfg)
+	err = Stop(context.Background(), f.store, f.name, "operator", f.deps(&fakeEditor{}, &fakeJudge{}))
+	if err == nil || !strings.Contains(err.Error(), "can be stopped") {
+		t.Errorf("stop of a stopped campaign = %v; want it refused for its status, before the host lock", err)
+	}
+}
+
+func TestUnknownCampaignSaysNotFound(t *testing.T) {
+	f := newCampaign(t, nil)
+	d := f.deps(&fakeEditor{}, &fakeJudge{})
+	calls := map[string]func() error{
+		"reset":  func() error { _, err := Reset(f.store, "typo"); return err },
+		"accept": func() error { _, err := Accept(f.store, "typo", false); return err },
+		"on":     func() error { return f.store.SetOn("typo", true) },
+		"off":    func() error { return f.store.SetOn("typo", false) },
+		"set":    func() error { return f.store.Set("typo", "max_nights", "3") },
+		"stop":   func() error { return Stop(context.Background(), f.store, "typo", "operator", d) },
+		"night":  func() error { _, err := RunNight(context.Background(), f.store, "typo", d); return err },
+	}
+	for what, call := range calls {
+		if err := call(); err == nil || !strings.Contains(err.Error(), "campaign typo") || strings.Contains(err.Error(), ".lock") {
+			t.Errorf("%s typo = %v; want the campaign-not-found error, not a lock error", what, err)
+		}
+	}
+	if _, err := os.Stat(f.store.Dir("typo")); err == nil {
+		t.Errorf("a call on an unknown campaign created its folder")
+	}
+}
+
+// A writer holding a campaign's lock is named for what it is doing, so
+// a refused night does not blame a night that is not running.
+func TestRefusalNamesTheWriterHoldingTheLock(t *testing.T) {
+	f := newCampaign(t, nil)
+	var nightErr, setErr error
+	j := &fakeJudge{holdout: func([]byte) float64 {
+		if nightErr == nil {
+			_, nightErr = RunNight(context.Background(), f.store, f.name, f.deps(&fakeEditor{}, &fakeJudge{}))
+			setErr = f.store.Set(f.name, "max_nights", "3")
+		}
+		return 70
+	}}
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	f.store.Save(cfg)
+	if err := Stop(context.Background(), f.store, f.name, "operator", f.deps(&fakeEditor{}, j)); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	for what, err := range map[string]error{"night": nightErr, "set": setErr} {
+		if err == nil || !strings.Contains(err.Error(), "stop of "+f.name) || strings.Contains(err.Error(), "another night") {
+			t.Errorf("%s during a stop = %v; want a refusal naming the stop of %s", what, err, f.name)
+		}
+	}
+}
+
+// A stop whose final save fails has already spent the holdout; a retry
+// must reuse its result, not run and pay for it again.
+func TestStopRetryReusesTheSpentHoldout(t *testing.T) {
+	f := newCampaign(t, nil)
+	cfg := f.load(t)
+	cfg.BestCommit = newBest(t, f, "better\n")
+	f.store.Save(cfg)
+	good, err := os.ReadFile(filepath.Join(f.store.Dir(f.name), "campaign.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toml := filepath.Join(f.store.Dir(f.name), "campaign.toml")
+	j := &fakeJudge{}
+	j.holdout = func([]byte) float64 {
+		if j.holdoutCalls == 4 {
+			os.WriteFile(toml, []byte("not a config\n"), 0o600)
+		}
+		return 70
+	}
+	d := f.deps(&fakeEditor{}, j)
+	if err := Stop(context.Background(), f.store, f.name, "operator", d); err == nil {
+		t.Fatal("Stop with an unreadable config after the holdout: want an error")
+	}
+	os.WriteFile(toml, good, 0o600)
+	if err := Stop(context.Background(), f.store, f.name, "operator", d); err != nil {
+		t.Fatalf("retried Stop: %v", err)
+	}
+	if cfg := f.load(t); j.holdoutCalls != 4 || cfg.Status != StatusStopped || cfg.HoldoutVerdict != "pass" {
+		t.Errorf("holdout calls %d, status %s, verdict %q; want 4 calls in all, stopped, pass", j.holdoutCalls, cfg.Status, cfg.HoldoutVerdict)
+	}
+}

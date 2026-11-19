@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,11 +17,17 @@ func preflight(ctx context.Context, s Store, name string, d Deps) (*held, float6
 	refuse := func(format string, a ...any) (*held, float64, error) {
 		return nil, 0, &RefusedError{Reason: fmt.Sprintf(format, a...)}
 	}
-	h, holder, err := s.lockLoad(name, hostNight, d.LockPath)
-	if err != nil {
-		if holder != "" {
-			return refuse("another night holds the lock: %s", holder)
+	h, err := s.lockLoad(name, lockOp{what: "night", scope: hostNight, host: d.LockPath, check: func(cfg Config) error {
+		if cfg.Status != StatusOn {
+			return &RefusedError{Reason: fmt.Sprintf("campaign %s is %s, not on", cfg.Name, cfg.Status)}
 		}
+		return nil
+	}})
+	var busy *BusyError
+	if errors.As(err, &busy) {
+		return refuse("%s", busy.Reason())
+	}
+	if err != nil {
 		return nil, 0, err
 	}
 	h.releaseConfig()
@@ -31,9 +38,6 @@ func preflight(ctx context.Context, s Store, name string, d Deps) (*held, float6
 		}
 	}()
 	cfg := h.cfg
-	if cfg.Status != StatusOn {
-		return refuse("campaign %s is %s, not on", cfg.Name, cfg.Status)
-	}
 	if d.Room == nil {
 		return refuse("budget room said: no room check configured")
 	}

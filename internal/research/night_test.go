@@ -541,7 +541,7 @@ func TestInterruptedLastNightTellsHowToFinish(t *testing.T) {
 }
 
 // A judge that fails before scoring anything (missing grader, short
-// credentials) fails every try the same way: end the night at once.
+// credentials) fails every try the same way: two in a row end the night.
 func TestJudgeSetupFailureEndsTheNight(t *testing.T) {
 	f := newCampaign(t, func(c *Config) {
 		c.MaxTriesPerNight = 5
@@ -549,17 +549,38 @@ func TestJudgeSetupFailureEndsTheNight(t *testing.T) {
 	})
 	script := filepath.Join(t.TempDir(), "judge")
 	os.WriteFile(script, []byte("#!/bin/sh\necho 'credentials expire too soon' >&2\nexit 1\n"), 0o700)
-	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n")}}
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n"), appendBytes("three\n")}}
 	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, CommandJudge{Argv: []string{script}}))
 	if err != nil {
 		t.Fatalf("RunNight: %v", err)
 	}
 	cfg := f.load(t)
-	if sum.StopReason != "judge-failed" || ed.calls != 1 || cfg.Nights != 2 || cfg.NoGainNights != 0 {
-		t.Errorf("stop %q, editor calls %d, nights %d, no-gain %d; want judge-failed after 1 try, nights 2, no-gain 0", sum.StopReason, ed.calls, cfg.Nights, cfg.NoGainNights)
+	if sum.StopReason != "judge-failed" || ed.calls != 2 || cfg.Nights != 2 || cfg.NoGainNights != 0 {
+		t.Errorf("stop %q, editor calls %d, nights %d, no-gain %d; want judge-failed after 2 tries, nights 2, no-gain 0", sum.StopReason, ed.calls, cfg.Nights, cfg.NoGainNights)
 	}
 	if row := f.lastRow(t); row["status"] != "crash" {
 		t.Errorf("last row %v, want the try logged as a crash", row)
+	}
+}
+
+// One failure (an OOM kill, a transient spawn error) is a crashed try,
+// not a broken judge.
+func TestOneJudgeFailureDoesNotEndTheNight(t *testing.T) {
+	f := newCampaign(t, func(c *Config) {
+		c.MaxTriesPerNight = 3
+		c.BestCommit, c.StartScore, c.BestScore, c.Nights = c.StartCommit, 50, 50, 1
+	})
+	dir := t.TempDir()
+	script := filepath.Join(dir, "judge")
+	os.WriteFile(script, []byte("#!/bin/sh\nm="+filepath.Join(dir, "failed-once")+"\n[ -e $m ] || { touch $m; exit 1; }\n"+
+		"while [ $# -gt 0 ]; do [ \"$1\" = --out ] && out=$2; shift; done\necho '{\"score\":40,\"runs\":3}' > \"$out\"\n"), 0o700)
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n"), appendBytes("two\n"), appendBytes("three\n")}}
+	sum, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, CommandJudge{Argv: []string{script}}))
+	if err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if sum.StopReason != "max-tries" || ed.calls != 3 {
+		t.Errorf("stop %q after %d tries; want max-tries after 3", sum.StopReason, ed.calls)
 	}
 }
 

@@ -87,12 +87,16 @@ func (n *night) try(ctx context.Context) (interrupted bool, err error) {
 		}
 		if err != nil {
 			os.WriteFile(filepath.Join(tdir, "crash.txt"), []byte(err.Error()+"\n"), 0o600)
-			// A judge that failed outright would fail every try the same way.
+			// One outright failure may be an OOM kill or a blip; two in a
+			// row is a judge that will fail every try the same way.
 			if errors.Is(err, ErrJudgeFailed) {
-				n.sum.StopReason = "judge-failed"
+				if n.judgeFailures++; n.judgeFailures >= 2 {
+					n.sum.StopReason = "judge-failed"
+				}
 			}
 			return crash("judge failed", nil)
 		}
+		n.judgeFailures = 0
 		n.cfg.JudgeCostUSD += jr.CostUSD
 		total += jr.Score
 		row.Score = roundScore(total / float64(i))
@@ -133,7 +137,7 @@ func (n *night) reset(row Row) error {
 // its night locks, so only an off can change the config on disk; that
 // off wins over the night's in-memory "on" before apply sees it.
 func (n *night) update(apply func(*Config)) error {
-	h, _, err := n.s.lockLoad(n.cfg.Name, noNight, "")
+	h, err := n.s.lockLoad(n.cfg.Name, lockOp{})
 	if err != nil {
 		return err
 	}

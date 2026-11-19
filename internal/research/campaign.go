@@ -218,11 +218,8 @@ func copyFolder(src, dst string) error {
 // judgeArgv means `<pinned spore> eval judge` with the campaign's
 // flags; a non-empty one is a different judge command used verbatim.
 func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) (Config, error) {
-	h, holder, err := s.lockLoad(name, campaignNight, "")
+	h, err := s.lockLoad(name, lockOp{what: "judge approve", scope: campaignNight})
 	if err != nil {
-		if holder != "" {
-			return Config{}, fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s)", name, holder)
-		}
 		return Config{}, err
 	}
 	defer h.release()
@@ -299,23 +296,20 @@ func (s Store) SetOn(name string, on bool) error {
 	if on {
 		scope = campaignNight
 	}
-	h, holder, err := s.lockLoad(name, scope, "")
+	h, err := s.lockLoad(name, lockOp{what: "on", scope: scope})
 	if err != nil {
-		if holder != "" {
-			return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); switch it on after that ends", name, holder)
-		}
 		return err
 	}
 	defer h.release()
 	cfg := h.cfg
 	switch {
+	case on && cfg.holdoutPending():
+		return fmt.Errorf("research: campaign %s switched off (%s) with its holdout not run; run `spore research stop %s` to run it and end the campaign", name, cfg.StopReason, name)
 	case on && cfg.Status == StatusReady, on && cfg.Status == StatusOff && cfg.Nights < cfg.MaxNights:
 		cfg.Status, cfg.StopReason = StatusOn, ""
 		if cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain {
 			cfg.NoGainNights = 0
 		}
-	case on && cfg.Status == StatusOff && cfg.hasKeptChange():
-		return fmt.Errorf("research: campaign %s used all %d nights; run `spore research stop %s` to run the holdout and end it", name, cfg.MaxNights, name)
 	case on:
 		return fmt.Errorf("research: campaign %s is %s (nights %d of %d); it cannot be switched on", name, cfg.Status, cfg.Nights, cfg.MaxNights)
 	case cfg.Status == StatusOn:

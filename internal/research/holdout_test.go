@@ -144,3 +144,33 @@ func TestNightSwitchingOffWithKeptChangeStops(t *testing.T) {
 		t.Errorf("status %q reason %q holdout calls %d notes %v", cfg.Status, cfg.StopReason, j.holdoutCalls, *f.notes)
 	}
 }
+
+type holdoutFailJudge struct{ *fakeJudge }
+
+func (j holdoutFailJudge) Run(ctx context.Context, candidate, set, outPath string) (JudgeResult, error) {
+	if set == "holdout" {
+		return JudgeResult{}, errors.New("holdout judge broke")
+	}
+	return j.fakeJudge.Run(ctx, candidate, set, outPath)
+}
+
+// An auto-off with a kept change whose holdout never finished, here
+// because it failed, must not go back on: that would skip the holdout.
+func TestNoGainOffWithPendingHoldoutRefusesOn(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
+	keptNight(t, f, func([]byte) float64 { return 70 })
+	cfg := f.load(t)
+	cfg.StopAfterNightsWithoutGain = 1
+	f.store.Save(cfg)
+	ed := &fakeEditor{edits: []func(string) error{appendBytes("worse\n")}}
+	j := holdoutFailJudge{&fakeJudge{scores: []float64{10}}}
+	if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j)); err == nil {
+		t.Fatal("RunNight with a failing holdout: want an error")
+	}
+	if cfg := f.load(t); cfg.Status != StatusOff || cfg.StopReason != "no-gain" {
+		t.Fatalf("status %s %q, want off no-gain", cfg.Status, cfg.StopReason)
+	}
+	if err := f.store.SetOn(f.name, true); err == nil || !strings.Contains(err.Error(), "spore research stop "+f.name) {
+		t.Errorf("on with the holdout pending = %v; want a refusal naming spore research stop %s", err, f.name)
+	}
+}

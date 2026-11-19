@@ -56,6 +56,8 @@ type night struct {
 	startUsed float64
 	lastUsed  float64
 	sum       NightSummary
+	// judgeFailures counts tries in a row whose judge failed outright.
+	judgeFailures int
 }
 
 func (n *night) dir() string { return filepath.Join(n.s.Dir(n.cfg.Name), "nights", fmt.Sprint(n.num)) }
@@ -233,7 +235,7 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 		return n.sum, nil
 	}
 	if ctx.Err() != nil {
-		return n.sum, n.holdoutPending(cfg)
+		return n.sum, n.tellHoldoutPending(cfg)
 	}
 	if err := stopCampaign(ctx, n.s, cfg, cfg.StopReason, n.d); err != nil {
 		return n.sum, fmt.Errorf("research: night %d switched the campaign off, but stopping it failed: %w", n.num, err)
@@ -241,10 +243,10 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 	return n.sum, nil
 }
 
-// holdoutPending is an interrupted night that reached a limit: the
+// tellHoldoutPending is an interrupted night that reached a limit: the
 // holdout cannot run on a cancelled context, so the operator is told how
 // to finish the campaign.
-func (n *night) holdoutPending(cfg Config) error {
+func (n *night) tellHoldoutPending(cfg Config) error {
 	msg := fmt.Sprintf("research %s switched off (%s) but the night was interrupted before the holdout; run `spore research stop %s` to run it and end the campaign",
 		cfg.Name, cfg.StopReason, cfg.Name)
 	if err := appendReport(n.s, cfg.Name, msg+"\n\n"); err != nil {

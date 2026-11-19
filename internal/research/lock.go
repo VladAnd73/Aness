@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 )
@@ -47,8 +46,7 @@ var beforeNightLock = func(name string) {}
 
 func (s Store) nightLockPath(name string) string { return filepath.Join(s.Dir(name), "night.lock") }
 
-// nightScope is the set of night locks a writer takes before the config
-// lock.
+// nightScope is the set of night locks a writer takes.
 type nightScope int
 
 const (
@@ -62,14 +60,35 @@ const (
 	hostNight
 )
 
+// lockOp is one writer's request to lockLoad. what names the writer to
+// whoever finds its lock held ("night", "stop", "set"). check, when set,
+// refuses on the loaded config before the host-wide lock is taken, so a
+// campaign that may not run never holds it, not even briefly.
+type lockOp struct {
+	what  string
+	scope nightScope
+	host  string
+	check func(Config) error
+}
+
+// BusyError is a night lock held by another writer.
+type BusyError struct{ Campaign, Holder string }
+
+func (e *BusyError) Reason() string { return "the " + e.Holder + " holds the lock" }
+
+func (e *BusyError) Error() string {
+	return fmt.Sprintf("research: campaign %s: %s; retry after it ends", e.Campaign, e.Reason())
+}
+
 // held is a campaign config loaded after its locks were taken.
 type held struct {
-	cfg                       Config
-	unlockConfig, unlockNight func()
+	cfg          Config
+	unlockConfig func()
+	unlockNight  []func()
 }
 
 // releaseConfig lets off and the night's own saves through while the
-// night locks stay held; later saves go through lockLoad(noNight).
+// night locks stay held; later saves go through lockLoad with noNight.
 func (h *held) releaseConfig() {
 	if h.unlockConfig != nil {
 		h.unlockConfig()
@@ -79,54 +98,63 @@ func (h *held) releaseConfig() {
 
 func (h *held) release() {
 	h.releaseConfig()
-	h.unlockNight()
+	for i := len(h.unlockNight) - 1; i >= 0; i-- {
+		h.unlockNight[i]()
+	}
+	h.unlockNight = nil
 }
 
-// lockLoad is the one way to read campaign.toml for a write: it takes
-// the night locks scope names (host-wide first, then the campaign's),
-// then the config lock, and only then loads. A night lock held by
-// someone else returns that holder's name with the error.
-func (s Store) lockLoad(name string, scope nightScope, hostPath string) (_ *held, holder string, err error) {
-	var unlocks []func()
-	unlockAll := func() {
-		for i := len(unlocks) - 1; i >= 0; i-- {
-			unlocks[i]()
-		}
+// lockLoad is the one way to read campaign.toml for a write. It takes
+// the campaign's night lock (unless noNight), then the config lock, and
+// only then loads; then op.check; then, for hostNight, the host-wide
+// lock. Every lock is non-blocking except the config lock, which is
+// always taken last among the blocking ones, so the order cannot
+// deadlock.
+func (s Store) lockLoad(name string, op lockOp) (_ *held, err error) {
+	if _, err := os.Stat(s.configPath(name)); err != nil {
+		_, err = s.Load(name)
+		return nil, err
 	}
+	h := &held{}
 	defer func() {
 		if err != nil {
-			unlockAll()
+			h.release()
 		}
 	}()
-	if scope != noNight {
-		beforeNightLock(name)
-		paths := []string{s.nightLockPath(name)}
-		if scope == hostNight {
-			paths = []string{hostPath, s.nightLockPath(name)}
-		}
-		for _, p := range paths {
-			unlock, holder, err := Lock(p, name)
-			if err != nil {
-				return nil, holder, err
+	take := func(path string) error {
+		unlock, holder, err := Lock(path, op.what+" of "+name)
+		if err != nil {
+			if holder != "" {
+				return &BusyError{Campaign: name, Holder: holder}
 			}
-			unlocks = append(unlocks, unlock)
+			return err
+		}
+		h.unlockNight = append(h.unlockNight, unlock)
+		return nil
+	}
+	if op.scope != noNight {
+		beforeNightLock(name)
+		if err := take(s.nightLockPath(name)); err != nil {
+			return nil, err
 		}
 	}
-	night := slices.Clone(unlocks)
-	unlockCfg, err := s.lockConfig(name)
-	if err != nil {
-		return nil, "", err
+	if h.unlockConfig, err = s.lockConfig(name); err != nil {
+		return nil, err
 	}
-	unlocks = append(unlocks, unlockCfg)
-	cfg, err := s.Load(name)
-	if err != nil {
-		return nil, "", err
+	if h.cfg, err = s.Load(name); err != nil {
+		return nil, err
 	}
-	return &held{cfg: cfg, unlockConfig: unlockCfg, unlockNight: func() {
-		for i := len(night) - 1; i >= 0; i-- {
-			night[i]()
+	if op.check != nil {
+		if err := op.check(h.cfg); err != nil {
+			return nil, err
 		}
-	}}, "", nil
+	}
+	if op.scope == hostNight {
+		if err := take(op.host); err != nil {
+			return nil, err
+		}
+	}
+	return h, nil
 }
 
 func DefaultLockPath() string {
