@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -176,7 +177,10 @@ func (h *handler) call(w http.ResponseWriter, server string, req rpcRequest) {
 		body = tool.Response
 	default:
 		var ok bool
-		if body, ok = tool.Responses[fmt.Sprint(p.Arguments[tool.Key])]; !ok {
+		if id, has := keyString(p.Arguments[tool.Key]); has {
+			body, ok = tool.Responses[id]
+		}
+		if !ok {
 			c.Error = "not found"
 		}
 	}
@@ -198,6 +202,20 @@ func (h *handler) call(w http.ResponseWriter, server string, req rpcRequest) {
 	reply(w, req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": string(body)}},
 	}, nil)
+}
+
+// keyString renders a lookup argument as its response key. JSON numbers
+// decode as float64, which fmt would print in exponent form.
+func keyString(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64), true
+	case bool:
+		return strconv.FormatBool(x), true
+	}
+	return "", false
 }
 
 func (h *handler) log(c Call) error {

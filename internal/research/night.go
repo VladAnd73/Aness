@@ -98,7 +98,13 @@ func RunNight(ctx context.Context, s Store, name string, d Deps) (NightSummary, 
 // the main set: no edit can show a gain, so a night would only spend
 // quota.
 func noHeadroom(cfg Config) error {
-	return &RefusedError{Reason: fmt.Sprintf("no-headroom: campaign %s scores %.1f on the main set, so no edit can show a gain; add harder scenarios to the judge", cfg.Name, cfg.BestScore)}
+	return &RefusedError{Reason: fmt.Sprintf("no-headroom: campaign %s scores %.1f on the main set, so no edit can show a gain; draft harder scenarios and run `spore research judge approve %s` again", cfg.Name, cfg.BestScore, cfg.Name)}
+}
+
+// atMaxScore is a best score no try can beat. Only maximize-score is
+// capped by it: shrink-holding-score improves a file at 100 by length.
+func (cfg Config) atMaxScore() bool {
+	return cfg.Objective == "maximize-score" && cfg.BestCommit != "" && cfg.BestScore >= 100
 }
 
 func (n *night) run(ctx context.Context) (NightSummary, error) {
@@ -122,7 +128,7 @@ func (n *night) run(ctx context.Context) (NightSummary, error) {
 			return n.sum, err
 		}
 		n.sum.StopReason, n.sum.StartScore = reason, n.cfg.BestScore
-		if reason == "" && n.cfg.BestScore >= 100 {
+		if reason == "" && n.cfg.atMaxScore() {
 			n.sum.StopReason = "no-headroom"
 		}
 	}
@@ -202,6 +208,9 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 	if n.cfg.Status != StatusOn {
 		return "switched-off"
 	}
+	if n.cfg.atMaxScore() {
+		return "max-score"
+	}
 	if n.sum.Tries >= n.cfg.MaxTriesPerNight {
 		return "max-tries"
 	}
@@ -239,6 +248,8 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 			cfg.Status, cfg.StopReason = StatusOff, "no-gain"
 		case cfg.Nights >= cfg.MaxNights:
 			cfg.Status, cfg.StopReason = StatusOff, "max-nights"
+		case n.sum.StopReason == "max-score":
+			cfg.Status, cfg.StopReason = StatusOff, "max-score"
 		default:
 			autoOff = false
 		}

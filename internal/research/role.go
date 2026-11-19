@@ -1,12 +1,15 @@
 package research
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/versality/spore/internal/evalharness"
@@ -17,10 +20,10 @@ import (
 // searches every loop file of the target's project for Step.
 type RoleOptions struct{ Step, Loop string }
 
-// contextDir holds a role campaign's frozen context in its repo: the
+// ContextDir holds a role campaign's frozen context in its repo: the
 // loop file, the pinned step and the step's skills. The editor sees it
 // under frozen/, the judge reads it as --frozen.
-const contextDir = "context"
+const ContextDir = "context"
 
 // roleSetup is what CreateRole resolved before any campaign file
 // exists: the step, its loop file and each found skill's folder.
@@ -67,6 +70,7 @@ func resolveRole(target string, ro RoleOptions) (roleSetup, []string, error) {
 	}
 	role := strings.TrimSuffix(filepath.Base(target), ".md")
 	var found []roleSetup
+	others := map[string]bool{}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -77,21 +81,24 @@ func resolveRole(target string, ro RoleOptions) (roleSetup, []string, error) {
 			return roleSetup{}, nil, fmt.Errorf("research: %w", err)
 		}
 		for _, st := range def.Steps {
-			if st.Name == ro.Step && st.Kind == "agent" {
+			switch {
+			case st.Name != ro.Step || st.Kind != "agent":
+			case st.Role != role:
+				others[st.Role] = true
+			default:
 				found = append(found, roleSetup{step: roleStepFor(def.Name, st), loopFile: f})
 			}
 		}
 	}
 	switch {
+	case len(found) == 0 && len(others) > 0:
+		return roleSetup{}, nil, fmt.Errorf("research: step %q runs role %s, not %s", ro.Step, strings.Join(slices.Sorted(maps.Keys(others)), ", "), role)
 	case len(found) == 0:
 		return roleSetup{}, nil, fmt.Errorf("research: no agent step %q in %s", ro.Step, loops)
 	case len(found) > 1:
-		return roleSetup{}, nil, fmt.Errorf("research: step %q is in more than one loop; name one with --loop", ro.Step)
+		return roleSetup{}, nil, fmt.Errorf("research: step %q runs role %s in more than one loop; name one with --loop", ro.Step, role)
 	}
 	setup := found[0]
-	if setup.step.Role != role {
-		return roleSetup{}, nil, fmt.Errorf("research: step %q runs role %s, not %s", ro.Step, setup.step.Role, role)
-	}
 	if setup.step.Output == "" {
 		return roleSetup{}, nil, fmt.Errorf("research: step %q writes no output to grade", ro.Step)
 	}
@@ -153,7 +160,7 @@ func roleStepFor(loop string, st fleet.Step) evalharness.RoleStep {
 // writeRoleRepo fills a fresh role campaign repo: the target at its
 // root, the frozen context beside it.
 func writeRoleRepo(repoDir, target string, setup *roleSetup) error {
-	ctx := filepath.Join(repoDir, contextDir)
+	ctx := filepath.Join(repoDir, ContextDir)
 	if err := os.MkdirAll(filepath.Join(ctx, "skills"), 0o700); err != nil {
 		return err
 	}
@@ -187,6 +194,33 @@ func writeRoleRepo(repoDir, target string, setup *roleSetup) error {
 }
 
 func (cfg Config) isRole() bool { return cfg.Kind == "role" }
+
+// RoleContextDir is the role campaign's frozen context, the judge's
+// --frozen folder.
+func (s Store) RoleContextDir(name string) string { return filepath.Join(s.repo(name).dir, ContextDir) }
+
+func (cfg Config) roleStep() evalharness.RoleStep {
+	return evalharness.RoleStep{Loop: cfg.Loop, Step: cfg.Step, Role: cfg.SkillName, Output: cfg.StepOutput,
+		Shape: cfg.StepShape, Author: cfg.StepAuthor, Required: cfg.StepRequired, Verdicts: cfg.StepVerdicts, Skills: cfg.StepSkills}
+}
+
+// checkRoleStep refuses a role campaign whose campaign.toml step differs
+// from context/step.json, the copy the judge scores with.
+func (s Store) checkRoleStep(cfg Config) error {
+	if !cfg.isRole() {
+		return nil
+	}
+	pinned, err := evalharness.LoadRoleStep(filepath.Join(s.RoleContextDir(cfg.Name), evalharness.RoleStepFile))
+	if err != nil {
+		return err
+	}
+	a, _ := json.Marshal(pinned)
+	b, _ := json.Marshal(cfg.roleStep())
+	if !bytes.Equal(a, b) {
+		return fmt.Errorf("the step in campaign.toml differs from %s/%s, which the judge scores with", ContextDir, evalharness.RoleStepFile)
+	}
+	return nil
+}
 
 func (cfg *Config) setRoleStep(rs evalharness.RoleStep) {
 	cfg.Kind, cfg.Loop, cfg.Step, cfg.SkillName = "role", rs.Loop, rs.Step, rs.Role

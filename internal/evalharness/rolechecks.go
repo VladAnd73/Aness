@@ -2,16 +2,19 @@ package evalharness
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/versality/spore/internal/task"
 )
 
-// outputValid is the step output parsed as the loop would want it.
+// outputValid parses the step output with the loop's own parser, so
+// the judge accepts exactly what the loop would.
 func outputValid(a RunArtifacts) (bool, error) {
 	b, err := os.ReadFile(a.Output)
 	if os.IsNotExist(err) {
@@ -20,31 +23,12 @@ func outputValid(a RunArtifacts) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var obj map[string]any
-	if json.Unmarshal(b, &obj) != nil {
+	sf := task.StepFiles{Step: a.Role.Step, Output: a.Role.Output, Shape: a.Role.Shape, Author: a.Role.Author, Role: a.Role.Role, Required: a.Role.Required}
+	_, err = task.ParseStepOutput(a.Output, b, sf, false)
+	if errors.Is(err, task.ErrInvalidRoleFile) {
 		return false, nil
 	}
-	required := a.Role.Required
-	switch a.Role.Shape {
-	case "verdict":
-		required = []string{"author", "verdict", "summary", "comments"}
-	case "engineer-response":
-		required = []string{"author", "addressed", "pushback", "notes"}
-	}
-	for _, k := range required {
-		if obj[k] == nil {
-			return false, nil
-		}
-	}
-	verdicts := a.Role.Verdicts
-	if a.Role.Shape == "verdict" {
-		verdicts = []string{verdictApprove, verdictRequestChanges}
-	}
-	if len(verdicts) > 0 {
-		v, _ := obj["verdict"].(string)
-		return slices.Contains(verdicts, v), nil
-	}
-	return true, nil
+	return err == nil, err
 }
 
 // fluffCap fails a plan holding more than 1.5 times the scenario count

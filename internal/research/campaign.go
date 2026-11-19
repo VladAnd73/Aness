@@ -188,10 +188,10 @@ func (s Store) create(name, target, goalFile, objective string, role *roleSetup)
 	return cfg, s.Save(cfg)
 }
 
-// firstIgnored names the first gitignored file in dir when dir is in a
-// git checkout, where accept lands the winner on a branch.
+// firstIgnored names the first gitignored file in dir when dir is in
+// the spore checkout, where accept lands a skill's winner on a branch.
 func firstIgnored(dir string) (string, error) {
-	if gitCheckout(dir) == "" {
+	if sporeCheckout(dir) == "" {
 		return "", nil
 	}
 	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ".").Output()
@@ -251,8 +251,14 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 	}
 	defer h.release()
 	cfg := h.cfg
-	if cfg.Status != StatusDraft && cfg.Status != StatusReady {
-		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign", name, cfg.Status)
+	// A no-headroom campaign kept nothing; a harder judge starts it over
+	// from a fresh baseline.
+	retry := cfg.Status == StatusOff && cfg.StopReason == "no-headroom" && !cfg.hasKeptChange()
+	if cfg.Status != StatusDraft && cfg.Status != StatusReady && !retry {
+		return cfg, fmt.Errorf("research: campaign %s is %s; a judge is approved only on a draft or ready campaign, or one stopped as no-headroom", name, cfg.Status)
+	}
+	if retry {
+		cfg.BestCommit, cfg.BestScore, cfg.StartScore, cfg.StopReason = "", 0, 0, ""
 	}
 	want := ""
 	if cfg.isRole() {
@@ -313,7 +319,7 @@ func (s Store) ApproveJudge(name, draftsDir, binary string, judgeArgv []string) 
 func defaultJudgeArgv(cfg Config, pinned, judgeDir, repoDir string) []string {
 	argv := []string{pinned, "eval", "judge", "--scenarios-root", judgeDir, "--frozen", repoDir, "--skill", cfg.SkillName}
 	if cfg.isRole() {
-		argv = []string{pinned, "eval", "judge", "--kind", "role", "--scenarios-root", judgeDir, "--frozen", filepath.Join(repoDir, contextDir)}
+		argv = []string{pinned, "eval", "judge", "--kind", "role", "--scenarios-root", judgeDir, "--frozen", filepath.Join(repoDir, ContextDir)}
 	}
 	argv = append(argv, "--repeats", strconv.Itoa(cfg.Repeats), "--parallel", strconv.Itoa(cfg.Parallel),
 		"--timeout", cfg.RunTimeout.String(), "--isolation", cfg.Isolation)

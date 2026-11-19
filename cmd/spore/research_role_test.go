@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -126,9 +127,18 @@ func TestAcceptanceRole13JudgeDraftRoleBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	brief := string(b)
+	for _, leak := range []string{"HK", "linear-bug-report", "qa-author", "assistant coordinator"} {
+		if strings.Contains(brief, leak) {
+			t.Errorf("brief names the consumer-specific %q", leak)
+		}
+	}
+	frozen := regexp.MustCompile(`--frozen (\S+)`).FindStringSubmatch(brief)
+	if frozen == nil || !dirExists(frozen[1]) {
+		t.Errorf("brief's --frozen path %v does not exist", frozen)
+	}
 	for _, want := range []string{
 		"status: draft",
-		"linear-bug-report", "assistant",
+		"filed by your own QA", "reported by customers and developers",
 		"linked feature ticket", "repro steps", "identifiable fix",
 		"pre-fix commit",
 		"at least 30%", "at least 5 bugs", "same side",
@@ -140,4 +150,9 @@ func TestAcceptanceRole13JudgeDraftRoleBrief(t *testing.T) {
 			t.Errorf("brief lacks %q", want)
 		}
 	}
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }

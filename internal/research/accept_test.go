@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-const sporeModule = "github.com/versality/spore"
-
 // stoppedWinner leaves a stopped campaign whose winner passed holdout.
 func stoppedWinner(t *testing.T, f fixture) {
 	t.Helper()

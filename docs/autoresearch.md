@@ -77,15 +77,17 @@ spore research accept demo
 - `accept` needs a stopped campaign with a kept change, refuses a
   second time, refuses when any file in the live skill folder changed
   since `new`, and refuses an `overfit` or `no-headroom` verdict unless
-  `--force`. Outside a git checkout it overwrites `SKILL.md` and keeps
-  the old one beside it as `SKILL.md.research-<campaign>.bak`. Inside a
-  git checkout (spore's or any other) it never touches your checkout:
-  it commits the winner on a new branch `research/<campaign>` of that
-  repo through a temporary worktree. The live skill folder (for a role,
-  the role body) must match `HEAD` (no uncommitted or untracked files),
-  since the branch is cut from `HEAD`. For the same reason `new` refuses
-  a skill folder in a git checkout that holds a gitignored file: the
-  judge would score with it, but the branch never holds it. Remove it, or commit it with `git add -f`. A branch
+  `--force`. For a skill outside the spore repo (a dotfiles repo
+  included) it overwrites `SKILL.md` and keeps the old one beside it as
+  `SKILL.md.research-<campaign>.bak`. For a skill inside the spore repo,
+  or a role body inside any git checkout, it never touches your
+  checkout: it commits the winner on a new branch `research/<campaign>`
+  of that repo through a temporary worktree. The live skill folder (for
+  a role, the role body) must match `HEAD` (no uncommitted or untracked
+  files), since the branch is cut from `HEAD`. For the same reason `new`
+  refuses a skill folder in the spore repo that holds a gitignored file
+  (and a gitignored role body): the judge would score with it, but the
+  branch never holds it. Remove it, or commit it with `git add -f`. A branch
   `research/<campaign>` that already holds this winner (a run that died
   after committing) is reused; any other branch of that name is refused.
   To turn it into a PR:
@@ -128,13 +130,20 @@ is scored: the best score would be stale.
 another night holds the host-wide lock (`$XDG_RUNTIME_DIR/spore-research.lock`);
 `spore budget room` does not say room; a judge hash differs; the
 campaign repo has uncommitted changes; the goal file is missing or
-empty; the weekly usage cannot be read; the best score is already 100
-(`no-headroom`).
+empty; the weekly usage cannot be read; a role campaign's step in
+`campaign.toml` differs from `context/step.json`; the baseline already
+scores 100 under `maximize-score` (`no-headroom`).
 
-When the first night's baseline scores 100 on the main set, the night
-ends right after it with `no-headroom`, before any edit: it switches the
-campaign `off` and exits 1. Nothing can show a gain there; add harder
-scenarios with a new `judge draft` and `judge approve`.
+When the first night's baseline scores 100 on the main set under
+`maximize-score`, the night ends right after it with `no-headroom`,
+before any edit: it switches the campaign `off` and exits 1. Nothing can
+show a gain there. Draft harder scenarios and run `judge approve` again:
+it is allowed on such a campaign, sets it back to `ready`, and the next
+night scores a fresh baseline. A kept try that reaches 100 under
+`maximize-score` ends the night with `max-score` and ends the campaign
+like a limit does: the holdout runs and the coordinator is told.
+`shrink-holding-score` is not capped: it can still shorten a file at
+100.
 
 Between tries the night stops for, in this order: interrupted, a failed
 usage read (`quota-read-failed`, it never continues blind), the quota
@@ -280,12 +289,12 @@ under test, since it reads that agent's untrusted reply. Try a set by hand with
 
 ## Role targets
 
-A role campaign improves the body of one loop step's role, such as
-marketer-frontend's `qa-analyst` (step `intake` of loop `qa-e2e`):
+A role campaign improves the body of one loop step's role, such as a
+project's `qa-analyst` (step `intake` of its `qa` loop):
 
 ```
 spore research new qa1 --kind role --step intake \
-  --target ~/marketer-frontend/bootstrap/roles/qa-analyst.md --goal goal.md
+  --target ~/myproject/bootstrap/roles/qa-analyst.md --goal goal.md
 spore research judge draft qa1          # mints the corpus-builder brief
 ```
 
@@ -300,9 +309,10 @@ spore research judge draft qa1          # mints the corpus-builder brief
   campaign.
 - The editor sees the role body and, read-only under `frozen/context/`,
   the loop file, the step and the skills.
-- `judge draft` mints a corpus-builder brief: mine HK bugs from QA and
-  from the assistant coordinator, keep those with a linked feature
-  ticket, repro steps and an identifiable fix, write one scenario per
+- `judge draft` mints a corpus-builder brief: mine the project's
+  tracker for bugs filed by its QA workers and bugs reported by
+  customers and developers, keep those with a linked feature ticket,
+  repro steps and an identifiable fix, write one scenario per
   bug at its pre-fix commit, split main and holdout (holdout at least
   30% and 5 bugs, one feature on one side), and prove a weakened role
   body scores lower. Corpus content is never committed.
@@ -331,9 +341,8 @@ The scenario's `grader/` is never copied in; only the grader reads it.
 
 A role scenario has no `prompt`. Its checks:
 
-- `output-valid`: the round-1 step output exists, is a JSON object and
-  has the step's required keys (and a listed verdict, when the step has
-  verdicts).
+- `output-valid`: the round-1 step output exists and passes the loop's
+  own step-output parser for the step's shape.
 - `bug-caught` (needs `llm_judge`; `repro` names a file under
   `grader/`): the grader sees the repro steps and every file the agent
   wrote or changed, and must end with `QUOTE: <line>` and

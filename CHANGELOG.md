@@ -25,10 +25,12 @@
 - The holdout winner must now beat the original, not tie it; an
   original at 100 is `no-headroom`, which `accept` refuses without
   `--force`. The holdout cache is keyed by the judge (holdout set,
-  binary, command), and a night refuses with `no-headroom` when the
-  baseline already scores 100 on the main set.
-- `accept` commits the winner on `research/<campaign>` for a target in
-  any git checkout, not only the spore repo.
+  binary, command). Under `maximize-score` a night refuses with
+  `no-headroom` when the baseline already scores 100 on the main set
+  (a new `judge approve` restarts the campaign), and a kept try that
+  reaches 100 ends the night with `max-score` and runs the holdout.
+- `accept` commits a role winner on `research/<campaign>` in the role's
+  own git checkout; skills keep the spore-repo-only branch rule.
 
 ## 1.0.10 - 2026-11-17
 

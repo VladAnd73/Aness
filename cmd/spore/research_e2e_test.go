@@ -14,8 +14,8 @@ import (
 )
 
 // scriptedEditor fixes the e2e skill's defect on try 2 only. Try 1
-// adds a blank line (same score, longer: reset); try 3 adds a comment
-// (same best score, longer: reset).
+// adds a blank line (same score, longer: reset). Try 2 reaches 100,
+// which ends the night and stops the campaign.
 type scriptedEditor struct{ calls int }
 
 func (e *scriptedEditor) Propose(ctx context.Context, req research.EditRequest) (research.EditResult, error) {
@@ -30,8 +30,6 @@ func (e *scriptedEditor) Propose(ctx context.Context, req research.EditRequest) 
 		b = append(b, '\n')
 	case 2:
 		b = bytes.ReplaceAll(b, []byte("status: todo"), []byte("status: done"))
-	case 3:
-		b = append(b, "<!-- keep it short -->\n"...)
 	}
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return research.EditResult{ExitCode: 1}, err
@@ -118,19 +116,18 @@ func TestAcceptance10EndToEndNight(t *testing.T) {
 	run("judge", "approve", "e2e", "--from", filepath.Join(fixture, "drafts"))
 	run("on", "e2e")
 	run("night", "e2e")
-	run("stop", "e2e")
 	acceptOut := run("accept", "e2e")
 
 	results, _ := os.ReadFile(filepath.Join(campaignDir, "results.tsv"))
-	if got := tryStatuses(string(results)); strings.Join(got, ",") != "reset,kept,reset" {
-		t.Errorf("results.tsv statuses for tries 1..3 = %v, want [reset kept reset]\n%s", got, results)
+	if got := tryStatuses(string(results)); strings.Join(got, ",") != "reset,kept" {
+		t.Errorf("results.tsv statuses for tries 1..3 = %v, want [reset kept]\n%s", got, results)
 	}
-	if editor.calls != 3 {
-		t.Errorf("editor calls = %d, want 3", editor.calls)
+	if editor.calls != 2 {
+		t.Errorf("editor calls = %d, want 2", editor.calls)
 	}
 
 	report, _ := os.ReadFile(filepath.Join(campaignDir, "report.md"))
-	for _, want := range []string{`max-tries`, `start score:\s*0\.0\b`, `best score:\s*100\.0\b`, `holdout:\s*pass\b`} {
+	for _, want := range []string{`max-score`, `start score:\s*0\.0\b`, `best score:\s*100\.0\b`, `holdout:\s*pass\b`} {
 		if !regexp.MustCompile(`(?i)` + want).Match(report) {
 			t.Errorf("report.md does not match %q:\n%s", want, report)
 		}

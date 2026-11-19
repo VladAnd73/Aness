@@ -14,11 +14,11 @@ import (
 
 type AcceptResult struct{ Written, Backup, Branch string }
 
-// Accept lands a stopped campaign's winner. Outside a git checkout it
-// overwrites the live target, keeping a backup beside it. Inside one
-// (spore's, or a role body's own project) it commits the winner on a
-// new research/<campaign> branch through a temporary worktree, so the
-// operator's checkout never moves.
+// Accept lands a stopped campaign's winner on a new research/<campaign>
+// branch, through a temporary worktree so the operator's checkout never
+// moves, when the target is a skill in the spore repo or a role body in
+// any git checkout. Otherwise it overwrites the live target, keeping a
+// backup beside it: a skill in a dotfiles repo stays a file.
 func Accept(s Store, name string, force bool) (AcceptResult, error) {
 	h, err := s.lockLoad(name, lockOp{what: "accept", scope: campaignNight})
 	if err != nil {
@@ -36,7 +36,10 @@ func Accept(s Store, name string, force bool) (AcceptResult, error) {
 	case (cfg.HoldoutVerdict == "overfit" || cfg.HoldoutVerdict == "no-headroom") && !force:
 		return AcceptResult{}, fmt.Errorf("research: campaign %s: the holdout said %s; pass --force to accept anyway", name, cfg.HoldoutVerdict)
 	}
-	top := gitCheckout(filepath.Dir(cfg.Target))
+	top := sporeCheckout(filepath.Dir(cfg.Target))
+	if cfg.isRole() {
+		top = gitCheckout(filepath.Dir(cfg.Target))
+	}
 	if top == "" {
 		if _, err := os.Lstat(cfg.backupPath()); err == nil {
 			return AcceptResult{}, fmt.Errorf("research: backup %s already exists; move it away first", cfg.backupPath())
@@ -158,6 +161,26 @@ func gitCheckout(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+const sporeModule = "github.com/versality/spore"
+
+// sporeCheckout is gitCheckout when that checkout's go.mod declares the
+// spore module, else "".
+func sporeCheckout(dir string) string {
+	top := gitCheckout(dir)
+	if top == "" {
+		return ""
+	}
+	mod, err := os.ReadFile(filepath.Join(top, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	first, _, _ := strings.Cut(string(mod), "\n")
+	if path, ok := strings.CutPrefix(strings.TrimSpace(first), "module "); !ok || strings.TrimSpace(path) != sporeModule {
+		return ""
+	}
+	return top
 }
 
 // writeTargetAtomic replaces path with b at mode perm, set before the

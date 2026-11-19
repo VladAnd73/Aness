@@ -14,7 +14,8 @@ import (
 	"github.com/versality/spore/internal/research"
 )
 
-// roleEditor teaches the fixture role both bugs on try 2 only. Try 1
+// roleEditor teaches the fixture role one of the two main-set bugs on
+// try 2 only, so the night stays under 100 and ends on max-tries. Try 1
 // adds a blank line and try 3 a trailing note: no gain, reset.
 type roleEditor struct{ calls int }
 
@@ -29,7 +30,7 @@ func (e *roleEditor) Propose(ctx context.Context, req research.EditRequest) (res
 	case 1:
 		b = append(b, '\n')
 	case 2:
-		b = bytes.ReplaceAll(b, []byte("cover: happy-path"), []byte("cover: empty-title\ncover: long-title"))
+		b = bytes.ReplaceAll(b, []byte("cover: happy-path"), []byte("cover: empty-title"))
 	case 3:
 		b = append(b, "Keep the plan short.\n"...)
 	}
@@ -90,7 +91,7 @@ func TestAcceptanceRole14EndToEnd(t *testing.T) {
 		t.Errorf("statuses for tries 1..3 = %v, want [reset kept reset]\n%s", got, results)
 	}
 	report, _ := os.ReadFile(filepath.Join(campaignDir, "report.md"))
-	for _, want := range []string{`start score:\s*0\.0\b`, `best score:\s*100\.0\b`, `holdout:\s*pass\b`} {
+	for _, want := range []string{`start score:\s*0\.0\b`, `best score:\s*50\.0\b`, `holdout:\s*pass\b`} {
 		if !regexp.MustCompile(want).Match(report) {
 			t.Errorf("report.md does not match %q:\n%s", want, report)
 		}
@@ -99,7 +100,7 @@ func TestAcceptanceRole14EndToEnd(t *testing.T) {
 		t.Errorf("accept output %q names no research/rc branch", acceptOut)
 	}
 	out, err := exec.Command("git", "-C", proj, "show", "research/rc:bootstrap/roles/qa-analyst.md").CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "cover: long-title") {
+	if err != nil || !strings.Contains(string(out), "cover: empty-title") {
 		t.Errorf("research/rc role body = %q, %v; want the kept edit", out, err)
 	}
 	if live, _ := os.ReadFile(target); !bytes.Equal(live, original) {

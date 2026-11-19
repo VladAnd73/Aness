@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -168,16 +169,23 @@ func dirExists(p string) bool {
 const maxMaterial = 256 << 10
 
 // roleMaterial is everything the agent wrote: each file in the run dir
-// that is new or differs from the snapshot, skills and the spec aside.
+// that is new or differs from the snapshot, skills, the spec and
+// node_modules aside. Task files come first, then new files, then
+// changed ones, so a large changed fixture cannot push a new test past
+// the cap; a file over the cap on its own is named, not read.
 func roleMaterial(snapshot, runWD, taskDir string) (string, error) {
-	var b strings.Builder
+	type entry struct {
+		rel, body string
+		rank      int
+	}
+	var entries []entry
 	err := filepath.WalkDir(runWD, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(runWD, path)
 		if d.IsDir() {
-			if rel == ".claude" {
+			if rel == ".claude" || d.Name() == "node_modules" || d.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -185,22 +193,46 @@ func roleMaterial(snapshot, runWD, taskDir string) (string, error) {
 		if path == filepath.Join(taskDir, "spec.md") || !d.Type().IsRegular() {
 			return nil
 		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		was, wasErr := os.ReadFile(filepath.Join(snapshot, rel))
+		e := entry{rel: filepath.ToSlash(rel), rank: 2}
+		switch {
+		case strings.HasPrefix(path, taskDir+string(filepath.Separator)):
+			e.rank = 0
+		case wasErr != nil:
+			e.rank = 1
+		}
+		if fi.Size() > maxMaterial {
+			e.body = fmt.Sprintf("[%d bytes, too large to show]", fi.Size())
+			entries = append(entries, e)
+			return nil
+		}
 		now, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		if was, err := os.ReadFile(filepath.Join(snapshot, rel)); err == nil && bytes.Equal(was, now) {
+		if wasErr == nil && bytes.Equal(was, now) {
 			return nil
 		}
-		fmt.Fprintf(&b, "=== %s ===\n%s\n", filepath.ToSlash(rel), now)
+		e.body = string(now)
+		entries = append(entries, e)
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	s := b.String()
-	if len(s) > maxMaterial {
-		s = s[:maxMaterial] + "\n[output truncated]\n"
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].rank < entries[j].rank })
+	var b strings.Builder
+	for _, e := range entries {
+		section := fmt.Sprintf("=== %s ===\n%s\n", e.rel, e.body)
+		if b.Len()+len(section) > maxMaterial {
+			fmt.Fprintf(&b, "=== %s ===\n[left out: over the size cap]\n", e.rel)
+			continue
+		}
+		b.WriteString(section)
 	}
-	return s, nil
+	return b.String(), nil
 }

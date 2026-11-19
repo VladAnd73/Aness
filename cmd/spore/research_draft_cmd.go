@@ -78,12 +78,11 @@ stay in research-drafts/ and nowhere else. Do not start any night.
 
 ## Mine the bugs
 
-Search the HK team in Linear for bugs from both sources:
+Search the project's issue tracker for bugs from both sources:
 
-- bugs our QA workers filed (skill linear-bug-report): what the agents
-  already catch;
-- bugs the assistant coordinator filed for customers and developers:
-  what the agents miss.
+- bugs filed by your own QA workers: what the agents already catch;
+- bugs reported by customers and developers, however they reach the
+  tracker: what the agents miss.
 
 Keep a bug only when it has all three: a linked feature ticket, usable
 repro steps, and an identifiable fix (a merged PR or commit). Record why
@@ -95,12 +94,13 @@ research-drafts/%[1]s/{main,holdout}/<bug>/ holds:
 
 - scenario.json: {"kind": "role", "llm_judge": true, "checks": [...]}
   with an output-valid check, a bug-caught check whose repro names
-  grader/repro.md, and the role's fluff check: for qa-analyst
-  {"kind": "fluff", "path": "intake/plan.md", "pattern": "<scenario line
-  regexp>", "reasonable": N}, N the scenario count of a reasonable plan
-  for the feature; for qa-author {"kind": "code-quality"}. List the feature
-  ticket and knowledge pages the agent may read as keyed fake services
-  ("key": "id", "responses": {...}); never the bug ticket.
+  grader/repro.md, and the role's fluff check. For a role that writes a
+  test plan: {"kind": "fluff", "path": "<plan path under the task dir>",
+  "pattern": "<scenario line regexp>", "reasonable": N}, N the scenario
+  count of a reasonable plan for the feature. For a role that writes
+  test code: {"kind": "code-quality"}. List the feature ticket and the
+  knowledge pages the agent may read as keyed fake services ("key":
+  "id", "responses": {...}); never the bug ticket.
 - spec.md: the task spec the coordinator would have written for the
   feature, before the bug was known.
 - snapshot/: the code at the pre-fix commit (the fix commit's parent),
@@ -161,7 +161,7 @@ func (c *researchCmd) judgeDraft(args []string) error {
 	project, _ := task.ProjectName("")
 	body := fmt.Sprintf(judgeDraftBody, cfg.Name, cfg.Target, cfg.SkillName, quoted, filepath.Dir(cfg.Target))
 	if cfg.Kind == "role" {
-		frozen := filepath.Join(c.store.Dir(cfg.Name), "repo", "context")
+		frozen := c.store.RoleContextDir(cfg.Name)
 		body = fmt.Sprintf(roleDraftBody, cfg.Name, cfg.Target, cfg.SkillName, cfg.Step, cfg.Loop, frozen, quoted)
 	}
 	m := frontmatter.Meta{Status: "draft", Slug: slug, Title: title, Created: time.Now().UTC().Format(time.RFC3339), Project: project}

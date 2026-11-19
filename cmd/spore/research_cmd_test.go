@@ -223,7 +223,7 @@ func TestResearchNightPrintsOneLinePerTry(t *testing.T) {
 	if len(got) != 3 || got[0][1] != "0" || got[0][2] != "baseline" || got[1][2] != "reset" || got[2][2] != "kept" || got[2][3] != "100.0" {
 		t.Errorf("night stdout has tries %v, want baseline, reset, kept (100.0):\n%s", got, out)
 	}
-	if !strings.Contains(out, "stop reason: max-tries") {
+	if !strings.Contains(out, "stop reason: max-score") {
 		t.Errorf("night stdout lacks the stop reason:\n%s", out)
 	}
 }
