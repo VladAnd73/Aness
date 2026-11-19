@@ -22,8 +22,9 @@
   `code-quality` fails added comments, visibility-only tests, duplicated
   helpers and API end-state asserts. `judge draft` on a role campaign
   mints the corpus-builder brief.
-- The holdout winner must now beat the original, not tie it; an
-  original at 100 is `no-headroom`, which `accept` refuses without
+- Under `maximize-score` the holdout winner must now beat the
+  original, not tie it (`shrink-holding-score` keeps "at least as
+  well"); an original at 100 is `no-headroom`, which `accept` refuses without
   `--force`. The holdout cache is keyed by the judge (holdout set,
   binary, command). Under `maximize-score` a night refuses with
   `no-headroom` when the baseline already scores 100 on the main set

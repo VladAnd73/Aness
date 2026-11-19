@@ -42,7 +42,9 @@ spore research accept demo
 
 - `new` takes `--objective` (`maximize-score`, the default, or
   `shrink-holding-score`) and `--model`.
-- `judge draft` mints a draft task in `./tasks` and prints its slug. It
+- `judge draft` mints a draft task in `./tasks` and prints its slug.
+  Its brief asks for at least 5 holdout scenarios; that is guidance for
+  the drafting worker, and `judge approve` does not enforce it. It
   does not start it: read it, then `spore task start <slug>`. The brief
   asks for scenarios grounded in the skill's past failures and for a
   discrimination proof: a deliberately broken copy of the skill must
@@ -65,11 +67,13 @@ spore research accept demo
   Exit 0 means the night ran; exit 1 means it was refused, with the
   reason on stderr.
 - `stop` ends the campaign. With a kept change it runs the holdout set
-  twice on the original and twice on the winner. The winner passes only
-  when it scores higher than the original: a tie is `overfit`, and the
-  report recommends not accepting. When the original already scores
-  100 on the holdout, the verdict is `no-headroom`: the set cannot show
-  a gain, so make it harder. Then it tells the
+  twice on the original and twice on the winner. Under `maximize-score`
+  the winner passes only when it scores higher than the original: a tie
+  is `overfit`, and the report recommends not accepting. When the
+  original already scores 100 on the holdout, the verdict is
+  `no-headroom`: the set cannot show a gain, so make it harder. Under
+  `shrink-holding-score` the winner passes when it scores at least as
+  well as the original, since its gain is length, not score. Then it tells the
   coordinator through `spore task tell coordinator`, run from
   `$SPORE_PROJECT_ROOT` (or the current directory when unset). A failed
   notice is only a warning in the report. A failed holdout leaves the

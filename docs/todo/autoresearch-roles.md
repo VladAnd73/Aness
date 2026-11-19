@@ -216,7 +216,10 @@ The operator reviews the drafts before `judge approve`, as today.
 ### 6. Holdout changes
 
 - **Beat, not tie.** The winner passes only when its holdout score is
-  strictly greater than the original's (`holdout.go:68`). If the
+  strictly greater than the original's (`holdout.go:68`). Built for
+  `maximize-score` only: `shrink-holding-score` keeps "at least as
+  well", since its winner holds the score with a shorter file (review
+  call, 2026-11-19). If the
   original already scores 100 on the holdout, the verdict is
   `no-headroom`, and accept refuses it unless `--force`. Lower bound
   on holdout size moves from 1-3 scenarios to at least 5.

@@ -67,7 +67,7 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 	cfg = lk.cfg
 	if cfg.hasKeptChange() {
 		cfg.JudgeCostUSD += h.cost
-		cfg.HoldoutVerdict = holdoutVerdict(h)
+		cfg.HoldoutVerdict = holdoutVerdict(cfg.Objective, h)
 	}
 	cfg.Status, cfg.StopReason = StatusStopped, reason
 	err = s.Save(cfg)
@@ -99,10 +99,17 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 
 type holdoutResult struct{ original, winner, cost float64 }
 
-// holdoutVerdict passes a winner only when it beats the original: a tie
-// is no evidence the edit generalises. An original already at 100 has
-// no headroom to show a gain.
-func holdoutVerdict(h holdoutResult) string {
+// holdoutVerdict passes a maximize-score winner only when it beats the
+// original: a tie is no evidence the edit generalises, and an original
+// already at 100 has no headroom to show a gain. shrink-holding-score
+// wants the same score from a shorter file, so holding the score passes.
+func holdoutVerdict(objective string, h holdoutResult) string {
+	if objective == "shrink-holding-score" {
+		if roundScore(h.winner) >= roundScore(h.original) {
+			return "pass"
+		}
+		return "overfit"
+	}
 	switch {
 	case roundScore(h.original) >= 100:
 		return "no-headroom"

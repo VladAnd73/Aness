@@ -170,3 +170,22 @@ func TestEqualScoreLongerTryIsReset(t *testing.T) {
 		t.Errorf("best bytes %d, want the shorter kept try's 107", cfg.BestBytes)
 	}
 }
+
+// shrink-holding-score wants the same score from a shorter file, so a
+// holdout tie, even at 100, passes; beat-not-tie is maximize-score's.
+func TestShrinkObjectiveHoldoutTiePasses(t *testing.T) {
+	for _, score := range []float64{80, 100} {
+		f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1; c.Objective = "shrink-holding-score" })
+		ed := &fakeEditor{edits: []func(string) error{writeBytes(60)}}
+		j := &fakeJudge{scores: []float64{50, 50, 50, 50}, holdout: func([]byte) float64 { return score }}
+		if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j)); err != nil {
+			t.Fatalf("RunNight: %v", err)
+		}
+		if err := Stop(context.Background(), f.store, f.name, "operator", f.deps(ed, j)); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		if got := f.load(t).HoldoutVerdict; got != "pass" {
+			t.Errorf("shrink holdout tie at %v: verdict %q, want pass", score, got)
+		}
+	}
+}
