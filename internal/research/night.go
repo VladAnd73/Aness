@@ -164,9 +164,6 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 	if ctx.Err() != nil {
 		return "interrupted"
 	}
-	if n.cfg.Status != StatusOn {
-		return "switched-off"
-	}
 	if afterTry {
 		used, err := n.d.WeeklyUsed(ctx)
 		if err != nil {
@@ -180,6 +177,9 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 			return "quota-ceiling"
 		}
 	}
+	if n.cfg.Status != StatusOn {
+		return "switched-off"
+	}
 	if n.sum.Tries >= n.cfg.MaxTriesPerNight {
 		return "max-tries"
 	}
@@ -191,25 +191,25 @@ func (n *night) capReached(ctx context.Context, afterTry bool) string {
 
 func (n *night) end(ctx context.Context) (NightSummary, error) {
 	cfg := n.cfg
-	// A night cut short by a signal or a failed quota read, with nothing
-	// kept, is no evidence about the campaign and uses no night.
-	counted := n.sum.Kept > 0 || (n.sum.StopReason != "interrupted" && n.sum.StopReason != "quota-read-failed")
-	autoOff := false
-	if counted {
-		cfg.Nights++
-		if n.sum.Kept > 0 {
-			cfg.NoGainNights = 0
-		} else {
-			cfg.NoGainNights++
-		}
-		if cfg.Status == StatusOn {
-			switch {
-			case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
-				cfg.Status, cfg.StopReason, autoOff = StatusOff, "no-gain", true
-			case cfg.Nights >= cfg.MaxNights:
-				cfg.Status, cfg.StopReason, autoOff = StatusOff, "max-nights", true
-			}
-		}
+	// Every night spent quota, so every night counts toward max_nights.
+	// One cut short with nothing kept is no evidence of no gain.
+	cfg.Nights++
+	cutShort := n.sum.StopReason == "interrupted" || n.sum.StopReason == "quota-read-failed" || n.sum.StopReason == "switched-off"
+	if n.sum.Kept > 0 {
+		cfg.NoGainNights = 0
+	} else if !cutShort {
+		cfg.NoGainNights++
+	}
+	// A limit ends the campaign even after a manual off, which would
+	// otherwise leave it unable to go back on with no holdout run.
+	autoOff := true
+	switch {
+	case cfg.NoGainNights >= cfg.StopAfterNightsWithoutGain:
+		cfg.Status, cfg.StopReason = StatusOff, "no-gain"
+	case cfg.Nights >= cfg.MaxNights:
+		cfg.Status, cfg.StopReason = StatusOff, "max-nights"
+	default:
+		autoOff = false
 	}
 	used := max(n.lastUsed-n.startUsed, 0)
 	cfg.QuotaUsed += used
@@ -218,12 +218,8 @@ func (n *night) end(ctx context.Context) (NightSummary, error) {
 	}
 	cfg = n.cfg
 	n.sum.EndScore = cfg.BestScore
-	heading := fmt.Sprintf("Night %d", n.num)
-	if !counted {
-		heading += " (not counted)"
-	}
-	section := fmt.Sprintf("## %s\n\n- started: %s\n- ended: %s\n- stop reason: %s\n- tries: %d\n- kept: %d\n- score: %.1f -> %.1f\n- quota used: %.1f points\n- judge cost so far: $%.2f\n\n",
-		heading, n.started.UTC().Format(time.RFC3339), n.d.Now().UTC().Format(time.RFC3339), n.sum.StopReason,
+	section := fmt.Sprintf("## Night %d\n\n- started: %s\n- ended: %s\n- stop reason: %s\n- tries: %d\n- kept: %d\n- score: %.1f -> %.1f\n- quota used: %.1f points\n- judge cost so far: $%.2f\n\n",
+		n.num, n.started.UTC().Format(time.RFC3339), n.d.Now().UTC().Format(time.RFC3339), n.sum.StopReason,
 		n.sum.Tries, n.sum.Kept, n.sum.StartScore, n.sum.EndScore, used, cfg.JudgeCostUSD)
 	if err := appendReport(n.s, cfg.Name, section); err != nil {
 		return n.sum, err

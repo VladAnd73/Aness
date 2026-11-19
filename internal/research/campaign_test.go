@@ -2,10 +2,12 @@ package research
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateCopiesFolderAndCommits(t *testing.T) {
@@ -114,7 +116,7 @@ func TestSetOnRequiresReady(t *testing.T) {
 	if _, err := s.Create("c", filepath.Join(live, "SKILL.md"), goal, "maximize-score"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetOn("c", true); err == nil {
+	if err := s.SetOn("c", true, testLock(t)); err == nil {
 		t.Errorf("SetOn on a draft campaign succeeded")
 	}
 }
@@ -123,7 +125,7 @@ func TestSetOnAfterNoGainResetsCounter(t *testing.T) {
 	f := newCampaign(t, func(c *Config) {
 		c.Status, c.StopReason, c.Nights, c.NoGainNights = StatusOff, "no-gain", 3, 3
 	})
-	if err := f.store.SetOn(f.name, true); err != nil {
+	if err := f.store.SetOn(f.name, true, testLock(t)); err != nil {
 		t.Fatalf("SetOn: %v", err)
 	}
 	if cfg := f.load(t); cfg.Status != StatusOn || cfg.NoGainNights != 0 || cfg.StopReason != "" {
@@ -133,7 +135,7 @@ func TestSetOnAfterNoGainResetsCounter(t *testing.T) {
 
 func TestSetOnRefusedAfterMaxNights(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.Status, c.Nights = StatusOff, 7 })
-	if err := f.store.SetOn(f.name, true); err == nil {
+	if err := f.store.SetOn(f.name, true, testLock(t)); err == nil {
 		t.Errorf("SetOn after max nights succeeded")
 	}
 }
@@ -169,5 +171,64 @@ func TestCreateFailureLeavesNoCampaignDir(t *testing.T) {
 	os.RemoveAll(filepath.Join(live, ".git"))
 	if _, err := s.Create("demo", target, goal, "maximize-score"); err != nil {
 		t.Errorf("retry after fixing the folder: %v", err)
+	}
+}
+
+// waitsFor reports whether fn blocks while the campaign's config lock is
+// held and finishes once it is released.
+func waitsFor(t *testing.T, f fixture, fn func() error) {
+	t.Helper()
+	unlock, err := f.store.lockConfig(f.name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("finished (err %v) while the config lock was held; want it to wait", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Errorf("after the lock was released: %v", err)
+	}
+}
+
+func TestSetWaitsForConfigLock(t *testing.T) {
+	f := newCampaign(t, nil)
+	waitsFor(t, f, func() error { return f.store.Set(f.name, "max_nights", "10", testLock(t)) })
+}
+
+func TestStopWaitsForConfigLock(t *testing.T) {
+	f := newCampaign(t, nil)
+	d := f.deps(&fakeEditor{}, &fakeJudge{})
+	waitsFor(t, f, func() error { return Stop(context.Background(), f.store, f.name, "operator", d) })
+}
+
+func TestAcceptWaitsForConfigLock(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
+	stoppedWinner(t, f)
+	waitsFor(t, f, func() error { _, err := Accept(f.store, f.name, false); return err })
+}
+
+// on while a night or a stop holds the night lock would be overwritten
+// by that run's own save; off must still work, it is how a night stops.
+func TestSetOnRefusesOnWhileNightLockHeld(t *testing.T) {
+	f := newCampaign(t, nil)
+	if err := f.store.SetOn(f.name, false, f.lockPath()); err != nil {
+		t.Fatal(err)
+	}
+	unlock, _, err := Lock(f.lockPath(), "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if err := f.store.SetOn(f.name, true, f.lockPath()); err == nil || !strings.Contains(err.Error(), "other") {
+		t.Errorf("on under a held night lock = %v, want a refusal naming the holder", err)
+	}
+	if cfg := f.load(t); cfg.Status != StatusOff {
+		t.Errorf("status %s, want still off", cfg.Status)
 	}
 }

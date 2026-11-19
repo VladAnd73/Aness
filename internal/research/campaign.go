@@ -265,8 +265,20 @@ func defaultJudgeArgv(cfg Config, pinned, judgeDir, repoDir string) []string {
 }
 
 // SetOn switches a campaign on (from ready, or from off while nights
-// remain) or off (reason "manual").
-func (s Store) SetOn(name string, on bool) error {
+// remain) or off (reason "manual"). Switching on takes the night lock first: a night or stop holding it
+// would overwrite the new status with its own save. Off needs no night
+// lock, since it is how a running night is stopped.
+func (s Store) SetOn(name string, on bool, lockPath string) error {
+	if on {
+		release, holder, err := Lock(lockPath, name)
+		if err != nil {
+			if holder != "" {
+				return fmt.Errorf("research: campaign %s: a night or stop is running (lock held by %s); switch it on after that ends", name, holder)
+			}
+			return err
+		}
+		defer release()
+	}
 	unlock, err := s.lockConfig(name)
 	if err != nil {
 		return err
@@ -309,4 +321,13 @@ func (s Store) lockConfig(name string) (unlock func(), err error) {
 		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
+}
+
+func (s Store) saveLocked(cfg Config) error {
+	unlock, err := s.lockConfig(cfg.Name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return s.Save(cfg)
 }

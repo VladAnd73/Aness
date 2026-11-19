@@ -134,7 +134,7 @@ func newCampaign(t *testing.T, cfgEdits func(*Config)) fixture {
 	if err != nil {
 		t.Fatalf("ApproveJudge: %v", err)
 	}
-	if err := store.SetOn(fixtureName, true); err != nil {
+	if err := store.SetOn(fixtureName, true, filepath.Join(root, "state", "spore", "research.lock")); err != nil {
 		t.Fatalf("SetOn: %v", err)
 	}
 	cfg, err := store.Load(fixtureName)
@@ -160,9 +160,11 @@ func (f fixture) deps(ed Editor, j Judge) Deps {
 			*f.notes = append(*f.notes, msg)
 			return nil
 		},
-		LockPath: filepath.Join(filepath.Dir(f.store.Root), "research.lock"),
+		LockPath: f.lockPath(),
 	}
 }
+
+func (f fixture) lockPath() string { return filepath.Join(filepath.Dir(f.store.Root), "research.lock") }
 
 func (f fixture) repoDir() string { return filepath.Join(f.store.Dir(f.name), "repo") }
 

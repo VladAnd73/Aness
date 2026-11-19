@@ -53,7 +53,7 @@ func stopCampaign(ctx context.Context, s Store, cfg Config, reason string, d Dep
 		}
 	}
 	cfg.Status, cfg.StopReason = StatusStopped, reason
-	if err := s.Save(cfg); err != nil {
+	if err := s.saveLocked(cfg); err != nil {
 		return err
 	}
 	report, err := finalReport(s, cfg, h)

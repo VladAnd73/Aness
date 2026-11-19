@@ -76,7 +76,8 @@ spore research accept demo
   repo it never touches your checkout: it commits the winner on a new
   branch `research/<campaign>` through a temporary worktree. To turn it
   into a PR. The live skill folder must match `HEAD` (no uncommitted or
-  untracked files), since the branch is cut from `HEAD`. A branch
+  untracked files; ignored files are fine), since the branch is cut
+  from `HEAD`. A branch
   `research/<campaign>` that already holds this winner (a run that died
   after committing) is reused; any other branch of that name is refused.
   To turn it into a PR:
@@ -121,15 +122,16 @@ another night holds the host-wide lock (`$XDG_RUNTIME_DIR/spore-research.lock`);
 campaign repo has uncommitted changes; the goal file is missing or
 empty; the weekly usage cannot be read.
 
-Between tries the night stops for, in this order: interrupted, the
-campaign switched `off` (`switched-off`; `off` during a night takes
-effect after the current try and stays off), a failed usage read
-(`quota-read-failed`, it never continues blind), the quota ceiling, the
-try cap, the hour cap. A night stopped by `interrupted` or
-`quota-read-failed` with no kept try is not counted: it adds to neither
-the night count nor the no-gain count. A manual `off` never runs the
-holdout; only the engine's own switch-off (`no-gain`, `max-nights`)
-ends the campaign. The first night of a campaign first
+Between tries the night stops for, in this order: interrupted, a failed
+usage read (`quota-read-failed`, it never continues blind), the quota
+ceiling, the campaign switched `off` (`switched-off`; `off` during a
+night takes effect after the current try and stays off), the try cap,
+the hour cap. Every night counts toward `max_nights`. A night stopped
+by `interrupted`, `quota-read-failed` or `switched-off` with no kept
+try does not add to the no-gain count. A manual `off` is a pause and
+does not run the holdout, unless that night reached `max_nights` or
+the no-gain limit: then the campaign ends as usual. `on` is refused
+while a night or a `stop` holds the night lock. The first night of a campaign first
 judges the starting file twice and records the mean as the baseline
 (try 0).
 

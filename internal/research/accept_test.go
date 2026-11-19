@@ -162,7 +162,7 @@ func sporeRepoWinnerWith(t *testing.T, beforeCreate func(top, live string)) (top
 	if _, err := store.ApproveJudge("demo", "testdata/drafts", bin, []string{bin}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetOn("demo", true); err != nil {
+	if err := store.SetOn("demo", true, testLock(t)); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := store.Load("demo")
@@ -260,8 +260,8 @@ func TestAcceptBranchRefusesUncommittedLiveFolder(t *testing.T) {
 		os.WriteFile(filepath.Join(live, "notes.md"), []byte("untracked\n"), 0o600)
 	})
 	_, err := Accept(store, "demo", false)
-	if err == nil || !strings.Contains(err.Error(), "notes.md") {
-		t.Errorf("Accept = %v, want a refusal naming the uncommitted notes.md", err)
+	if err == nil || !strings.Contains(err.Error(), "notes.md") || !strings.Contains(err.Error(), "commit") || strings.Contains(err.Error(), "remove") {
+		t.Errorf("Accept = %v, want a refusal naming the uncommitted notes.md and asking to commit it, never to remove it", err)
 	}
 	if out, _ := exec.Command("git", "-C", top, "branch", "--list", "research/demo").Output(); strings.TrimSpace(string(out)) != "" {
 		t.Errorf("a refused accept left branch research/demo behind")
@@ -303,7 +303,7 @@ func TestAcceptFailedWriteLeavesNoBackup(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
 	stoppedWinner(t, f)
 	orig := writeTargetAtomic
-	writeTargetAtomic = func(string, string, []byte) error { return errors.New("disk full") }
+	writeTargetAtomic = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
 	_, err := Accept(f.store, f.name, false)
 	writeTargetAtomic = orig
 	if err == nil {
@@ -314,5 +314,32 @@ func TestAcceptFailedWriteLeavesNoBackup(t *testing.T) {
 	}
 	if _, err := Accept(f.store, f.name, false); err != nil {
 		t.Errorf("retry after the write failure: %v", err)
+	}
+}
+
+// A gitignored file can never be on the branch, and removing it would
+// trip the live-folder check, so it must not block accept.
+func TestAcceptBranchAllowsIgnoredFiles(t *testing.T) {
+	_, _, _, store, _ := sporeRepoWinnerWith(t, func(top, live string) {
+		os.WriteFile(filepath.Join(top, ".gitignore"), []byte("__pycache__/\n"), 0o600)
+		gitT(t, top, "add", ".gitignore")
+		gitT(t, top, "commit", "-qm", "ignore")
+		os.MkdirAll(filepath.Join(live, "__pycache__"), 0o700)
+		os.WriteFile(filepath.Join(live, "__pycache__", "x.pyc"), []byte("c"), 0o600)
+	})
+	if _, err := Accept(store, "demo", false); err != nil {
+		t.Errorf("Accept with an ignored file in the skill folder: %v", err)
+	}
+}
+
+func TestAcceptKeepsLiveMode(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 1 })
+	stoppedWinner(t, f)
+	os.Chmod(f.liveTarget, 0o640)
+	if _, err := Accept(f.store, f.name, false); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(f.liveTarget); fi.Mode().Perm() != 0o640 {
+		t.Errorf("live mode %v, want 0640 kept", fi.Mode().Perm())
 	}
 }

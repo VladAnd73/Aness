@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/versality/spore/internal/statefile"
 )
 
 type AcceptResult struct{ Written, Backup, Branch string }
@@ -63,7 +61,7 @@ func Accept(s Store, name string, force bool) (AcceptResult, error) {
 		return res, err
 	}
 	cfg.Status = StatusAccepted
-	if err := s.Save(cfg); err != nil {
+	if err := s.saveLocked(cfg); err != nil {
 		return res, err
 	}
 	return res, pruneTries(s.Dir(name))
@@ -158,8 +156,28 @@ func sporeCheckout(dir string) string {
 	return top
 }
 
-// writeTargetAtomic is a seam so a test can fail the live write.
-var writeTargetAtomic = statefile.WriteFileAtomic
+// writeTargetAtomic replaces path with b at mode perm, set before the
+// rename so the live file never shows another mode. A test swaps it to
+// fail the write.
+var writeTargetAtomic = func(path string, b []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".research-accept-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
 
 func (cfg Config) backupPath() string { return cfg.Target + ".research-" + cfg.Name + ".bak" }
 
@@ -187,15 +205,9 @@ func acceptInPlace(cfg Config, winner []byte) (AcceptResult, error) {
 		return AcceptResult{}, fmt.Errorf("research: backup: %w", err)
 	}
 	// A backup left by a failed write would block every retry; the live
-	// file is the original again once the backup goes.
-	if err := writeTargetAtomic(cfg.Target, ".research-accept-*", winner); err != nil {
+	// file is still the original when the write fails.
+	if err := writeTargetAtomic(cfg.Target, winner, fi.Mode().Perm()); err != nil {
 		os.Remove(backup)
-		return AcceptResult{}, err
-	}
-	if err := os.Chmod(cfg.Target, fi.Mode().Perm()); err != nil {
-		if writeTargetAtomic(cfg.Target, ".research-accept-*", orig) == nil {
-			os.Remove(backup)
-		}
 		return AcceptResult{}, err
 	}
 	return AcceptResult{Written: cfg.Target, Backup: backup}, nil
@@ -217,12 +229,13 @@ func acceptOnBranch(s Store, cfg Config, top string, winner []byte) (AcceptResul
 	// The branch is cut from HEAD, so the live folder must match HEAD or
 	// the branch would hold a folder the judge never scored.
 	folder := filepath.Dir(rel)
-	status, err := exec.Command("git", "-C", top, "status", "--porcelain", "--untracked-files=all", "--ignored", "--", folder).Output()
+	// Ignored files are left out: they can never be on the branch.
+	status, err := exec.Command("git", "-C", top, "status", "--porcelain", "--untracked-files=all", "--", folder).Output()
 	if err != nil {
 		return AcceptResult{}, fmt.Errorf("research: accept: git status: %w", err)
 	}
 	if first, _, _ := strings.Cut(strings.TrimSpace(string(status)), "\n"); first != "" {
-		return AcceptResult{}, fmt.Errorf("research: accept: the live skill folder differs from HEAD (%s); commit or remove it first", first)
+		return AcceptResult{}, fmt.Errorf("research: accept: the live skill folder differs from HEAD (%s); commit it first", first)
 	}
 	res := AcceptResult{Written: branch + ":" + filepath.ToSlash(rel), Branch: branch}
 	// A run that committed but died before saving the status left the

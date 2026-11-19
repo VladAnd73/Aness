@@ -36,6 +36,11 @@ func (s Store) Set(name, key, value, lockPath string) error {
 		return err
 	}
 	defer unlock()
+	unlockCfg, err := s.lockConfig(name)
+	if err != nil {
+		return err
+	}
+	defer unlockCfg()
 	cfg, err := s.Load(name)
 	if err != nil {
 		return err

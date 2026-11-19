@@ -206,7 +206,7 @@ func (c *researchCmd) onOff(on bool) func([]string) error {
 		if err != nil {
 			return err
 		}
-		if err := c.store.SetOn(pos[0], on); err != nil {
+		if err := c.store.SetOn(pos[0], on, c.lockPath); err != nil {
 			return err
 		}
 		cfg, err := c.store.Load(pos[0])

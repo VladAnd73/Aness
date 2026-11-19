@@ -389,7 +389,7 @@ func TestNightReportsEachRowToProgress(t *testing.T) {
 func TestOffDuringNightStopsItAndSticks(t *testing.T) {
 	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 3 })
 	off := func(path string) error {
-		if err := f.store.SetOn(f.name, false); err != nil {
+		if err := f.store.SetOn(f.name, false, f.lockPath()); err != nil {
 			return err
 		}
 		return appendBytes("better\n")(path)
@@ -412,34 +412,95 @@ func TestOffDuringNightStopsItAndSticks(t *testing.T) {
 	}
 }
 
-func TestInterruptedNightsWithoutGainAreNotCounted(t *testing.T) {
+// A cut-short night is no evidence of no gain, but it spent quota, so
+// it still uses one of max_nights and gets its own night folder.
+func TestCutShortNightsCountTowardMaxNightsNotNoGain(t *testing.T) {
 	for _, reason := range []string{"interrupted", "quota-read-failed"} {
 		t.Run(reason, func(t *testing.T) {
 			f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 5 })
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n")}}
-			d := f.deps(ed, &fakeJudge{scores: []float64{50}})
-			reads := 0
-			d.WeeklyUsed = func(context.Context) (float64, error) {
-				reads++
-				if reads == 1 {
-					return 20, nil
+			for night := 1; night <= 2; night++ {
+				ctx, cancel := context.WithCancel(context.Background())
+				ed := &fakeEditor{edits: []func(string) error{appendBytes("one\n")}}
+				d := f.deps(ed, &fakeJudge{scores: []float64{50}})
+				reads := 0
+				d.WeeklyUsed = func(context.Context) (float64, error) {
+					reads++
+					if reads == 1 {
+						return 20, nil
+					}
+					if reason == "interrupted" {
+						cancel()
+						return 0, ctx.Err()
+					}
+					return 0, errors.New("token expired")
 				}
-				if reason == "interrupted" {
-					cancel()
-					return 0, ctx.Err()
+				sum, err := RunNight(ctx, f.store, f.name, d)
+				cancel()
+				if err != nil {
+					t.Fatalf("night %d: RunNight: %v", night, err)
 				}
-				return 0, errors.New("token expired")
-			}
-			sum, err := RunNight(ctx, f.store, f.name, d)
-			if err != nil {
-				t.Fatalf("RunNight: %v", err)
-			}
-			cfg := f.load(t)
-			if sum.StopReason != reason || cfg.Nights != 0 || cfg.NoGainNights != 0 {
-				t.Errorf("stop %q, nights %d, no-gain %d; want %s with neither counted", sum.StopReason, cfg.Nights, cfg.NoGainNights, reason)
+				cfg := f.load(t)
+				if sum.StopReason != reason || cfg.Nights != night || cfg.NoGainNights != 0 {
+					t.Errorf("night %d: stop %q, nights %d, no-gain %d; want %s, nights %d, no-gain 0", night, sum.StopReason, cfg.Nights, cfg.NoGainNights, reason, night)
+				}
+				if _, err := os.Stat(filepath.Join(f.store.Dir(f.name), "nights", fmt.Sprint(night), "try-1")); err != nil {
+					t.Errorf("night %d has no folder of its own: %v", night, err)
+				}
 			}
 		})
+	}
+}
+
+func offFirst(f fixture, then func(string) error) func(string) error {
+	return func(path string) error {
+		if err := f.store.SetOn(f.name, false, f.lockPath()); err != nil {
+			return err
+		}
+		return then(path)
+	}
+}
+
+func TestManualOffNightIsNotANoGainNight(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 3 })
+	ed := &fakeEditor{edits: []func(string) error{offFirst(f, appendBytes("worse\n"))}}
+	if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, &fakeJudge{scores: []float64{50, 50, 40}})); err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if cfg := f.load(t); cfg.Nights != 1 || cfg.NoGainNights != 0 || cfg.Status != StatusOff || cfg.StopReason != "manual" {
+		t.Errorf("nights %d, no-gain %d, status %s %q; want 1, 0, off manual", cfg.Nights, cfg.NoGainNights, cfg.Status, cfg.StopReason)
+	}
+}
+
+// Off during the last allowed night must not leave a campaign that can
+// neither go back on nor have run its holdout.
+func TestManualOffOnLastNightStillEndsCampaign(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 3; c.MaxNights = 1 })
+	ed := &fakeEditor{edits: []func(string) error{offFirst(f, appendBytes("better\n"))}}
+	j := &fakeJudge{scores: []float64{50, 50, 80, 90}, holdout: func([]byte) float64 { return 70 }}
+	if _, err := RunNight(context.Background(), f.store, f.name, f.deps(ed, j)); err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if cfg := f.load(t); cfg.Status != StatusStopped || cfg.StopReason != "max-nights" || j.holdoutCalls == 0 {
+		t.Errorf("status %s %q, holdout calls %d; want stopped max-nights with the holdout run", cfg.Status, cfg.StopReason, j.holdoutCalls)
+	}
+}
+
+func TestManualOffNightStillCountsLastTryQuota(t *testing.T) {
+	f := newCampaign(t, func(c *Config) { c.MaxTriesPerNight = 3 })
+	ed := &fakeEditor{edits: []func(string) error{offFirst(f, appendBytes("worse\n"))}}
+	d := f.deps(ed, &fakeJudge{scores: []float64{50, 50, 40}})
+	reads := 0
+	d.WeeklyUsed = func(context.Context) (float64, error) {
+		reads++
+		if reads == 1 {
+			return 20, nil
+		}
+		return 26, nil
+	}
+	if _, err := RunNight(context.Background(), f.store, f.name, d); err != nil {
+		t.Fatalf("RunNight: %v", err)
+	}
+	if cfg := f.load(t); cfg.QuotaUsed != 6 {
+		t.Errorf("quota used %v, want the 6 points the try spent", cfg.QuotaUsed)
 	}
 }
