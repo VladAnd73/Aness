@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/versality/spore/internal/isolate"
 )
@@ -35,6 +36,8 @@ type SpawnRequest struct {
 // SpawnResult is what a finished agent run produced. Stdout is kept
 // verbatim (not just a pass/fail) so a scenario report can show the
 // actual transcript text as proof a real agent ran, not a stub.
+// ExitCode is the agent's; a spawn where no agent ran returns 0 with an
+// error, which callers check after the exit code.
 type SpawnResult struct {
 	Stdout   string
 	ExitCode int
@@ -154,7 +157,7 @@ func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResu
 	if err != nil {
 		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
 	}
-	cmd, err := isolate.Command(ctx, *req.Isolate, append([]string{path}, claudeArgs(req)...))
+	cmd, started, err := isolate.WatchedCommand(ctx, *req.Isolate, append([]string{path}, claudeArgs(req)...))
 	if err != nil {
 		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
 	}
@@ -164,6 +167,11 @@ func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResu
 		}
 	}()
 	stdout, code, err := RunCommand(cmd)
+	// bwrap's own exit code is no agent's: exit 0 with an error tells the
+	// caller that nothing ran, so it fails the judge instead of scoring.
+	if !started() && ctx.Err() == nil {
+		return SpawnResult{Stdout: stdout}, fmt.Errorf("evalharness: isolated spawn: the sandbox did not start (bwrap exit %d): %s", code, strings.TrimSpace(stdout))
+	}
 	if err != nil {
 		return SpawnResult{Stdout: stdout, ExitCode: code}, fmt.Errorf("evalharness: spawn %s in bwrap: %w", bin, err)
 	}
