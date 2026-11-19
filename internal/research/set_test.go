@@ -80,7 +80,6 @@ func TestSetRefusesWhileNightRuns(t *testing.T) {
 	}
 }
 
-
 // The best score was measured by the old judge; a changed judge would
 // compare tries against a stale number.
 func TestSetRefusesJudgeKeysAfterBaseline(t *testing.T) {
