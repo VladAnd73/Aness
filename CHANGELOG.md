@@ -12,6 +12,23 @@
 - `spore eval judge` scores a candidate `SKILL.md` on a folder of data
   scenarios (JSON prompts, fixture files, fake MCP services, check
   kinds), with repeats, bubblewrap isolation and a JSON score.
+- `spore research new --kind role --step NAME` targets a loop role body
+  (any `.md`), pinning the step's output, shape and skills from the
+  project's loop file. Its judge (`spore eval judge --kind role`) replays
+  known bugs: the agent gets the feature spec, the pre-fix code snapshot
+  and keyed fake Linear and Notion services that serve only allowed
+  ids; a grader that alone sees the repro steps must quote the line that
+  catches the bug. `fluff` caps a plan's scenario count and
+  `code-quality` fails added comments, visibility-only tests, duplicated
+  helpers and API end-state asserts. `judge draft` on a role campaign
+  mints the corpus-builder brief.
+- The holdout winner must now beat the original, not tie it; an
+  original at 100 is `no-headroom`, which `accept` refuses without
+  `--force`. The holdout cache is keyed by the judge (holdout set,
+  binary, command), and a night refuses with `no-headroom` when the
+  baseline already scores 100 on the main set.
+- `accept` commits the winner on `research/<campaign>` for a target in
+  any git checkout, not only the spore repo.
 
 ## 1.0.10 - 2026-11-17
 

@@ -1,4 +1,4 @@
-**Status**: design (2026-11-19), awaiting operator approval. Lands on fork PR #59 (branch `autoresearch`).
+**Status**: built (2026-11-19). Lands on fork PR #59 (branch `autoresearch`). Operator doc: `docs/autoresearch.md`.
 
 # Autoresearch for loop roles: the bug-replay judge
 

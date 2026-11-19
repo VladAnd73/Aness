@@ -1,20 +1,24 @@
-# Autoresearch: improving a skill overnight
+# Autoresearch: improving a skill or a role overnight
 
-`spore research` runs an overnight loop on one skill file. Each try, an
+`spore research` runs an overnight loop on one skill file or one loop
+role body. Each try, an
 editing agent proposes one edit; a locked judge scores the edit on a
 set of scenarios; the loop keeps the edit only when it is confirmed
 better and resets it otherwise. When the campaign ends, a sealed
 holdout set checks the winner, and the winner lands only when you run
 `accept`.
 
-The design and its decisions live in `docs/todo/autoresearch.md`.
+The design and its decisions live in `docs/todo/autoresearch.md`, and
+for role targets in `docs/todo/autoresearch-roles.md`.
 
 ## What a campaign is
 
-A campaign is one skill, one goal and one judge, plus everything the
-nights produce. v1 targets skills only: the target must be a file named
-`SKILL.md`. Its whole folder is copied into the campaign; the editor may
-change `SKILL.md` only, the other files are reference material.
+A campaign is one target, one goal and one judge, plus everything the
+nights produce. A skill target (the default, `--kind skill`) must be a
+file named `SKILL.md`. Its whole folder is copied into the campaign; the
+editor may change `SKILL.md` only, the other files are reference
+material. A role target (`--kind role`) is a loop role body; see "Role
+targets" below.
 
 Campaign states: `draft` (no judge yet), `ready` (judge approved),
 `on` (nights may run), `off` (switched off by you or by a cap, can go
@@ -61,25 +65,27 @@ spore research accept demo
   Exit 0 means the night ran; exit 1 means it was refused, with the
   reason on stderr.
 - `stop` ends the campaign. With a kept change it runs the holdout set
-  twice on the original and twice on the winner. The winner passes when
-  it scores at least as well as the original; otherwise the report
-  says `overfit` and recommends not accepting. Then it tells the
+  twice on the original and twice on the winner. The winner passes only
+  when it scores higher than the original: a tie is `overfit`, and the
+  report recommends not accepting. When the original already scores
+  100 on the holdout, the verdict is `no-headroom`: the set cannot show
+  a gain, so make it harder. Then it tells the
   coordinator through `spore task tell coordinator`, run from
   `$SPORE_PROJECT_ROOT` (or the current directory when unset). A failed
   notice is only a warning in the report. A failed holdout leaves the
   campaign as it was, so `stop` can be retried.
 - `accept` needs a stopped campaign with a kept change, refuses a
   second time, refuses when any file in the live skill folder changed
-  since `new`, and refuses an `overfit` verdict unless `--force`.
-  Outside the spore repo it overwrites `SKILL.md` and keeps the old one
-  beside it as `SKILL.md.research-<campaign>.bak`. Inside the spore
-  repo it never touches your checkout: it commits the winner on a new
-  branch `research/<campaign>` through a temporary worktree. To turn it
-  into a PR. The live skill folder must match `HEAD` (no uncommitted or
-  untracked files), since the branch is cut from `HEAD`. For the same
-  reason `new` refuses a skill folder in the spore repo that holds a
-  gitignored file: the judge would score with it, but the branch never
-  holds it. Remove it, or commit it with `git add -f`. A branch
+  since `new`, and refuses an `overfit` or `no-headroom` verdict unless
+  `--force`. Outside a git checkout it overwrites `SKILL.md` and keeps
+  the old one beside it as `SKILL.md.research-<campaign>.bak`. Inside a
+  git checkout (spore's or any other) it never touches your checkout:
+  it commits the winner on a new branch `research/<campaign>` of that
+  repo through a temporary worktree. The live skill folder (for a role,
+  the role body) must match `HEAD` (no uncommitted or untracked files),
+  since the branch is cut from `HEAD`. For the same reason `new` refuses
+  a skill folder in a git checkout that holds a gitignored file: the
+  judge would score with it, but the branch never holds it. Remove it, or commit it with `git add -f`. A branch
   `research/<campaign>` that already holds this winner (a run that died
   after committing) is reused; any other branch of that name is refused.
   To turn it into a PR:
@@ -122,7 +128,13 @@ is scored: the best score would be stale.
 another night holds the host-wide lock (`$XDG_RUNTIME_DIR/spore-research.lock`);
 `spore budget room` does not say room; a judge hash differs; the
 campaign repo has uncommitted changes; the goal file is missing or
-empty; the weekly usage cannot be read.
+empty; the weekly usage cannot be read; the best score is already 100
+(`no-headroom`).
+
+When the first night's baseline scores 100 on the main set, the night
+ends right after it with `no-headroom`, before any edit: it switches the
+campaign `off` and exits 1. Nothing can show a gain there; add harder
+scenarios with a new `judge draft` and `judge approve`.
 
 Between tries the night stops for, in this order: interrupted, a failed
 usage read (`quota-read-failed`, it never continues blind), the quota
@@ -266,6 +278,85 @@ and, unless `isolation = none`, runs in the same sandbox as the agent
 under test, since it reads that agent's untrusted reply. Try a set by hand with
 `spore eval judge --scenarios-root DIR --skill NAME --candidate SKILL.md --set main --out r.json`.
 
+## Role targets
+
+A role campaign improves the body of one loop step's role, such as
+marketer-frontend's `qa-analyst` (step `intake` of loop `qa-e2e`):
+
+```
+spore research new qa1 --kind role --step intake \
+  --target ~/marketer-frontend/bootstrap/roles/qa-analyst.md --goal goal.md
+spore research judge draft qa1          # mints the corpus-builder brief
+```
+
+- `new` finds the loop file in the nearest `bootstrap/loops/` above the
+  target holding an agent step named `--step` (`--loop NAME` when more
+  than one does) whose role is the target's file name. It pins the
+  step's output, shape and skills in `campaign.toml` and copies the loop
+  file, `step.json` and the skills (from the project's, then your
+  `.claude/skills/`) into the campaign repo under `context/`. A skill it
+  cannot find, such as a plugin's, is named in a warning and the judge
+  runs without it. A later edit to the loop file does not change the
+  campaign.
+- The editor sees the role body and, read-only under `frozen/context/`,
+  the loop file, the step and the skills.
+- `judge draft` mints a corpus-builder brief: mine HK bugs from QA and
+  from the assistant coordinator, keep those with a linked feature
+  ticket, repro steps and an identifiable fix, write one scenario per
+  bug at its pre-fix commit, split main and holdout (holdout at least
+  30% and 5 bugs, one feature on one side), and prove a weakened role
+  body scores lower. Corpus content is never committed.
+- `accept` commits the winner on `research/<campaign>` in the role's own
+  repo, ready for a PR there.
+
+### What a role run sees
+
+Each run lays out a loop step's world in the sandbox: the scenario's
+`snapshot/` as the working directory (no `.git`), its `spec.md` at
+`$SPORE_TASK_DIR/spec.md` (`<run>/.spore/replay/`), the frozen skills
+under `.claude/skills/`, and env `SPORE_TASK_DIR`, `SPORE_ROLE`,
+`SPORE_LOOP`, `SPORE_STEP`, `SPORE_STEP_OUTPUT` and `SPORE_STEP_SKILLS`.
+The prompt is the loop's step note for round 1 (output path and shape),
+a blank line, then the candidate body, exactly as a loop pane gets it.
+The scenario's `grader/` is never copied in; only the grader reads it.
+
+### Role scenarios
+
+```
+<set>/<bug>/scenario.json   {"kind": "role", "llm_judge": true, "checks": [...]}
+<set>/<bug>/spec.md         the feature's task spec, written before the bug was known
+<set>/<bug>/snapshot/       the code at the fix commit's parent, sparse, no .git
+<set>/<bug>/grader/         repro.md: repro steps, expected vs actual, bug id, pre-fix commit
+```
+
+A role scenario has no `prompt`. Its checks:
+
+- `output-valid`: the round-1 step output exists, is a JSON object and
+  has the step's required keys (and a listed verdict, when the step has
+  verdicts).
+- `bug-caught` (needs `llm_judge`; `repro` names a file under
+  `grader/`): the grader sees the repro steps and every file the agent
+  wrote or changed, and must end with `QUOTE: <line>` and
+  `VERDICT: CAUGHT`. A catch without a quote, or with a quote not found
+  in the output, counts as missed. The quotes land in the judge result
+  for audit.
+- `fluff` (`path` relative to `$SPORE_TASK_DIR`, `pattern`,
+  `reasonable`): fails when the file holds more than 1.5 times
+  `reasonable` lines matching `pattern`, or none.
+- `code-quality` (optional `rules`): fails, naming each rule, when a
+  source file the agent added or changed breaks `no-added-comments`,
+  `no-visibility-only-asserts` (a test whose every assertion only
+  checks that an element shows), `no-duplicate-helpers` (a function or
+  method whose name the snapshot already defines) or `no-api-end-state`
+  (an assertion on an API response).
+- `llm-judge` grades the same output files with a rubric, for example
+  the 0 to 3 readability rubric for qa-author.
+
+A fake service may be keyed: `{"server": "claude_ai_Linear", "name":
+"get_issue", "key": "id", "responses": {"FAKE-1": {...}}}` answers only
+the listed ids and returns a not-found error for any other, so the
+agent cannot read the bug ticket.
+
 ## Extending
 
 - **An objective**: implement `research.Objective` (`Name`, and
@@ -276,5 +367,4 @@ under test, since it reads that agent's untrusted reply. Try a set by hand with
   `--candidate PATH --set main|holdout --out FILE` and writes JSON with
   at least `score` (0 to 100) and `cost_usd`, exiting 0 whatever the
   score. Pass it as the judge argv to `research.Store.ApproveJudge`; the
-  CLI only builds the default skill judge today, and `new` still
-  accepts only `SKILL.md` targets.
+  CLI builds only the default skill and role judges.
