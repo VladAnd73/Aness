@@ -111,6 +111,12 @@ func Args(s Spec) []string {
 // kills bwrap's process group; --die-with-parent and the private PID
 // namespace take everything inside down with it.
 func Command(ctx context.Context, s Spec, argv []string) (*exec.Cmd, error) {
+	return command(ctx, s, argv, nil)
+}
+
+// command is Command; a non-nil status is passed to bwrap as its
+// --json-status-fd, inserted before the final "--" of Args.
+func command(ctx context.Context, s Spec, argv []string, status *os.File) (*exec.Cmd, error) {
 	bin, err := lookBwrap()
 	if err != nil {
 		return nil, err
@@ -132,7 +138,13 @@ func Command(ctx context.Context, s Spec, argv []string) (*exec.Cmd, error) {
 		}
 		files = append(files, cf)
 	}
-	cmd := exec.CommandContext(ctx, bin, append(Args(s), argv...)...)
+	args := Args(s)
+	if status != nil {
+		// Args ends with its own "--"; argv and env values may hold another.
+		files = append(files, status)
+		args = slices.Concat(args[:len(args)-1], []string{"--json-status-fd", fmt.Sprint(2 + len(files)), "--"})
+	}
+	cmd := exec.CommandContext(ctx, bin, append(args, argv...)...)
 	cmd.Env = s.Env
 	cmd.ExtraFiles = files
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -147,21 +159,15 @@ func Command(ctx context.Context, s Spec, argv []string) (*exec.Cmd, error) {
 // as 128+n); a refused uid map, a missing mount source or a failed exec
 // leaves only the "child-pid" line it writes right after clone.
 func WatchedCommand(ctx context.Context, s Spec, argv []string) (cmd *exec.Cmd, ran func() bool, err error) {
-	if cmd, err = Command(ctx, s, argv); err != nil {
-		return nil, nil, err
-	}
 	r, w, err := os.Pipe()
 	if err != nil {
-		for _, f := range cmd.ExtraFiles {
-			f.Close()
-		}
 		return nil, nil, err
 	}
-	fd := fmt.Sprint(3 + len(cmd.ExtraFiles))
-	cmd.ExtraFiles = append(cmd.ExtraFiles, w)
-	// Args ends with its own "--"; argv and env values may hold another.
-	base := Args(s)
-	cmd.Args = slices.Concat(cmd.Args[:1], base[:len(base)-1], []string{"--json-status-fd", fd, "--"}, argv)
+	if cmd, err = command(ctx, s, argv, w); err != nil {
+		r.Close()
+		w.Close()
+		return nil, nil, err
+	}
 	return cmd, func() bool {
 		defer r.Close()
 		w.Close()
