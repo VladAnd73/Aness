@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.12 - 2026-11-20
+
 - `spore research` improves one skill overnight: an editing agent
   proposes one edit per try, a locked and sandboxed judge scores it,
   and only edits confirmed better on two judgings are kept. Nights are
