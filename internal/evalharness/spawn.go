@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
+
+	"github.com/versality/spore/internal/isolate"
 )
 
 // SpawnRequest is everything an AgentSpawner needs to start one
@@ -27,11 +30,14 @@ type SpawnRequest struct {
 	// request a parseable transcript (--output-format stream-json
 	// --verbose), which SessionSpawnArgs names.
 	ExtraArgs []string
+	Isolate   *isolate.Spec
 }
 
 // SpawnResult is what a finished agent run produced. Stdout is kept
 // verbatim (not just a pass/fail) so a scenario report can show the
 // actual transcript text as proof a real agent ran, not a stub.
+// ExitCode is the agent's; a spawn where no agent ran returns 0 with an
+// error, which callers check after the exit code.
 type SpawnResult struct {
 	Stdout   string
 	ExitCode int
@@ -82,9 +88,7 @@ func (s ClaudeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult
 	// scenario sends no ExtraArgs and hit this every time before this
 	// flag moved here; see docs/todo/eval-harness-for-prompt-surfaces.md,
 	// "The Stop-hook hang".
-	args := []string{"-p", "--permission-mode", "bypassPermissions", "--setting-sources", "project"}
-	args = append(args, req.ExtraArgs...)
-	args = append(args, "--", req.Prompt)
+	args := claudeArgs(req)
 	run := s.runCommand
 	if run == nil {
 		run = execCommand
@@ -100,6 +104,12 @@ func execCommand(ctx context.Context, bin, dir string, env []string, args []stri
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	return RunCommand(cmd)
+}
+
+// RunCommand runs cmd and returns its stdout, then stderr after a marker
+// line, and its exit code.
+func RunCommand(cmd *exec.Cmd) (string, int, error) {
 	// Separate buffers, not one shared writer: os/exec copies a
 	// process's stdout and stderr pipes on two concurrent goroutines,
 	// and two goroutines calling Write on the same bytes.Buffer race.
@@ -120,4 +130,50 @@ func execCommand(ctx context.Context, bin, dir string, env []string, args []stri
 		out += "\n--- stderr ---\n" + stderr.String()
 	}
 	return out, code, err
+}
+
+func claudeArgs(req SpawnRequest) []string {
+	args := []string{"-p", "--permission-mode", "bypassPermissions", "--setting-sources", "project"}
+	args = append(args, req.ExtraArgs...)
+	return append(args, "--", req.Prompt)
+}
+
+// IsolatedSpawner runs claude, with ClaudeSpawner's argv, inside the
+// bubblewrap sandbox req.Isolate describes. Binary is resolved on the
+// host PATH and must sit where the sandbox can see it (the nix store).
+type IsolatedSpawner struct {
+	Binary string
+}
+
+func (s IsolatedSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+	if req.Isolate == nil {
+		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: no sandbox spec")
+	}
+	bin := s.Binary
+	if bin == "" {
+		bin = "claude"
+	}
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
+	}
+	cmd, ran, err := isolate.WatchedCommand(ctx, *req.Isolate, append([]string{path}, claudeArgs(req)...))
+	if err != nil {
+		return SpawnResult{}, fmt.Errorf("evalharness: isolated spawn: %w", err)
+	}
+	defer func() {
+		for _, f := range cmd.ExtraFiles {
+			f.Close()
+		}
+	}()
+	stdout, code, err := RunCommand(cmd)
+	// bwrap's own exit code is no agent's: exit 0 with an error tells the
+	// caller that nothing ran, so it fails the judge instead of scoring.
+	if !ran() && ctx.Err() == nil {
+		return SpawnResult{Stdout: stdout}, fmt.Errorf("evalharness: isolated spawn: the sandbox did not start (bwrap exit %d): %s", code, strings.TrimSpace(stdout))
+	}
+	if err != nil {
+		return SpawnResult{Stdout: stdout, ExitCode: code}, fmt.Errorf("evalharness: spawn %s in bwrap: %w", bin, err)
+	}
+	return SpawnResult{Stdout: stdout, ExitCode: code}, nil
 }

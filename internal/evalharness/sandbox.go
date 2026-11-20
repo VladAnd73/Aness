@@ -29,13 +29,14 @@ const Project = "evalproj"
 // gives dream's ledger and watermark files a home that is never the
 // real project's own state directory.
 type Sandbox struct {
-	Root     string
-	Project  string
-	Projects string // dream.Options.ProjectsRoot: the fixture session corpus
-	Home     string // dream.Options.Home: session cwd is resolved against this
-	TasksDir string // dream.Options.TasksDir: <Root>/<Project>/tasks
-	StateDir string // XDG_STATE_HOME: ledger, watermark, backups land here
-	RunWD    string // working directory handed to a spawned agent
+	Root      string
+	Project   string
+	Projects  string // dream.Options.ProjectsRoot: the fixture session corpus
+	Home      string // dream.Options.Home: session cwd is resolved against this
+	TasksDir  string // dream.Options.TasksDir: <Root>/<Project>/tasks
+	StateDir  string // XDG_STATE_HOME: ledger, watermark, backups land here
+	RunWD     string // working directory handed to a spawned agent
+	AgentHome string // HOME of an isolated agent under test
 }
 
 // NewSandbox creates a fresh sandbox under parent, which must already
@@ -47,15 +48,16 @@ func NewSandbox(parent string) (*Sandbox, error) {
 		return nil, fmt.Errorf("evalharness: sandbox: %w", err)
 	}
 	sb := &Sandbox{
-		Root:     root,
-		Project:  Project,
-		Projects: filepath.Join(root, "projects"),
-		Home:     filepath.Join(root, "home"),
-		TasksDir: filepath.Join(root, Project, "tasks"),
-		StateDir: filepath.Join(root, "state"),
-		RunWD:    filepath.Join(root, "run"),
+		Root:      root,
+		Project:   Project,
+		Projects:  filepath.Join(root, "projects"),
+		Home:      filepath.Join(root, "home"),
+		TasksDir:  filepath.Join(root, Project, "tasks"),
+		StateDir:  filepath.Join(root, "state"),
+		RunWD:     filepath.Join(root, "run"),
+		AgentHome: filepath.Join(root, "agent-home"),
 	}
-	for _, dir := range []string{sb.Projects, sb.Home, sb.TasksDir, sb.StateDir, sb.RunWD} {
+	for _, dir := range []string{sb.Projects, sb.Home, sb.TasksDir, sb.StateDir, sb.RunWD, sb.AgentHome} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("evalharness: sandbox: %w", err)
 		}

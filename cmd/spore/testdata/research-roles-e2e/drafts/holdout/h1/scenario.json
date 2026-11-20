@@ -1,0 +1,9 @@
+{
+  "kind": "role",
+  "llm_judge": true,
+  "checks": [
+    {"kind": "output-valid"},
+    {"kind": "bug-caught", "repro": "grader/repro.md"},
+    {"kind": "fluff", "path": "intake/plan.md", "pattern": "^- scenario:", "reasonable": 2}
+  ]
+}

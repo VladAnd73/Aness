@@ -32,3 +32,6 @@
 # the run, deleted once executed. Workers get plan content through their
 # brief. The spec each plan serves stays tracked. See rules/core/tier-policy.md.
 /docs/todo/*-plan.md
+# Scenario drafts for `spore research judge draft`: imported by
+# `judge approve --from`, never committed.
+/research-drafts/

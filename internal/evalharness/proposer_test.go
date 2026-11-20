@@ -94,3 +94,21 @@ func readRunFile(t *testing.T, runDir, name string) string {
 	}
 	return string(b)
 }
+
+func TestBuildProposerRunLeavesProcessEnvAlone(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/sentinel")
+	sb, err := NewSandbox(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runDir, err := BuildProposerRun(sb, "demonstrated", "20260908-test", fixedNow, "")
+	if err != nil {
+		t.Fatalf("BuildProposerRun: %v", err)
+	}
+	if got := os.Getenv("XDG_STATE_HOME"); got != "/sentinel" {
+		t.Errorf("XDG_STATE_HOME after BuildProposerRun = %q, want /sentinel", got)
+	}
+	if !strings.HasPrefix(runDir, sb.StateDir+string(filepath.Separator)) {
+		t.Errorf("run dir %q is not under the sandbox state dir %q", runDir, sb.StateDir)
+	}
+}

@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- `spore research` improves one skill overnight: an editing agent
+  proposes one edit per try, a locked and sandboxed judge scores it,
+  and only edits confirmed better on two judgings are kept. Nights are
+  started by hand, capped by tries, hours and live weekly quota, and
+  need `spore budget room`. `stop` runs a sealed holdout set and tells
+  the coordinator; `accept` lands the winner (a `research/<campaign>`
+  branch for a skill in the spore repo). See `docs/autoresearch.md`.
+- `spore eval judge` scores a candidate `SKILL.md` on a folder of data
+  scenarios (JSON prompts, fixture files, fake MCP services, check
+  kinds), with repeats, bubblewrap isolation and a JSON score.
+- `spore research new --kind role --step NAME` targets a loop role body
+  (any `.md`), pinning the step's output, shape and skills from the
+  project's loop file. Its judge (`spore eval judge --kind role`) replays
+  known bugs: the agent gets the feature spec, the pre-fix code snapshot
+  and keyed fake Linear and Notion services that serve only allowed
+  ids; a grader that alone sees the repro steps must quote the line that
+  catches the bug. `fluff` caps a plan's scenario count and
+  `code-quality` fails added comments, visibility-only tests, duplicated
+  helpers and API end-state asserts. `judge draft` on a role campaign
+  mints the corpus-builder brief.
+- Under `maximize-score` the holdout winner must now beat the
+  original, not tie it (`shrink-holding-score` keeps "at least as
+  well"); an original at 100 is `no-headroom`, which `accept` refuses without
+  `--force`. The holdout cache is keyed by the judge (holdout set,
+  binary, command). Under `maximize-score` a night refuses with
+  `no-headroom` when the baseline already scores 100 on the main set
+  (a new `judge approve` restarts the campaign), and a kept try that
+  reaches 100 ends the night with `max-score` and runs the holdout.
+- `accept` commits a role winner on `research/<campaign>` in the role's
+  own git checkout; skills keep the spore-repo-only branch rule.
+- The bubblewrap sandbox is NixOS-only for now: `research new`, `night`
+  and `eval judge` refuse `isolation bwrap` elsewhere and name
+  `--isolation none` (`research new` gained the flag); tests that run
+  the real sandbox skip off NixOS.
+
 ## 1.0.10 - 2026-11-17
 
 - `push-and-open-pr` and the role-loop PR mirror work on an ssh

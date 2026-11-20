@@ -15,7 +15,9 @@ const (
 	dailyFutureSlack = 5 * time.Minute
 )
 
-func roomVerdict(now time.Time) (code int, line string) {
+// RoomCode is the verdict `spore budget room` prints: 0 room, 1 no-room,
+// 2 unknown, with its one-line summary.
+func RoomCode(now time.Time) (code int, line string) {
 	d, err := stateDir()
 	if err != nil {
 		return 2, fmt.Sprintf("unknown state dir: %v", err)
@@ -54,7 +56,7 @@ func roomVerdict(now time.Time) (code int, line string) {
 }
 
 func Room() int {
-	code, line := roomVerdict(time.Now())
+	code, line := RoomCode(time.Now())
 	fmt.Println(line)
 	return code
 }
