@@ -16,7 +16,8 @@ const installUsage = `spore install - drop spore skills into a target project
 Usage:
   spore install [--root <path>]
 
-Copies the bundled skill bodies (spore-bootstrap, diagram) into
+Copies the bundled skill bodies (spore-bootstrap, diagram, and the rest
+under bootstrap/skills/) into
 <root>/.claude/skills/ so claude-code in that project can discover and
 run them. Idempotent: re-runs only rewrite files whose contents drifted
 from the embedded copy.

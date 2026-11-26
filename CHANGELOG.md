@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Three new bundled skills land in every project on the next
+  `spore install`, adapted from mattpocock/skills (MIT):
+  `reviewing-against-the-brief` (a two-pass review: the diff against
+  the `tasks/<slug>.md` acceptance scenarios, then against the
+  project's written rules that no lint covers),
+  `running-a-harness-retro` (operator-invoked; proposes rule, lint,
+  hook and skill fixes after a session and leaves memories to the
+  dream run) and `building-a-repro-loop` (build a fast failing check
+  before theorizing about a flaky, CI-only or cannot-reproduce bug).
+
 ## 1.0.12 - 2026-11-20
 
 - `spore research` improves one skill overnight: an editing agent
